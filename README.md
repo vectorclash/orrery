@@ -1,6 +1,10 @@
-# Infinite Music Generator
+# Orrery
 
 A self-contained, browser-based generative music system. Built entirely with the Web Audio API and Three.js — no server, no runtime dependencies beyond a CDN script tag.
+
+The name: an orrery is a clockwork model of the heavens. This one is driven by the music — the harmony it composes sets the halo, sphere and chord constellation in motion.
+
+Live at [vectorclash.com/orrery](https://vectorclash.com/orrery/).
 
 Run `npm install && npm run dev` and open `http://localhost:8000/` (ES modules need to be served over HTTP, not opened via `file://`).
 
