@@ -7,7 +7,7 @@ import { PLANE_Y, TAU, MOONS, moonUniforms } from './ring/common.js';
 
 // ─── Chord moons ──────────────────────────────────────────────────────────────
 // Each tone of the current chord is a small moon embedded in the ring, at its
-// place on the circle of fifths (facing its storm on the planet).
+// place on the circle of fifths (the same directions as the cages' lobes).
 // A swarm of dust circles each moon, spinning faster and spreading wider when
 // that tone sounds, and the moon lights the ring dust around it.
 //

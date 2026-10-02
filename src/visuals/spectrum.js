@@ -1,7 +1,7 @@
 import { audio } from '../audio/context.js';
 
 // ─── Spectrum in log-spaced bands, 90 Hz – 11 kHz ─────────────────────────────
-// Read once per frame; the planet maps it to latitude, the cages shimmer with it.
+// Read once per frame; the cages shimmer with it.
 
 export const BANDS = 16;
 export const spectrum = new Float32Array(BANDS); // 0…1 per band, with a noise floor removed

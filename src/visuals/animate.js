@@ -1,5 +1,4 @@
 import { camera, clock } from './scene.js';
-import { updatePlanet } from './planet.js';
 import { updateCages } from './cages.js';
 import { updateSpectrum } from './spectrum.js';
 import { updateMusic } from './music.js';
@@ -16,7 +15,7 @@ let cameraAngle = 0;
 let audioStartT = null;
 const FADE_IN   = 2.5; // seconds to ramp audio reactivity from 0 → full
 
-// Reusable zero-filled freq array for the idle state (the planet and cages stay at rest)
+// Reusable zero-filled freq array for the idle state (the cages stay at rest)
 const zeroFreq = new Uint8Array(256);
 
 function animate(timestamp) {
@@ -50,13 +49,12 @@ function animate(timestamp) {
     bass   = rawBass * fade;
   }
 
-  // Always update the planet, cages and stars — idle energy=0 keeps everything at rest
-  // but still visible and gently moving. The ring and planet follow the notes
+  // Always update the cages and stars — idle energy=0 keeps everything at rest
+  // but still visible and gently moving. The ring and cages follow the notes
   // themselves; the space scene keeps its spectrum-driven energy/bass.
   updateMusic(dt);
   updateWaveform();
   updateSpectrum(freqData);
-  updatePlanet({ energy, hue, dt, fade, t });
   updateCages({ energy, hue, dt, fade, t });
   updateChord({ hue, dt, t }); // before the ring, which it lights
   updateRing({ hue, dt, t });

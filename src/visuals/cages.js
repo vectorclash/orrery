@@ -4,24 +4,26 @@ import { scene } from './scene.js';
 import { music, pcAngle, pcHue } from './music.js';
 import { spectrum, BANDS } from './spectrum.js';
 
-// ─── Harmonic cages: wireframe icosahedra round the planet ────────────────────
-// Two cages, each listening to a part of the band. The shape as a whole
+// ─── Harmonic sphere: layered wireframe icosahedra ────────────────────────────
+// Each layer listens to a part of the band. The shape as a whole
 // vibrates like a droplet in the current chord's modes (below) and morphs when
 // the chord changes. Note onsets send ripples out from their pitch's direction
-// (high notes start near the top); the kick punches the inner cage and the
-// snare the outer. A faint spectral shimmer keeps them alive. The planet is
-// opaque, so each cage's far side passes behind it.
+// (high notes start near the top); kick and snare punch the inner and outer
+// layers. A faint spectral shimmer keeps it alive.
 //
 // Chord modes: each chord tone excites a sectoral mode, sinᵐθ·cos m(φ − φ₀) —
 // m lobes evenly round the equator, one of them aimed at the tone's moon. m is
 // the tone's role in the chord (root 2, third 3, fifth 4, seventh 5), so major
 // and minor chords take different shapes. The modes are balanced — every lobe
-// out has a trough beside it — so the cages never lean toward the chord.
+// out has a trough beside it — so the sphere never leans toward the chord.
 // Each mode holds a small shape while its tone is in the chord and wobbles,
 // at a rate set by its interval above the root, while the tone is sounding.
 const LAYERS = [
-  { radius: 1.60, opacity: 0.18, ry: -0.0022, rx: -0.0008, hueOff: -25, roles: ['bass', 'motion'], tone: 2, hit: 'kick'  },
-  { radius: 1.95, opacity: 0.12, ry:  0.0016, rx: -0.0005, hueOff:   0, roles: ['lead', 'air'],    tone: 0, hit: 'snare' },
+  { radius: 0.60, opacity: 0.15, ry:  0.0045, rx:  0.0015, hueOff: -100, roles: ['bass'],           tone: 0, hit: 'kick'  },
+  { radius: 0.80, opacity: 0.18, ry: -0.0035, rx:  0.0010, hueOff:  -75, roles: ['bass', 'motion'], tone: 2, hit: 'kick'  },
+  { radius: 1.00, opacity: 0.21, ry:  0.0030, rx:  0.0010, hueOff:  -50, roles: ['motion'],         tone: 1, hit: null    },
+  { radius: 1.25, opacity: 0.16, ry: -0.0022, rx: -0.0008, hueOff:  -25, roles: ['lead', 'motion'], tone: 3, hit: 'snare' },
+  { radius: 1.50, opacity: 0.10, ry:  0.0016, rx: -0.0005, hueOff:    0, roles: ['lead', 'air'],    tone: 0, hit: 'snare' },
 ];
 const RIPPLE_GAIN = { bass: 0.22, motion: 0.13, lead: 0.2, air: 0.16 };
 
@@ -49,6 +51,10 @@ const layers = LAYERS.map((cfg, i) => {
   scene.add(mesh);
   return { ...cfg, mesh, mat, pos, unit, jitter };
 });
+
+const glowMat  = new THREE.MeshBasicMaterial({ color: 0x112244, transparent: true, opacity: 0.35, blending: THREE.AdditiveBlending, depthWrite: false });
+const glowMesh = new THREE.Mesh(new THREE.SphereGeometry(1.0, 32, 32), glowMat);
+scene.add(glowMesh);
 
 // Chord modes, keyed by pitch class × lobe count, so a tone that changes role
 // between chords fades out of one mode and into the other.
@@ -139,7 +145,13 @@ export function updateCages({ energy, hue, dt, fade, t }) {
     _target.setHSL(tone / 360, 0.65, 0.55);
     L.mat.color.lerp(_target, ease);
     const presence = Math.max(...L.roles.map(r => roles[r]));
-    const flash = (L.hit ? hits[L.hit] * 0.8 : 0) + (L.radius > 1.8 ? hits.hat * 0.3 : 0);
+    const flash = (L.hit ? hits[L.hit] * 0.8 : 0) + (L.radius > 1.4 ? hits.hat * 0.3 : 0);
     L.mat.opacity = L.opacity * (1 + 0.4 * presence + 0.6 * flash);
   }
+
+  // ── Glow: the chord root's colour, breathing with the bass and the kick ──
+  _target.setHSL((chord.length ? pcHue(chord[0], hue) : hue) / 360, 0.85, 0.25);
+  glowMat.color.lerp(_target, ease);
+  glowMat.opacity = 0.04 + 0.18 * hits.kick + 0.12 * roles.bass;
+  glowMesh.scale.setScalar(1 + 0.35 * hits.kick + 0.3 * roles.bass);
 }

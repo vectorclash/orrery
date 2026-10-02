@@ -13,35 +13,6 @@ export const TAU = Math.PI * 2;
 export const OMEGA0 = 0.2, R_REF = 3.2;
 export const omega = r => OMEGA0 * Math.pow(R_REF / r, 1.5);
 
-// The sun: fixed in the world, so as the camera orbits it sees the planet's day
-// side, then its backlit night side. The ring shadows the planet and the planet
-// shadows the ring; both are computed analytically in the shaders.
-export const PLANET_R = 1.3;
-export const SUN = new THREE.Vector3(-0.62, 0.2, 0.68).normalize(); // ~12° above the ring plane: its shadow lands where it can be seen
-
-export const GLSL_SUN = /* glsl */`
-  const vec3 SUN = vec3(${SUN.x.toFixed(5)}, ${SUN.y.toFixed(5)}, ${SUN.z.toFixed(5)});
-  const float PLANET_R = ${PLANET_R.toFixed(4)};
-  const float RING_IN = ${R_IN.toFixed(4)}, RING_OUT = ${R_OUT.toFixed(4)}, RING_Y = ${PLANE_Y.toFixed(4)};
-
-  // How much the ring dims sunlight reaching world point w (0 … ~0.6): follow
-  // the ray toward the sun to the ring plane and see whether it lands in dust.
-  float ringShadow(vec3 w) {
-    float t = (RING_Y - w.y) / SUN.y;
-    if (t <= 0.0) return 0.0;
-    float r = length(w.xz + SUN.xz * t);
-    return 0.6 * smoothstep(RING_IN, RING_IN + 0.12, r) * (1.0 - smoothstep(RING_OUT - 0.3, RING_OUT, r));
-  }
-
-  // Whether the planet blocks the sun from world point w (0 … 1), soft-edged.
-  float planetShadow(vec3 w) {
-    float b = dot(w, SUN);
-    if (b >= 0.0) return 0.0;                 // on the sun's side of the planet
-    float d2 = dot(w, w) - b * b;             // squared distance of the sun ray from the centre
-    return 1.0 - smoothstep(PLANET_R * PLANET_R * 0.8, PLANET_R * PLANET_R * 1.08, d2);
-  }
-`;
-
 // The chord moons (../chord.js) light the dust around them; chord.js writes
 // these uniform objects, which the ring material shares by reference.
 export const MOONS = 4;

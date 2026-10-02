@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { music, pcHue } from '../music.js';
 import { waveform, COLS } from '../waveform.js';
 import { scene, renderer } from '../scene.js';
-import { R_IN, R_OUT, OMEGA0, R_REF, GLSL_COMMON, GLSL_SUN, makeDust, dustMaterial } from './common.js';
+import { R_IN, R_OUT, OMEGA0, R_REF, GLSL_COMMON, makeDust, dustMaterial } from './common.js';
 
 // ─── The ring: the waveform itself, radiating through the dust ────────────────
 // The planet emits the live waveform as a ring: each frame, a slice of what
@@ -42,7 +42,6 @@ const mat = dustMaterial({
   uBase: { value: new THREE.Color() },
 }, /* glsl */`
   ${GLSL_COMMON}
-  ${GLSL_SUN}
   uniform float uTime, uPx, uHead;
   uniform sampler2D uWave, uTint;
   uniform vec3 uBase;
@@ -73,7 +72,7 @@ const mat = dustMaterial({
     float a = abs(y) * env;
     float twinkle = 0.75 + 0.25 * sin(uTime * (1.5 + 3.0 * aHash.z) + aHash.y * 50.0);
     vec3 col = uBase * 0.06 + (y > 0.0 ? crest : trough) * (0.8 * a + 4.5 * a * a);
-    vColor = col * twinkle * (1.0 - 0.85 * planetShadow(wp)); // the planet's shadow falls across the ring
+    vColor = col * twinkle;
     vColor += moonLight(wp) * (0.6 + 0.4 * twinkle);
     gl_PointSize = uPx * (2.0 + 5.0 * a + 1.2 * aHash.x) * (7.0 / -mv.z);
   }
