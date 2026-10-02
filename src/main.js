@@ -1,5 +1,5 @@
 import { state, rootName, scaleName, TICK_MS, LOOKAHEAD, ROOT_BASE_MIDI, pick } from './state.js';
-import { audio, initAudio } from './audio/context.js';
+import { audio, initAudio, ensureAudioRunning } from './audio/context.js';
 import {
   tick, pickVoices, setActiveVoices, startSession,
   bassVoice, padVoice, melodyVoice, textureVoice, pluckVoice,
@@ -504,8 +504,7 @@ function stopInfinite() {
 
 startBtn.addEventListener('click', async () => {
   if (infiniteRunning) { stopInfinite(); return; }
-  if (!audio.started || audio.ctx?.state === 'closed') initAudio();
-  if (audio.ctx.state === 'suspended') await audio.ctx.resume();
+  if (!await ensureAudioRunning()) return;
   unmuteAudio();
 
   startBtn.textContent = 'STOP';
@@ -550,8 +549,7 @@ function getManualVoices() {
 }
 
 async function manualInit() {
-  if (!audio.started || audio.ctx?.state === 'closed') initAudio();
-  if (audio.ctx.state === 'suspended') await audio.ctx.resume();
+  if (!await ensureAudioRunning()) return false;
   unmuteAudio();
 
   state.tempo        = parseInt(bpmSlider.value, 10);
@@ -576,6 +574,7 @@ async function manualInit() {
   // past and they'd pop in instead of fading in. (This was the export
   // "instruments pop in" bug, since export always starts from manualInit().)
   startSession(audio.ctx.currentTime + LOOKAHEAD);
+  return true;
 }
 
 function buildExportName(ext) {
@@ -649,7 +648,7 @@ manualPlayBtn.addEventListener('click', async () => {
     return;
   }
 
-  await manualInit();
+  if (!await manualInit()) return;
   manualPlaying = true;
   manualPlayBtn.textContent = 'STOP';
   manualPlayBtn.classList.add('playing');

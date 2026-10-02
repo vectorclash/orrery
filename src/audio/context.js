@@ -139,6 +139,40 @@ export function noise(t, dur) {
   return src;
 }
 
+// ─── Making sure sound actually comes out ────────────────────────────────────
+// A context that sat in a background tab can come back in a state other than
+// 'suspended' (Safari reports 'interrupted'), can leave resume() pending, or
+// can claim 'running' while its clock is frozen because the output device
+// changed underneath it. Any of those means notes get scheduled against a
+// clock that never reaches them: the UI says playing, nothing sounds.
+// So: ask to resume whatever the state, check the clock really moves, and if
+// it doesn't, replace the context. Resolves false if there's still no sound
+// (e.g. the browser wants a fresh click), so callers don't claim to be playing.
+const wait = ms => new Promise(r => setTimeout(r, ms));
+
+async function clockRuns(ctx) {
+  if (ctx.state !== 'running') {
+    await Promise.race([ctx.resume().catch(() => {}), wait(500)]);
+    if (ctx.state !== 'running') return false;
+  }
+  // A context that has only just started can take a few hundred ms to open
+  // the output device before its clock moves, so poll rather than sample once.
+  const t0 = ctx.currentTime;
+  for (let i = 0; i < 20; i++) {
+    await wait(50);
+    if (ctx.currentTime > t0) return true;
+  }
+  return false;
+}
+
+export async function ensureAudioRunning() {
+  if (!audio.started || audio.ctx.state === 'closed') initAudio();
+  if (await clockRuns(audio.ctx)) return true;
+  audio.ctx.close().catch(() => {});
+  initAudio();
+  return clockRuns(audio.ctx);
+}
+
 export function initAudio() {
   const AC = window.AudioContext || window.webkitAudioContext;
   audio.ctx = new AC();
