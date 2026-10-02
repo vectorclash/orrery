@@ -1,4 +1,4 @@
-import { audio, beginSession, setEchoTime } from './context.js';
+import { audio, beginSession, setEchoTime, setRoom, setBassPresent, updateLevel } from './context.js';
 import { state, SCALE_NAMES, TICK_MS, LOOKAHEAD, ROOT_BASE_MIDI, rand, pick, beat } from '../state.js';
 import { harmony } from './harmony.js';
 import { transport } from './transport.js';
@@ -84,6 +84,16 @@ export function startSession(t) {
   eraTimer = 0;
 }
 
+// ─── Space ────────────────────────────────────────────────────────────────────
+// Infinite mode's space follows how spacious the era is, one size smaller
+// when it's fast: a cathedral tail under 120 bpm sixteenths is mush.
+const ROOM_ORDER = ['studio', 'room', 'hall', 'cathedral'];
+export function roomFor(spaciousness, tempo) {
+  let i = spaciousness < 0.35 ? 0 : spaciousness < 0.6 ? 1 : spaciousness < 0.8 ? 2 : 3;
+  if (tempo > 115) i = Math.max(0, i - 1);
+  return ROOM_ORDER[i];
+}
+
 // ─── Era / evolution ──────────────────────────────────────────────────────────
 export let eraTimer = 0;
 export const ERA_DURATION = 38;
@@ -103,8 +113,10 @@ function advanceEra(at) {
   state.density      = rand(0.2, 0.9);
   state.octaveShift  = pick([-3, -2, -1, 0, 0, 1]);
   state.chordBeats   = pick([4, 4, 8]);
+  state.room         = roomFor(state.spaciousness, state.tempo);
   transport.retime(at);
   setEchoTime(beat() * 0.75, transport.timeAt(at));
+  setRoom(state.room, transport.timeAt(at));
   harmony.reroll(at);
 
   // A new era is a new section: everyone re-enters on its first downbeat.
@@ -132,6 +144,8 @@ export function tick({ skipBass = false, skipEvolve = false } = {}) {
   if (!audio.started) return;
   const now = audio.ctx.currentTime;
   const dt  = now - (lastTickTime || now);
+  setBassPresent(!skipBass);
+  updateLevel();
   lastTickTime = now;
 
   if (transport.tick(now)) setEchoTime(beat() * 0.75, now);

@@ -1,3 +1,5 @@
+import { state } from '../state.js';
+
 // ─── Audio context ────────────────────────────────────────────────────────────
 // A single mutable object so all voice modules always see the live references.
 export const audio = {
@@ -10,6 +12,9 @@ export const audio = {
   waveData:   null,
   scope:      null, // long-window analyser for the waveform ring
   scopeData:  null,
+  leveler:    null, // slow loudness rider on the master (see updateLevel)
+  meter:      null,
+  level:      null,
   started:    false,
   // Per-session inputs, rebuilt by beginSession(). Voices connect only to
   // these, so ending a session silences everything it scheduled — including
@@ -37,10 +42,146 @@ function buildImpulse(ctx, seconds = 3.6, decay = 2.6) {
       const k = 0.92 - 0.82 * x;          // one-pole lowpass coefficient: bright → dark
       y += k * ((Math.random() * 2 - 1) - y);
       const norm = Math.sqrt((2 - k) / k); // keep noise power constant as the filter closes
-      d[i] = y * norm * Math.pow(1 - x, decay);
+      // A real tail builds up over its first ~40 ms as reflections multiply;
+      // starting at full density sounds like a burst of noise, not a space.
+      const build = Math.min(1, i / (sr * 0.04));
+      d[i] = y * norm * Math.pow(1 - x, decay) * build;
     }
   }
   return buf;
+}
+
+// ─── Room ─────────────────────────────────────────────────────────────────────
+// The hall above is a long tail that each voice sends to at its own level, so
+// voices sat at different depths of a wash while their dry sound stayed
+// bone-dry: close-miked instruments in no particular space. The room is what
+// places them together. Every dry signal goes into it at one level, so
+// everything shares the same early reflections and short tail.
+//
+// True-stereo impulse (4 channels: L→L, L→R, R→L, R→R) so a voice panned left
+// still excites both walls, with the far side arriving later and darker.
+// Discrete early reflections over the first `er` ms (bigger room, wider
+// spread), then a diffuse tail that builds up, decays with RT60 ≈ `rt60` and
+// darkens as it goes.
+function buildRoom(ctx, rt60, er) {
+  const sr  = ctx.sampleRate;
+  const len = Math.floor(sr * rt60 * 1.3);
+  const buf = ctx.createBuffer(4, len, sr);
+  for (let ch = 0; ch < 4; ch++) {
+    const cross = ch === 1 || ch === 2;
+    const d = buf.getChannelData(ch);
+
+    // Early reflections: sparse taps, quieter and duller the later they come.
+    const taps = cross ? 10 : 14;
+    for (let n = 0; n < taps; n++) {
+      const t   = (cross ? 9 : 4) * er / 70 + Math.random() * er * 0.95; // ms
+      const amp = (cross ? 0.55 : 0.8) * (1 - t / (er * 1.3)) * (Math.random() < 0.5 ? -1 : 1);
+      const at  = Math.floor(sr * t / 1000);
+      const w   = 2 + Math.floor(t / 12);                 // wider tap = more HF lost
+      for (let k = 0; k < w; k++) d[at + k] += amp * (1 - k / w) * 2 / w;
+    }
+
+    // Diffuse tail.
+    let y = 0;
+    const start = Math.floor(sr * er * 0.17 / 1000), ramp = sr * er * 0.7 / 1000;
+    for (let i = start; i < len; i++) {
+      const x = i / len;
+      const k = 0.75 - 0.6 * x;
+      y += k * ((Math.random() * 2 - 1) - y);
+      const norm  = Math.sqrt((2 - k) / k);
+      const env   = Math.exp(-6.91 * (i / sr) / rt60) * Math.min(1, (i - start) / ramp);
+      d[i] += y * norm * env * (cross ? 0.07 : 0.08);
+    }
+
+  }
+  // Unit energy per output (each output sums a direct and a cross path), so
+  // the send level alone sets how much room there is.
+  for (const [a, b] of [[0, 2], [1, 3]]) {
+    const pa = buf.getChannelData(a), pb = buf.getChannelData(b);
+    let e = 0;
+    for (let i = 0; i < len; i++) e += pa[i] * pa[i] + pb[i] * pb[i];
+    const s = 1 / Math.sqrt(e || 1);
+    for (let i = 0; i < len; i++) { pa[i] *= s; pb[i] *= s; }
+  }
+  return buf;
+}
+// ─── Spaces ───────────────────────────────────────────────────────────────────
+// A space is a room and a hall that belong together: a small room never
+// carries a cathedral tail. `roomDb` is room energy relative to the dry
+// signal for the nearest voices (others sit further back, see VOICE_DISTANCE);
+// `hallDb` scales the per-voice hall sends. `room` reproduces the original
+// single space.
+export const ROOMS = {
+  studio:    { label: 'STUDIO',    rt60: 0.35, er: 35,  roomDb: -15, hall: [1.6, 3.4], hallDb: -5, preDelay: 0.008 },
+  room:      { label: 'ROOM',      rt60: 0.7,  er: 70,  roomDb: -13, hall: [3.6, 2.6], hallDb: 0,  preDelay: 0.022 },
+  hall:      { label: 'HALL',      rt60: 1.3,  er: 110, roomDb: -12, hall: [5.0, 2.3], hallDb: 1,  preDelay: 0.032 },
+  cathedral: { label: 'CATHEDRAL', rt60: 2.2,  er: 160, roomDb: -11, hall: [8.0, 2.0], hallDb: 2,  preDelay: 0.045 },
+};
+
+// Impulses are noise-built and cost a few ms each, so they're made once per
+// space and sample rate. AudioBuffers can be shared between contexts.
+const impulses = new Map();
+function impulsesFor(name, ctx) {
+  const key = `${name}|${ctx.sampleRate}`;
+  if (!impulses.has(key)) {
+    const p = ROOMS[name];
+    impulses.set(key, { room: buildRoom(ctx, p.rt60, p.er), hall: buildImpulse(ctx, ...p.hall) });
+  }
+  return impulses.get(key);
+}
+
+const dbToGain = db => Math.pow(10, db / 20);
+const SPACE_FADE = 0.25; // seconds; see setRoom()
+
+// One space, fed from the session's room and hall buses. Its inputs start
+// closed; open() and close() fade them.
+function makeSpace(name) {
+  const ctx = audio.ctx, p = ROOMS[name], ir = impulsesFor(name, ctx);
+  const roomIn = ctx.createGain(), hallIn = ctx.createGain();
+  roomIn.gain.value = hallIn.gain.value = 0;
+
+  const room = ctx.createConvolver();
+  room.normalize = false; // the impulse is already unit-energy (see buildRoom)
+  room.buffer = ir.room;
+  session.roomBus.connect(roomIn); roomIn.connect(room); room.connect(audio.masterGain);
+
+  const preDelay = ctx.createDelay(0.1);
+  preDelay.delayTime.value = p.preDelay; // keeps the dry attack distinct from the tail
+  const hall = ctx.createConvolver();
+  hall.buffer = ir.hall;
+  session.hallBus.connect(hallIn); hallIn.connect(preDelay); preDelay.connect(hall); hall.connect(audio.reverbGain);
+
+  const fade = (param, to, at) => {
+    param.cancelScheduledValues(at);
+    param.setValueAtTime(param.value, at);
+    param.linearRampToValueAtTime(to, at + SPACE_FADE);
+  };
+  return {
+    name,
+    tail: Math.max(p.hall[0], p.rt60 * 1.3) + p.preDelay,
+    open(at)  { fade(roomIn.gain, dbToGain(p.roomDb), at); fade(hallIn.gain, dbToGain(p.hallDb), at); },
+    close(at) { fade(roomIn.gain, 0, at); fade(hallIn.gain, 0, at); },
+    disconnect() { roomIn.disconnect(); hallIn.disconnect(); room.disconnect(); hall.disconnect(); },
+  };
+}
+
+// Change space at audio time `at`. Only the *inputs* crossfade: new sound
+// goes into the new space while the old one's tail rings out on its own, as
+// it would if you walked into the next room — nothing is cut off, so there's
+// no click and no hole. The old space is dropped once its tail has decayed.
+export function setRoom(name, at = audio.ctx.currentTime) {
+  if (!session || !ROOMS[name] || session.space.name === name) return;
+  const old = session.space;
+  old.close(at);
+  session.space = makeSpace(name);
+  session.space.open(at);
+  session.spaces.push(session.space);
+  const wait = (at - audio.ctx.currentTime + SPACE_FADE + old.tail) * 1000;
+  setTimeout(() => {
+    if (!session?.spaces.includes(old)) return; // the session already ended
+    old.disconnect();
+    session.spaces.splice(session.spaces.indexOf(old), 1);
+  }, Math.max(0, wait));
 }
 
 // ─── Per-voice stereo buses ───────────────────────────────────────────────────
@@ -56,6 +197,40 @@ const VOICE_PAN = {
   'kit:tomLo': 0.3, 'kit:perc': -0.4, 'kit:shaker': 0.45, 'kit:rim': 0.12,
 };
 
+// Distance: how far back each voice sits, as extra room on top of the shared
+// level every dry signal gets (dB more room energy). Leads, bass and drums up
+// front; rhythmic and harmonic parts behind them; beds and air at the back.
+// One shared room with different direct-to-room ratios is how a real
+// ensemble reads in depth, not just side to side.
+const VOICE_DISTANCE = {
+  arpeggio: 3, harp: 3, pluck: 3, kalimba: 3, mallet: 3, clavinet: 3, rhodes: 3, vibraphone: 3, organ: 3,
+  pad: 6, strings: 6, choir: 6, drone: 6, texture: 6, glass: 6, bell: 6,
+};
+
+// Low cut: the bass owns the bottom octave and a half. Measured solo, pads,
+// strings, organ and drone put 10–20 dB more energy into 60–250 Hz than the
+// bass itself (more again an octave down), burying it in mud. While the bass
+// plays, every other part is high-passed by role; without it they keep their
+// low end and only rumble is cut. Drums keep theirs — the toms need it.
+const VOICE_LOW_CUT = {
+  pad: 110, strings: 110, choir: 110, organ: 110, drone: 110,
+  arpeggio: 120, harp: 120, pluck: 120, kalimba: 120, mallet: 120, clavinet: 120, rhodes: 120,
+  melody: 140, flute: 140, brass: 140, sitar: 140, vibraphone: 140,
+  bell: 250, glass: 250, texture: 250,
+};
+const RUMBLE_CUT = 35;
+let bassPresent = true;
+const lowCutFor = name => (bassPresent ? VOICE_LOW_CUT[name] : RUMBLE_CUT);
+
+export function setBassPresent(on) {
+  if (on === bassPresent) return;
+  bassPresent = on;
+  const now = audio.ctx.currentTime;
+  for (const [name, bus] of voiceBuses) {
+    if (bus.lowCut) bus.lowCut.frequency.setTargetAtTime(lowCutFor(name), now, 0.1);
+  }
+}
+
 let voiceBuses = new Map();
 let session    = null;
 
@@ -65,9 +240,25 @@ export function getVoiceBus(name) {
     const dry    = audio.ctx.createGain();
     const panner = audio.ctx.createStereoPanner();
     panner.pan.value = VOICE_PAN[name] ?? 0;
-    dry.connect(panner);
+    let lowCut = null;
+    if (VOICE_LOW_CUT[name]) {
+      lowCut = audio.ctx.createBiquadFilter();
+      lowCut.type = 'highpass';
+      lowCut.frequency.value = lowCutFor(name);
+      dry.connect(lowCut); lowCut.connect(panner);
+    } else {
+      dry.connect(panner);
+    }
     panner.connect(audio.dry);
-    bus = { dry };
+    // The dry bus already feeds the room at gain 1; this adds the rest. Both
+    // copies are the same signal, so they add in amplitude, not energy.
+    const extra = dbToGain(VOICE_DISTANCE[name] ?? 0) - 1;
+    if (extra > 0) {
+      const send = audio.ctx.createGain();
+      send.gain.value = extra;
+      panner.connect(send); send.connect(session.roomBus);
+    }
+    bus = { dry, lowCut };
     voiceBuses.set(name, bus);
   }
   return bus;
@@ -82,20 +273,24 @@ export function beginSession() {
   if (session) for (const n of session.outputs) n.disconnect();
   voiceBuses = new Map();
 
+  if (session) for (const sp of session.spaces) sp.disconnect();
+
   const dry = ctx.createGain();
   dry.connect(audio.masterGain);
 
-  // Reverb: 22 ms pre-delay keeps the dry attack distinct from the tail, and
-  // a high-pass on the send keeps bass energy out of the reverb (mud).
+  // Room bus: the whole dry mix, stereo image and all (plus the extra sends
+  // of voices further back). The high-pass keeps bass and kick fundamentals
+  // out of it — a room on the low end reads as boom, not space.
+  const roomBus = ctx.createBiquadFilter();
+  roomBus.type = 'highpass'; roomBus.frequency.value = 160;
+  dry.connect(roomBus);
+
+  // Hall bus: per-voice sends, high-passed to keep bass energy out of the
+  // long tail (mud).
   const reverbSend = ctx.createGain();
-  const preDelay   = ctx.createDelay(0.1);
-  preDelay.delayTime.value = 0.022;
-  const revHp = ctx.createBiquadFilter();
-  revHp.type = 'highpass'; revHp.frequency.value = 180;
-  const conv = ctx.createConvolver();
-  conv.buffer = session?.impulse ?? buildImpulse(ctx);
-  reverbSend.connect(preDelay); preDelay.connect(revHp); revHp.connect(conv);
-  conv.connect(audio.reverbGain);
+  const hallBus = ctx.createBiquadFilter();
+  hallBus.type = 'highpass'; hallBus.frequency.value = 180;
+  reverbSend.connect(hallBus);
 
   // Ping-pong echo: left tap → right tap → back to left, band-limited so the
   // repeats sit behind the dry signal. Delay time follows the tempo.
@@ -111,11 +306,14 @@ export function beginSession() {
   left.connect(right); right.connect(feedback); feedback.connect(left);
   left.connect(merger, 0, 0); right.connect(merger, 0, 1);
   merger.connect(echoOut); echoOut.connect(audio.masterGain);
-  // A little of the echo feeds the reverb so repeats sit in the same space.
+  // A little of the echo feeds the hall so repeats sit in the same space.
   const echoToVerb = ctx.createGain(); echoToVerb.gain.value = 0.25;
   echoOut.connect(echoToVerb); echoToVerb.connect(reverbSend);
 
-  session = { impulse: conv.buffer, outputs: [dry, conv, echoOut], echo: [left, right] };
+  session = { roomBus, hallBus, outputs: [dry, echoOut], echo: [left, right], spaces: [] };
+  session.space = makeSpace(ROOMS[state.room] ? state.room : 'room');
+  session.space.open(0);
+  session.spaces.push(session.space);
   audio.dry        = dry;
   audio.reverbSend = reverbSend;
   audio.echoSend   = echoSend;
@@ -137,6 +335,43 @@ export function noise(t, dur) {
   src.start(t, Math.random() * NOISE_SECONDS);
   src.stop(t + dur);
   return src;
+}
+
+// ─── Master helpers ───────────────────────────────────────────────────────────
+const SATURATION = (() => {
+  const k = 1.2, c = new Float32Array(2048);
+  for (let i = 0; i < c.length; i++) {
+    const x = (i / (c.length - 1)) * 2 - 1;
+    c[i] = Math.tanh(k * x) / k;
+  }
+  return c;
+})();
+
+// Leveller. Arrangements differ by ~4–6 dB in loudness (a sparse trio vs a
+// full band), so each era change was a jump in level. Called every scheduler
+// tick: it tracks the mix's mean-square level over a few seconds and eases a
+// gain toward the target, within ±LEVEL_RANGE_DB so dynamics within a
+// section survive. Quiet stretches (rests, fades, stop) are ignored rather
+// than boosted.
+const LEVEL_TARGET_DB = -24; // about the average meter level of the test arrangements
+const LEVEL_RANGE_DB  = 6;
+const LEVEL_TAU       = 4;   // seconds of history
+const LEVEL_GATE_DB   = 20;  // below target − this, hold
+
+export function updateLevel() {
+  const lv = audio.level;
+  if (!lv) return;
+  const now = audio.ctx.currentTime;
+  const dt  = Math.min(1, now - lv.last);
+  lv.last = now;
+  audio.meter.getFloatTimeDomainData(lv.data);
+  let e = 0;
+  for (let i = 0; i < lv.data.length; i++) e += lv.data[i] * lv.data[i];
+  e /= lv.data.length;
+  if (10 * Math.log10(e + 1e-12) < LEVEL_TARGET_DB - LEVEL_GATE_DB) return;
+  lv.ms = lv.ms === null ? e : lv.ms + (e - lv.ms) * (1 - Math.exp(-dt / LEVEL_TAU));
+  const gainDb = Math.max(-LEVEL_RANGE_DB, Math.min(LEVEL_RANGE_DB, LEVEL_TARGET_DB - 10 * Math.log10(lv.ms)));
+  audio.leveler.gain.setTargetAtTime(dbToGain(gainDb), now, 1.0);
 }
 
 // ─── Making sure sound actually comes out ────────────────────────────────────
@@ -173,9 +408,23 @@ export async function ensureAudioRunning() {
   return clockRuns(audio.ctx);
 }
 
-export function initAudio() {
+// Point every voice at a different context — an OfflineAudioContext for
+// export — with a fresh master chain. Returns a function that puts the live
+// context back exactly as it was.
+export function useContext(ctx) {
+  const saved = { fields: { ...audio }, session, voiceBuses, bassPresent };
+  initAudio(ctx);
+  return () => {
+    Object.assign(audio, saved.fields);
+    session    = saved.session;
+    voiceBuses = saved.voiceBuses;
+    bassPresent = saved.bassPresent;
+  };
+}
+
+export function initAudio(ctx = null) {
   const AC = window.AudioContext || window.webkitAudioContext;
-  audio.ctx = new AC();
+  audio.ctx = ctx ?? new AC();
   session = null;
 
   audio.masterGain = audio.ctx.createGain();
@@ -215,12 +464,50 @@ export function initAudio() {
   compressor.attack.value    = 0.01;
   compressor.release.value   = 0.25;
 
+  // Makeup gain into a peak limiter: the mix used to leave 5–8 dB of unused
+  // headroom (quiet next to anything else playing), and the compressor's
+  // 10 ms attack lets transients through, so the limiter catches them once
+  // the level comes up. It isn't a brickwall — peaks land between about −3
+  // and −0.6 dBFS in test renders — hence the threshold well below that.
+  const makeup = audio.ctx.createGain();
+  makeup.gain.value = Math.pow(10, 3 / 20);
+  const limiter = audio.ctx.createDynamicsCompressor();
+  limiter.threshold.value = -3;
+  limiter.knee.value      = 0;
+  limiter.ratio.value     = 20;
+  limiter.attack.value    = 0.001;
+  limiter.release.value   = 0.12;
+
+  // Leveller: slow gain riding ahead of the compressor (see updateLevel), fed
+  // from a roughly K-weighted meter tap so it hears level the way LUFS does.
+  const leveler = audio.ctx.createGain();
+  const kHp = audio.ctx.createBiquadFilter(), kShelf = audio.ctx.createBiquadFilter();
+  kHp.type = 'highpass'; kHp.frequency.value = 60;
+  kShelf.type = 'highshelf'; kShelf.frequency.value = 1500; kShelf.gain.value = 4;
+  const meter = audio.ctx.createAnalyser();
+  meter.fftSize = 2048;
+  highpass.connect(kHp); kHp.connect(kShelf); kShelf.connect(meter);
+  audio.leveler = leveler;
+  audio.meter   = meter;
+  audio.level   = { data: new Float32Array(meter.fftSize), ms: null, last: 0 };
+
+  // Saturation: a gentle tanh, unity gain for small signals and about −1 dB
+  // at −6 dBFS, so loud moments round off instead of being clamped by the
+  // limiter, and the mix gains a little harmonic density.
+  const saturator = audio.ctx.createWaveShaper();
+  saturator.curve = SATURATION;
+  saturator.oversample = '4x';
+
   audio.masterGain.connect(audio.analyser);
   audio.analyser.connect(highpass);
-  highpass.connect(compressor);
-  compressor.connect(audio.ctx.destination);
-  audio.masterOut = compressor;
-  compressor.connect(audio.scope); // what reaches the speakers; analysers need no output
+  highpass.connect(leveler);
+  leveler.connect(compressor);
+  compressor.connect(makeup);
+  makeup.connect(saturator);
+  saturator.connect(limiter);
+  limiter.connect(audio.ctx.destination);
+  audio.masterOut = limiter;
+  limiter.connect(audio.scope); // what reaches the speakers; analysers need no output
 
   audio.reverbGain.connect(audio.analyser);
 

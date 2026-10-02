@@ -25,6 +25,7 @@ export const state = {
   harmonyLock: 0.78, // 0 = melodies roam the whole scale, 1 = strict chord tones
   chordBeats:  4,    // beats per chord — how often the progression advances
   era:         0,
+  room:        'room', // acoustic space — see ROOMS in audio/context.js
   get rootBase() { return this.rootMidi + this.octaveShift * 12; },
 };
 

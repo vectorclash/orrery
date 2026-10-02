@@ -527,6 +527,7 @@
     .ctrl-select option { background: #0a0a18; color: #aabece; }
     #manual-root  { width: 56px; }
     #manual-scale { flex: 1; }
+    #manual-room  { flex: 1; }
 
     /* ─── Feel sliders (density / tone / space / length) ────────────────────── */
     .feel-slider {
@@ -568,28 +569,7 @@
       border: none;
     }
 
-    /* ─── Export countdown + progress ──────────────────────────────────────────── */
-    #export-countdown {
-      font-size: clamp(38px, 10vw, 54px);
-      letter-spacing: 8px;
-      color: #8aafc8;
-      text-align: center;
-      height: 0;
-      line-height: 64px;
-      overflow: hidden;
-      opacity: 0;
-      transition: opacity 0.15s, height 0.15s;
-      pointer-events: none;
-    }
-    #export-countdown.active { height: 64px; opacity: 1; }
-    @keyframes countpulse {
-      0%   { opacity: 0; transform: scale(1.18); }
-      18%  { opacity: 1; transform: scale(1.00); }
-      82%  { opacity: 1; transform: scale(1.00); }
-      100% { opacity: 0.25; transform: scale(0.96); }
-    }
-    #export-countdown.pulse { animation: countpulse 0.92s ease-out forwards; }
-
+    /* ─── Export progress ─────────────────────────────────────────────────────── */
     #export-progress-wrap {
       height: 2px;
       background: rgba(100,140,200,0.08);
@@ -849,6 +829,10 @@
             <span class="ctrl-value" id="space-val">0.50</span>
           </div>
           <div class="ctrl-row">
+            <span class="ctrl-label">ROOM</span>
+            <select id="manual-room" class="ctrl-select"></select>
+          </div>
+          <div class="ctrl-row">
             <span class="ctrl-label">HARMONY</span>
             <input type="range" class="feel-slider" id="harmony-slider" min="0" max="1" step="0.01" value="0.78">
             <span class="ctrl-value" id="harmony-val">0.78</span>
@@ -886,7 +870,6 @@
         <button class="action-btn" id="manual-export-btn" disabled>EXPORT</button>
         <button class="action-btn" id="manual-share-btn">SHARE</button>
       </div>
-      <div id="export-countdown"></div>
       <div id="export-progress-wrap"><div id="export-progress-bar"></div></div>
       <div id="manual-status"></div>
       </div>

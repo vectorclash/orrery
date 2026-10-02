@@ -7,13 +7,20 @@
 const SIZE = 1024;
 const log  = new Array(SIZE);
 let written = 0;
+let logging = true;
+
+// Off while export renders offline: those notes never sound live, and their
+// timestamps belong to another clock.
+export function setNoteLogging(on) { logging = on; }
 
 // `dur` is how long the note sounds (seconds); `vel` 0…1.
 export function logNote(voice, t, midi, dur, vel = 0.8) {
+  if (!logging) return;
   log[written++ % SIZE] = { kind: 'note', voice, t, midi, dur, vel };
 }
 
 export function logHit(piece, t, vel) {
+  if (!logging) return;
   log[written++ % SIZE] = { kind: 'hit', voice: piece, t, vel };
 }
 
