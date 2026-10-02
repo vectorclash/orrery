@@ -10,6 +10,7 @@ import {
   activeVoices, eraTimer, ERA_DURATION,
 } from './audio/scheduler.js';
 import { startAnimation } from './visuals/animate.js';
+import { post } from './visuals/post.js';
 
 // ─── Definitions ──────────────────────────────────────────────────────────────
 const ROOT_NAMES   = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
@@ -469,6 +470,13 @@ panelToggleBtn.addEventListener('click', () => {
   panelVisible = true;
   manualUi.classList.add('active');
   panelToggleBtn.style.display = 'none';
+});
+
+// ─── Keys ─────────────────────────────────────────────────────────────────────
+// B toggles bloom.
+window.addEventListener('keydown', e => {
+  if (e.metaKey || e.ctrlKey || e.altKey || e.target.closest?.('input, select, textarea')) return;
+  if (e.key.toLowerCase() === 'b') post.bloom = !post.bloom;
 });
 
 // ─── Infinite mode ────────────────────────────────────────────────────────────

@@ -27,6 +27,7 @@ camera.position.set(0, 1.5, 7);
 camera.lookAt(0, 0, 0);
 
 // ─── Resize — debounced, handles orientation change ───────────────────────────
+export const resizeHandlers = []; // e.g. post-processing targets
 let resizeTimer;
 function onResize() {
   camera.aspect = window.innerWidth / window.innerHeight;
@@ -37,6 +38,7 @@ function onResize() {
   const h  = gl.drawingBufferHeight / renderer.getPixelRatio();
   renderer.setViewport(0, 0, w, h);
   renderer.setScissor(0, 0, w, h);
+  for (const fn of resizeHandlers) fn();
 }
 window.addEventListener('resize', () => {
   clearTimeout(resizeTimer);

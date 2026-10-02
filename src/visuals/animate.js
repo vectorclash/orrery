@@ -1,7 +1,12 @@
-import { scene, camera, renderer, clock } from './scene.js';
-import { updateShapes } from './shapes.js';
+import { camera, clock } from './scene.js';
+import { updatePlanet } from './planet.js';
+import { updateCages } from './cages.js';
+import { updateSpectrum } from './spectrum.js';
 import { updateMusic } from './music.js';
-import { updateHalo } from './halo.js';
+import { updateRing } from './ring/scope.js';
+import { updateWaveform } from './waveform.js';
+import { updateChord } from './chord.js';
+import { render } from './post.js';
 import { updateStars } from './stars.js';
 import { updateNebulae } from './nebula.js';
 import { audio } from '../audio/context.js';
@@ -11,7 +16,7 @@ let cameraAngle = 0;
 let audioStartT = null;
 const FADE_IN   = 2.5; // seconds to ramp audio reactivity from 0 → full
 
-// Reusable zero-filled freq array for the idle state (shapes stay at rest)
+// Reusable zero-filled freq array for the idle state (the planet and cages stay at rest)
 const zeroFreq = new Uint8Array(256);
 
 function animate(timestamp) {
@@ -45,12 +50,16 @@ function animate(timestamp) {
     bass   = rawBass * fade;
   }
 
-  // Always update shapes and stars — idle energy=0 keeps everything at rest
-  // but still visible and gently moving. The halo and sphere follow the notes
+  // Always update the planet, cages and stars — idle energy=0 keeps everything at rest
+  // but still visible and gently moving. The ring and planet follow the notes
   // themselves; the space scene keeps its spectrum-driven energy/bass.
   updateMusic(dt);
-  updateShapes({ freqData, energy, hue, dt, fade });
-  updateHalo({ hue, dt, t });
+  updateWaveform();
+  updateSpectrum(freqData);
+  updatePlanet({ energy, hue, dt, fade, t });
+  updateCages({ energy, hue, dt, fade, t });
+  updateChord({ hue, dt, t }); // before the ring, which it lights
+  updateRing({ hue, dt, t });
   updateStars(energy, bass, hue, t);
   updateNebulae(energy, bass, hue, t);
 
@@ -62,7 +71,7 @@ function animate(timestamp) {
 
   camera.position.set(Math.sin(cameraAngle) * camR, camY, Math.cos(cameraAngle) * camR);
   camera.lookAt(0, 0, 0);
-  renderer.render(scene, camera);
+  render(dt);
 }
 
 export function startAnimation() {

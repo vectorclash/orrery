@@ -8,6 +8,8 @@ export const audio = {
   masterOut:  null, // final node before destination — tap this for recording/export
   freqData:   null,
   waveData:   null,
+  scope:      null, // long-window analyser for the waveform ring
+  scopeData:  null,
   started:    false,
   // Per-session inputs, rebuilt by beginSession(). Voices connect only to
   // these, so ending a session silences everything it scheduled — including
@@ -150,6 +152,13 @@ export function initAudio() {
   audio.freqData = new Uint8Array(audio.analyser.frequencyBinCount);
   audio.waveData = new Uint8Array(audio.analyser.fftSize);
 
+  // A second, longer tap for the waveform display: 4096 samples (~90 ms) is
+  // enough to find a trigger point and lift out a whole number of periods,
+  // while the spectrum analyser above keeps its 256 bins.
+  audio.scope = audio.ctx.createAnalyser();
+  audio.scope.fftSize = 4096;
+  audio.scopeData = new Float32Array(audio.scope.fftSize);
+
   audio.reverbGain = audio.ctx.createGain();
   audio.reverbGain.gain.value = 0.45;
 
@@ -177,6 +186,7 @@ export function initAudio() {
   highpass.connect(compressor);
   compressor.connect(audio.ctx.destination);
   audio.masterOut = compressor;
+  compressor.connect(audio.scope); // what reaches the speakers; analysers need no output
 
   audio.reverbGain.connect(audio.analyser);
 
