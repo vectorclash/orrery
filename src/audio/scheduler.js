@@ -1,4 +1,4 @@
-import { audio, beginSession, setEchoTime, setRoom, setBassPresent, updateLevel } from './context.js';
+import { audio, beginSession, setEchoTime, setRoom, setBassPresent, updateLevel, noteClock } from './context.js';
 import { state, SCALE_NAMES, TICK_MS, LOOKAHEAD, ROOT_BASE_MIDI, rand, pick, beat } from '../state.js';
 import { harmony } from './harmony.js';
 import { transport } from './transport.js';
@@ -146,6 +146,7 @@ export function tick({ skipBass = false, skipEvolve = false } = {}) {
   const dt  = now - (lastTickTime || now);
   setBassPresent(!skipBass);
   updateLevel();
+  noteClock();
   lastTickTime = now;
 
   if (transport.tick(now)) setEchoTime(beat() * 0.75, now);

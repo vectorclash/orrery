@@ -1,4 +1,4 @@
-import { state, rootName, scaleName, TICK_MS, LOOKAHEAD, ROOT_BASE_MIDI, pick } from './state.js';
+import { state, rootName, scaleName, TICK_MS, LOOKAHEAD, START_DELAY, ROOT_BASE_MIDI, pick } from './state.js';
 import { audio, ensureAudioRunning, useContext, setRoom, ROOMS } from './audio/context.js';
 import { setNoteLogging } from './audio/notes.js';
 import {
@@ -541,11 +541,9 @@ startBtn.addEventListener('click', async () => {
   bassVoice.reroll();
   drumsVoice.reroll();
 
-  // Beat 0 is LOOKAHEAD into the future (not bare "now"): the first real
-  // tick() doesn't land until the first setInterval fire, and a clock that
-  // starts at "now" would put the first notes' attack ramps in the past —
-  // an instant pop instead of a clean fade-in.
-  startSession(audio.ctx.currentTime + LOOKAHEAD);
+  startSession(audio.ctx.currentTime + START_DELAY);
+  tick();
+  updateInfiniteDisplay();
 
   infiniteRunning  = true;
   infiniteInterval = setInterval(() => {
@@ -590,11 +588,7 @@ async function manualInit() {
   if (!await ensureAudioRunning()) return false;
   unmuteAudio();
   applyManualSettings();
-  // Beat 0 sits LOOKAHEAD into the future, not bare "now" — the first real
-  // tick() doesn't run until the first setInterval fire (TICK_MS later), so
-  // a clock started at "now" would put the first notes' attack ramps in the
-  // past and they'd pop in instead of fading in.
-  startSession(audio.ctx.currentTime + LOOKAHEAD);
+  startSession(audio.ctx.currentTime + START_DELAY);
   return true;
 }
 
@@ -612,7 +606,7 @@ function resetExportUI() {
   exportProgressBar.style.width = '0%';
 }
 
-function muteAudio(fadeSec = 0.08) {
+function muteAudio(fadeSec = 0.04) {
   if (!audio.ctx) return;
   const now = audio.ctx.currentTime;
   [audio.masterGain.gain, audio.reverbGain.gain].forEach(p => {
@@ -661,6 +655,7 @@ manualPlayBtn.addEventListener('click', async () => {
   manualStatus.classList.add('active');
   manualStatus.textContent = 'PLAYING';
 
+  tick({ skipBass: enabledBassSubtypes().length === 0, skipEvolve: true });
   manualInterval = setInterval(() => {
     tick({ skipBass: enabledBassSubtypes().length === 0, skipEvolve: true });
   }, TICK_MS);

@@ -31,6 +31,10 @@ export const state = {
 
 // ─── Scheduler constants ──────────────────────────────────────────────────────
 export const LOOKAHEAD = 0.12; // seconds
+// Beat 0 of a new session sits this far ahead of "now": just enough for the
+// first notes' attack ramps to start in the future (no pop), with the first
+// tick run straight away rather than on the next timer fire.
+export const START_DELAY = 0.04; // seconds
 export const TICK_MS   = 60;   // milliseconds
 
 // ─── Math helpers ─────────────────────────────────────────────────────────────

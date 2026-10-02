@@ -400,12 +400,29 @@ async function clockRuns(ctx) {
   return false;
 }
 
+// The scheduler records the clock on every tick, so a context that has been
+// running since the last play can be confirmed instantly; only a fresh,
+// suspended or frozen one waits on clockRuns().
+let lastClock = null;
+export function noteClock() {
+  lastClock = { ctx: audio.ctx, time: audio.ctx.currentTime, wall: performance.now() };
+}
+function clockMovedSinceNoted() {
+  const ctx = audio.ctx;
+  return ctx.state === 'running' && lastClock?.ctx === ctx &&
+    performance.now() - lastClock.wall > 30 && ctx.currentTime > lastClock.time;
+}
+
 export async function ensureAudioRunning() {
   if (!audio.started || audio.ctx.state === 'closed') initAudio();
-  if (await clockRuns(audio.ctx)) return true;
-  audio.ctx.close().catch(() => {});
-  initAudio();
-  return clockRuns(audio.ctx);
+  let ok = clockMovedSinceNoted() || await clockRuns(audio.ctx);
+  if (!ok) {
+    audio.ctx.close().catch(() => {});
+    initAudio();
+    ok = await clockRuns(audio.ctx);
+  }
+  if (ok) noteClock();
+  return ok;
 }
 
 // Point every voice at a different context — an OfflineAudioContext for
