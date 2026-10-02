@@ -1,8 +1,7 @@
 import { state, rootName, scaleName, TICK_MS, LOOKAHEAD, START_DELAY, ROOT_BASE_MIDI, pick } from './state.js';
-import { audio, ensureAudioRunning, useContext, setRoom, ROOMS } from './audio/context.js';
-import { setNoteLogging } from './audio/notes.js';
+import { audio, ensureAudioRunning, setRoom, ROOMS } from './audio/context.js';
 import {
-  tick, pickVoices, setActiveVoices, startSession, roomFor,
+  tick, pickVoices, setActiveVoices, applyPlan, startSession, roomFor,
   bassVoice, padVoice, melodyVoice, textureVoice, pluckVoice,
   bellVoice, arpeggioVoice, malletVoice, droneVoice, fluteVoice,
   choirVoice, stringsVoice, rhodesVoice, organVoice, glassVoice,
@@ -274,9 +273,7 @@ function randomize() {
   });
 
   if (manualPlaying) {
-    const bassSubs = enabledBassSubtypes();
-    if (bassSubs.length > 0) bassVoice.setStyle(pick(bassSubs));
-    setActiveVoices(getManualVoices());
+    applyManualVoices();
   }
 
   updatePlayEnabled();
@@ -305,9 +302,7 @@ function makeCheckbox(key, label, exclusiveKeys = null) {
       if (!any) {
         stopManualPlayback();
       } else {
-        const bassSubs = enabledBassSubtypes();
-        if (bassSubs.length > 0) bassVoice.setStyle(pick(bassSubs));
-        setActiveVoices(getManualVoices());
+        applyManualVoices();
       }
     }
     updatePlayEnabled();
@@ -556,38 +551,42 @@ startBtn.addEventListener('click', async () => {
 function enabledBassSubtypes()  { return BASS_SUBTYPES.filter(s  => manualEnabled[`bass:${s}`]);  }
 function enabledDrumsSubtypes() { return DRUMS_SUBTYPES.filter(s => manualEnabled[`drums:${s}`]); }
 
-function getManualVoices() {
-  const voices = [];
-  const drumSubs = enabledDrumsSubtypes();
-  if (drumSubs.length > 0) { drumsVoice.setStyle(pick(drumSubs)); voices.push(drumsVoice); }
-  SIMPLE_VOICES.forEach(({ key, voice }) => { if (manualEnabled[key]) voices.push(voice); });
-  return voices;
+// Live instrument changes: swap the voices and styles, leave the rest alone.
+function applyManualVoices() {
+  const { bassStyle, drumStyle, voices } = manualPlan();
+  applyPlan({ state: {}, bassStyle, drumStyle, voices });
 }
 
-// Copies the manual controls into the shared state and picks the voices.
-function applyManualSettings() {
-  state.tempo        = parseInt(bpmSlider.value, 10);
-  state.octaveShift  = parseInt(octaveSlider.value, 10);
-  state.rootMidi     = ROOT_BASE_MIDI + parseInt(rootSelect.value, 10);
-  state.scaleIdx     = parseInt(scaleSelect.value, 10);
-  state.era          = 0;
-  state.density      = parseFloat(densitySlider.value);
-  state.brightness   = parseFloat(brightSlider.value);
-  state.spaciousness = parseFloat(spaceSlider.value);
-  state.harmonyLock  = parseFloat(harmonySlider.value);
-  state.chordBeats   = parseInt(chordSlider.value, 10);
-  state.room         = roomSelect.value;
-
-  const bassSubs = enabledBassSubtypes();
-  if (bassSubs.length > 0) bassVoice.setStyle(pick(bassSubs));
-
-  setActiveVoices(getManualVoices());
+// The arrangement the manual controls describe, as plain data (see applyPlan).
+function manualPlan() {
+  const bassSubs = enabledBassSubtypes(), drumSubs = enabledDrumsSubtypes();
+  return {
+    state: {
+      tempo:        parseInt(bpmSlider.value, 10),
+      octaveShift:  parseInt(octaveSlider.value, 10),
+      rootMidi:     ROOT_BASE_MIDI + parseInt(rootSelect.value, 10),
+      scaleIdx:     parseInt(scaleSelect.value, 10),
+      era:          0,
+      density:      parseFloat(densitySlider.value),
+      brightness:   parseFloat(brightSlider.value),
+      spaciousness: parseFloat(spaceSlider.value),
+      harmonyLock:  parseFloat(harmonySlider.value),
+      chordBeats:   parseInt(chordSlider.value, 10),
+      room:         roomSelect.value,
+    },
+    bassStyle: bassSubs.length ? pick(bassSubs) : null,
+    drumStyle: drumSubs.length ? pick(drumSubs) : null,
+    voices: [
+      ...(drumSubs.length ? ['drums'] : []),
+      ...SIMPLE_VOICES.filter(({ key }) => manualEnabled[key]).map(({ voice }) => voice.name),
+    ],
+  };
 }
 
 async function manualInit() {
   if (!await ensureAudioRunning()) return false;
   unmuteAudio();
-  applyManualSettings();
+  applyPlan(manualPlan());
   startSession(audio.ctx.currentTime + START_DELAY);
   return true;
 }
@@ -628,14 +627,10 @@ function unmuteAudio() {
 
 function stopManualPlayback() {
   if (manualInterval)    { clearInterval(manualInterval);   manualInterval    = null; }
-  exportId++; // cancels an export in progress
   muteAudio();
   manualPlaying = false;
   manualPlayBtn.textContent = 'PLAY';
   manualPlayBtn.classList.remove('playing');
-  manualExportBtn.textContent = 'EXPORT';
-  manualExportBtn.classList.remove('recording');
-  resetExportUI();
   updatePlayEnabled();
 }
 
@@ -686,108 +681,82 @@ function encodeWav(decoded, numSamples) {
   return new Blob([ab], { type: 'audio/wav' });
 }
 
-// Export renders offline: the same scheduler drives an OfflineAudioContext,
-// so the file is exactly what the engine produces. It used to record the live
-// output through MediaRecorder, which encodes to Opus — a lossy codec — so the
-// ".wav" was a decoded lossy file. Rendering offline is also faster than real
-// time and starts from true silence, so there's no countdown to wait out.
-async function renderExport(durationSec, myId, onProgress) {
-  const sr      = audio.ctx?.sampleRate ?? 48000;
-  const ctx     = new OfflineAudioContext(2, Math.round(durationSec * sr), sr);
-  const restore = useContext(ctx);
-  setNoteLogging(false);
-  try {
-    applyManualSettings();
-    const skipBass = enabledBassSubtypes().length === 0;
-    startSession(LOOKAHEAD);
+// Export renders offline in a hidden iframe (src/render.js) — its own copy
+// of the engine, so live playback carries on untouched while it renders.
+// The build passes the bundled renderer's filename in as __RENDER_URL__.
+const RENDER_URL = typeof __RENDER_URL__ !== 'undefined' ? __RENDER_URL__ : 'src/render.js';
+let exportFrame = null;
 
-    // Fade to silence over the last stretch so long tails (bell, harp, pad)
-    // die away instead of being chopped; no new notes start inside it.
-    const fadeOutSec = Math.min(0.4, durationSec / 8);
-    for (const p of [audio.masterGain.gain, audio.reverbGain.gain]) {
-      p.setValueAtTime(p.value, durationSec - fadeOutSec);
-      p.linearRampToValueAtTime(0, durationSec);
-    }
+function cancelExport() {
+  exportId++;
+  exportFrame?.remove();
+  exportFrame = null;
+}
 
-    // Pause the render every TICK_MS of audio time and run the scheduler, as
-    // the live setInterval does. A cancelled export just stops scheduling.
-    const step = TICK_MS / 1000, lastTick = durationSec - fadeOutSec;
-    const tickAt = t => ctx.suspend(t).then(() => {
-      if (exportId === myId) {
-        tick({ skipBass, skipEvolve: true });
-        onProgress(t / durationSec);
-        if (t + step < lastTick) tickAt(t + step);
-      }
-      ctx.resume();
-    });
-    tick({ skipBass, skipEvolve: true });
-    tickAt(step);
-    return await ctx.startRendering();
-  } finally {
-    setNoteLogging(true);
-    restore();
-  }
+async function renderInFrame(plan, durationSec, onProgress) {
+  const frame = document.createElement('iframe');
+  frame.style.display = 'none';
+  frame.srcdoc = `<script type="module" src="${RENDER_URL}"></script>`;
+  const loaded = new Promise((res, rej) => { frame.onload = res; frame.onerror = rej; });
+  document.body.appendChild(frame);
+  exportFrame = frame;
+  await loaded;
+  const sampleRate = audio.ctx?.sampleRate ?? 48000;
+  return frame.contentWindow.renderExport(plan, durationSec, sampleRate, onProgress);
+}
+
+function resetExportButton() {
+  exporting = false;
+  manualExportBtn.textContent = 'EXPORT';
+  manualExportBtn.classList.remove('recording');
+  resetExportUI();
+  updatePlayEnabled();
 }
 
 manualExportBtn.addEventListener('click', async () => {
+  if (exporting) { cancelExport(); resetExportButton(); manualStatus.textContent = 'CANCELLED'; return; }
   if (!window.OfflineAudioContext) {
     manualStatus.textContent = 'EXPORT NOT SUPPORTED IN THIS BROWSER';
     manualStatus.classList.add('active');
     return;
   }
 
-  if (manualPlaying) stopManualPlayback();
-
-  document.querySelectorAll('.collapsible-section').forEach(section => {
-    section.classList.add('collapsed');
-  });
-  manualUiScroll.scrollTo({ top: manualUiScroll.scrollHeight, behavior: 'smooth' });
-
   const myId        = ++exportId;
   const durationSec = Math.max(5, parseInt(lengthInput.value, 10) || 10);
 
-  exporting     = true;
-  manualPlaying = true; // the play button doubles as cancel
-  manualPlayBtn.textContent = 'STOP';
-  manualPlayBtn.classList.add('playing');
-  manualExportBtn.textContent = 'RENDERING';
-  manualExportBtn.disabled = true;
+  exporting = true;
+  manualExportBtn.textContent = 'CANCEL 0%';
   manualExportBtn.classList.add('recording');
   manualStatus.classList.add('active');
-  manualStatus.textContent = 'RENDERING 0%';
+  manualStatus.textContent = 'RENDERING';
   exportProgressWrap.classList.add('active');
   exportProgressBar.style.transition = 'none';
   exportProgressBar.style.width = '0%';
 
   let rendered = null;
   try {
-    rendered = await renderExport(durationSec, myId, f => {
+    rendered = await renderInFrame(manualPlan(), durationSec, f => {
+      if (exportId !== myId) return;
       const pct = Math.round(f * 100);
       exportProgressBar.style.width = `${pct}%`;
-      manualStatus.textContent = `RENDERING ${pct}%`;
+      manualExportBtn.textContent = `CANCEL ${pct}%`;
     });
   } catch (err) {
     console.error(err);
   }
-  exporting = false;
+  if (exportId !== myId) return; // cancelled
+  exportFrame?.remove();
+  exportFrame = null;
 
-  if (exportId === myId) {
-    if (rendered) {
-      const url = URL.createObjectURL(encodeWav(rendered, rendered.length));
-      const a   = document.createElement('a');
-      a.href = url; a.download = buildExportName('wav');
-      document.body.appendChild(a); a.click(); document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    }
-    manualPlaying = false;
-    manualPlayBtn.textContent = 'PLAY';
-    manualPlayBtn.classList.remove('playing');
-    manualExportBtn.textContent = 'EXPORT';
-    manualExportBtn.classList.remove('recording');
-    resetExportUI();
-    manualStatus.textContent = rendered ? 'SAVED' : 'EXPORT FAILED';
+  if (rendered) {
+    const url = URL.createObjectURL(encodeWav(rendered, rendered.length));
+    const a   = document.createElement('a');
+    a.href = url; a.download = buildExportName('wav');
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   }
-  updatePlayEnabled();
+  resetExportButton();
+  manualStatus.textContent = rendered ? 'SAVED' : 'EXPORT FAILED';
 });
 
 // ─── Clear instruments ────────────────────────────────────────────────────────

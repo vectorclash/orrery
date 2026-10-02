@@ -14,7 +14,23 @@ async function main() {
   }
   await mkdir(DIST, { recursive: true });
 
+  // The export renderer runs in its own iframe (see src/render.js), so it's
+  // a separate bundle whose filename the main bundle is told at build time.
+  const renderResult = await build({
+    entryPoints: [path.join(ROOT, 'src/render.js')],
+    bundle: true,
+    minify: true,
+    format: 'esm',
+    outdir: DIST,
+    entryNames: 'render-[hash]',
+    metafile: true,
+    target: ['es2022'],
+    logLevel: 'info',
+  });
+  const renderFilename = path.basename(Object.keys(renderResult.metafile.outputs).find((p) => p.endsWith('.js')));
+
   const result = await build({
+    define: { __RENDER_URL__: JSON.stringify(renderFilename) },
     entryPoints: [path.join(ROOT, 'src/main.js')],
     bundle: true,
     minify: true,

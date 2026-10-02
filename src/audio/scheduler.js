@@ -64,6 +64,16 @@ export function pickVoices() {
   setActiveVoices(v);
 }
 
+// A manual-mode arrangement as plain data, so the export renderer (its own
+// copy of the engine, in an iframe) can play exactly what the controls say.
+// { state: {...fields}, bassStyle, drumStyle, voices: [names] }
+export function applyPlan(plan) {
+  Object.assign(state, plan.state);
+  if (plan.bassStyle) bassVoice.setStyle(plan.bassStyle);
+  if (plan.drumStyle) drumsVoice.setStyle(plan.drumStyle);
+  setActiveVoices(plan.voices.map(n => ALL_VOICES.find(v => v.name === n)).filter(Boolean));
+}
+
 export function setActiveVoices(voices) {
   activeVoices = voices;
   ensemble.leads = voices.filter(v => v.role === 'lead').map(v => v.name);
