@@ -1,4 +1,4 @@
-import { audio, beginSession, setEchoTime, setRoom, setBassPresent, updateLevel, noteClock } from './context.js';
+import { audio, beginSession, setEchoTime, setRoom, updateLowCuts, updateLevel, noteClock } from './context.js';
 import { state, SCALE_NAMES, TICK_MS, LOOKAHEAD, ROOT_BASE_MIDI, rand, pick, beat } from '../state.js';
 import { harmony } from './harmony.js';
 import { transport } from './transport.js';
@@ -133,7 +133,7 @@ function advanceEra(at) {
   state.brightness   = rand(0.1, 0.9);
   state.spaciousness = rand(0.2, 0.85);
   state.density      = rand(0.2, 0.9);
-  state.octaveShift  = pick([-3, -2, -1, 0, 0, 1]);
+  state.octaveShift  = pick([-1, 0, 0, 1]);
   state.chordBeats   = pick([4, 4, 8]);
   state.room         = roomFor(state.spaciousness, state.tempo);
   transport.retime(at);
@@ -166,7 +166,7 @@ export function tick({ skipBass = false, skipEvolve = false } = {}) {
   if (!audio.started) return;
   const now = audio.ctx.currentTime;
   const dt  = now - (lastTickTime || now);
-  setBassPresent(!skipBass);
+  updateLowCuts(!skipBass);
   updateLevel();
   noteClock();
   lastTickTime = now;

@@ -212,6 +212,9 @@ const VOICE_DISTANCE = {
 // bass itself (more again an octave down), burying it in mud. While the bass
 // plays, every other part is high-passed by role; without it they keep their
 // low end and only rumble is cut. Drums keep theirs — the toms need it.
+// The cutoffs are set for octave 0 and drop an octave with the Octave control,
+// so the filter keeps the same place relative to each voice's notes instead of
+// stripping their fundamentals.
 const VOICE_LOW_CUT = {
   pad: 110, strings: 110, choir: 110, organ: 110, drone: 110,
   arpeggio: 120, harp: 120, pluck: 120, kalimba: 120, mallet: 120, clavinet: 120, rhodes: 120,
@@ -220,11 +223,15 @@ const VOICE_LOW_CUT = {
 };
 const RUMBLE_CUT = 35;
 let bassPresent = true;
-const lowCutFor = name => (bassPresent ? VOICE_LOW_CUT[name] : RUMBLE_CUT);
+let cutShift    = 0; // octave shift the low cuts are currently tuned to
+const lowCutFor = name => (bassPresent ? VOICE_LOW_CUT[name] * 2 ** Math.min(0, cutShift) : RUMBLE_CUT);
 
-export function setBassPresent(on) {
-  if (on === bassPresent) return;
+// Called every tick: retunes the low cuts when the bass comes or goes, or the
+// octave changes.
+export function updateLowCuts(on) {
+  if (on === bassPresent && state.octaveShift === cutShift) return;
   bassPresent = on;
+  cutShift    = state.octaveShift;
   const now = audio.ctx.currentTime;
   for (const [name, bus] of voiceBuses) {
     if (bus.lowCut) bus.lowCut.frequency.setTargetAtTime(lowCutFor(name), now, 0.1);

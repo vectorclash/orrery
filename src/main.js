@@ -269,7 +269,7 @@ function randomizeFeel() {
     rootMidi:     ROOT_BASE_MIDI + Math.floor(Math.random() * 12),
     scaleIdx:     Math.floor(Math.random() * SCALE_LABELS.length),
     tempo,
-    octaveShift:  Math.floor(Math.random() * 5) - 3, // -3 to +1
+    octaveShift:  Math.floor(Math.random() * 3) - 1, // -1 to +1
     density:      round2(Math.random() * 0.8 + 0.1),
     brightness:   round2(Math.random() * 0.8 + 0.1),
     spaciousness,
@@ -538,7 +538,7 @@ startBtn.addEventListener('click', async () => {
   state.scaleIdx    = 0;
   state.rootMidi    = ROOT_BASE_MIDI;
   state.tempo       = Math.floor(Math.random() * 79) + 52; // 52–130
-  state.octaveShift = pick([-3, -2, -1, 0, 0, 1]);
+  state.octaveShift = pick([-1, 0, 0, 1]);
   state.harmonyLock = 0.78;
   state.chordBeats  = 4;
   state.room        = roomFor(state.spaciousness, state.tempo);

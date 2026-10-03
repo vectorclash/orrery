@@ -67,9 +67,10 @@ export function fold(midi, lo, hi) {
 
 // Register for a voice: the tonic nearest the voice's `home` note (where it
 // sits at octave 0), moved by whole octaves with the Octave control, and kept
-// within [lo, hi] — the range the instrument can sensibly sound in. Limits are
-// wide so every octave setting is audible, only stopping a bass from dropping
-// below hearing or a bell from climbing into ear-piercing territory.
+// within [lo, hi] — the range the instrument can sensibly sound in. The Octave
+// control spans −1…+1 because that is all the room there is: −2 would put
+// chords and leads around 65 Hz, too low to sound clearly, and −3 would drop
+// most voices below their floor, where they fold back up and repeat −2.
 export function register(home, lo, hi) {
   const tonic = fold(state.rootMidi, home - 6, home + 5);
   return fold(tonic + 12 * state.octaveShift, lo, hi);
