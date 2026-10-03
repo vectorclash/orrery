@@ -7,7 +7,7 @@ import {
   choirVoice, stringsVoice, rhodesVoice, organVoice, glassVoice,
   harpVoice, brassVoice, drumsVoice,
   vibraphoneVoice, clavinetVoice, sitarVoice, kalimbaVoice,
-  activeVoices, eraTimer, ERA_DURATION,
+  activeVoices, eraTimer, ERA_DURATION, eraAt, requestEra,
 } from './audio/scheduler.js';
 import { startAnimation } from './visuals/animate.js';
 import { post } from './visuals/post.js';
@@ -29,7 +29,7 @@ const GENRES = [
   { name:'FOLK',    scaleIdx:6, tempo:96,  density:0.48, brightness:0.55, spaciousness:0.58, harmony:0.85, chord:4, room:'room' },
   { name:'DREAM',   scaleIdx:5, tempo:72,  density:0.32, brightness:0.72, spaciousness:0.82, harmony:0.72, chord:8, room:'hall' },
   { name:'FUNK',    scaleIdx:3, tempo:110, density:0.82, brightness:0.68, spaciousness:0.20, harmony:0.55, chord:4, room:'studio' },
-  { name:'EPIC',    scaleIdx:0, tempo:84,  density:0.62, brightness:0.42, spaciousness:0.74, harmony:0.90, chord:4 },
+  { name:'EPIC',    scaleIdx:0, tempo:84,  density:0.62, brightness:0.42, spaciousness:0.74, harmony:0.90, chord:4, room:'hall' },
 ];
 
 const BASS_SUBTYPES  = ['sub','plucked','walking','synth','rumble'];
@@ -83,11 +83,12 @@ const ALL_INST_KEYS = [
 
 // ─── UI refs ──────────────────────────────────────────────────────────────────
 const startBtn        = document.getElementById('start-btn');
+const nextBtn         = document.getElementById('next-btn');
 const infoEl          = document.getElementById('info');
 const stateEl         = document.getElementById('state-line');
 const infiniteUi      = document.getElementById('infinite-ui');
 const manualUi        = document.getElementById('manual-ui');
-const manualUiScroll  = document.getElementById('manual-ui-scroll');
+const manualUiBody    = document.getElementById('manual-ui-body');
 const genreBtnsEl     = document.getElementById('genre-btns');
 const rootSelect      = document.getElementById('manual-root');
 const scaleSelect     = document.getElementById('manual-scale');
@@ -116,11 +117,15 @@ const exportProgressWrap   = document.getElementById('export-progress-wrap');
 const exportProgressBar    = document.getElementById('export-progress-bar');
 const clearInstrumentsBtn  = document.getElementById('clear-instruments-btn');
 const genreRandomBtn       = document.getElementById('genre-random-btn');
+const feelRandomBtn        = document.getElementById('feel-random-btn');
+const instrumentsRandomBtn = document.getElementById('instruments-random-btn');
+const randomizeAllBtn      = document.getElementById('randomize-all-btn');
+const genreSummary         = document.getElementById('genre-summary');
+const feelSummary          = document.getElementById('feel-summary');
+const instrumentsSummary   = document.getElementById('instruments-summary');
 const manualShareBtn       = document.getElementById('manual-share-btn');
 const modeTabs             = document.querySelectorAll('.mode-tab');
-const panelToggleBtn       = document.getElementById('panel-toggle');
 const panelHideBtn         = document.getElementById('panel-hide-btn');
-let panelVisible = true;
 
 // ─── Enable state (all off by default) ───────────────────────────────────────
 const manualEnabled = {};
@@ -154,110 +159,133 @@ Object.entries(ROOMS).forEach(([key, r]) => {
   o.value = key; o.textContent = r.label;
   roomSelect.appendChild(o);
 });
-roomSelect.value = state.room;
 
-// Applies a space from the controls; live playback crossfades into it.
-function applyRoom(name) {
-  state.room = name;
-  roomSelect.value = name;
-  if (audio.started && !exporting) setRoom(name);
+const fmt2 = x => (+x).toFixed(2);
+const signed = x => (x >= 0 ? '+' : '') + x;
+
+// Writes every FEEL control from `state`. All programmatic changes (genre,
+// random, share link, carrying over from infinite) set `state` and call this,
+// so the controls can't drift from what's playing.
+function showFeel() {
+  rootSelect.value       = state.rootMidi - ROOT_BASE_MIDI;
+  scaleSelect.value      = state.scaleIdx;
+  bpmSlider.value        = state.tempo;
+  bpmValue.textContent   = bpmSlider.value;
+  octaveSlider.value     = state.octaveShift;
+  octaveVal.textContent  = signed(state.octaveShift);
+  densitySlider.value    = state.density;
+  densityVal.textContent = fmt2(state.density);
+  brightSlider.value     = state.brightness;
+  brightVal.textContent  = fmt2(state.brightness);
+  spaceSlider.value      = state.spaciousness;
+  spaceVal.textContent   = fmt2(state.spaciousness);
+  harmonySlider.value    = state.harmonyLock;
+  harmonyVal.textContent = fmt2(state.harmonyLock);
+  chordSlider.value      = state.chordBeats;
+  chordVal.textContent   = state.chordBeats;
+  roomSelect.value       = state.room;
+  refreshSummaries();
+}
+
+// Applies feel fields live; a room change crossfades into the new space.
+function applyFeel(fields) {
+  Object.assign(state, fields);
+  if ('room' in fields && audio.started && !exporting) setRoom(state.room);
+  showFeel();
+}
+
+// ─── Section summaries ────────────────────────────────────────────────────────
+function enabledInstrumentLabels() {
+  return [
+    ...BASS_SUBTYPES.filter(s => manualEnabled[`bass:${s}`]).map(s => `${BASS_LABELS[s]} BASS`),
+    ...DRUMS_SUBTYPES.filter(s => manualEnabled[`drums:${s}`]).map(s => `${DRUMS_LABELS[s]} DRUMS`),
+    ...SIMPLE_VOICES.filter(({ key }) => manualEnabled[key]).map(({ key }) => key.toUpperCase()),
+  ];
+}
+
+function refreshSummaries() {
+  genreSummary.textContent = document.querySelector('.genre-btn.active')?.textContent ?? 'CUSTOM';
+  feelSummary.textContent = [
+    `${ROOT_NAMES[rootSelect.value]} ${SCALE_LABELS[scaleSelect.value]}`,
+    `${bpmSlider.value} BPM`,
+    `OCT ${octaveVal.textContent}`,
+    roomSelect.selectedOptions[0]?.textContent ?? '',
+  ].join(' · ');
+  instrumentsSummary.textContent = enabledInstrumentLabels().join(' · ') || 'NONE';
+}
+
+// Briefly lights up a section's summary, so a RANDOM on a collapsed section
+// visibly lands.
+function flashSection(id) {
+  const el = document.getElementById(id);
+  el.classList.add('flash');
+  requestAnimationFrame(() => requestAnimationFrame(() => el.classList.remove('flash')));
 }
 
 // ─── Genre buttons ────────────────────────────────────────────────────────────
+function setGenreHighlight(btn) {
+  document.querySelectorAll('.genre-btn').forEach(b => b.classList.toggle('active', b === btn));
+  refreshSummaries();
+}
+function clearGenreHighlight() { setGenreHighlight(null); }
+
+function applyGenre(g, btn) {
+  applyFeel({
+    scaleIdx:     g.scaleIdx,
+    tempo:        g.tempo,
+    density:      g.density,
+    brightness:   g.brightness,
+    spaciousness: g.spaciousness,
+    harmonyLock:  g.harmony,
+    chordBeats:   g.chord,
+    room:         g.room,
+  });
+  setGenreHighlight(btn);
+}
+
 GENRES.forEach(g => {
   const btn = document.createElement('button');
   btn.className = 'genre-btn';
   btn.textContent = g.name;
-  btn.addEventListener('click', () => {
-    document.querySelectorAll('.genre-btn').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    scaleSelect.value      = g.scaleIdx;
-    bpmSlider.value        = g.tempo;
-    bpmValue.textContent   = g.tempo;
-    densitySlider.value    = g.density;
-    densityVal.textContent = g.density.toFixed(2);
-    brightSlider.value     = g.brightness;
-    brightVal.textContent  = g.brightness.toFixed(2);
-    spaceSlider.value      = g.spaciousness;
-    spaceVal.textContent   = g.spaciousness.toFixed(2);
-    harmonySlider.value    = g.harmony;
-    harmonyVal.textContent = g.harmony.toFixed(2);
-    chordSlider.value      = g.chord;
-    chordVal.textContent   = g.chord;
-    applyRoom(g.room);
-    // Apply to live state immediately (takes effect even while playing)
-    state.scaleIdx      = g.scaleIdx;
-    state.tempo         = g.tempo;
-    state.density       = g.density;
-    state.brightness    = g.brightness;
-    state.spaciousness  = g.spaciousness;
-    state.harmonyLock   = g.harmony;
-    state.chordBeats    = g.chord;
-  });
+  btn.addEventListener('click', () => applyGenre(g, btn));
   genreBtnsEl.appendChild(btn);
 });
 
 // ─── Randomize ────────────────────────────────────────────────────────────────
-function randomize() {
-  document.querySelectorAll('.genre-btn').forEach(b => b.classList.remove('active'));
+const round2 = x => Math.round(x * 100) / 100;
 
-  const root         = Math.floor(Math.random() * 12);
-  const scale        = Math.floor(Math.random() * SCALE_LABELS.length);
-  const bpm          = Math.floor(Math.random() * 91) + 50; // 50–140
-  const octave       = Math.floor(Math.random() * 5) - 3; // -3 to +1
-  const density      = Math.round((Math.random() * 0.8 + 0.1) * 100) / 100;
-  const brightness   = Math.round((Math.random() * 0.8 + 0.1) * 100) / 100;
-  const spaciousness = Math.round((Math.random() * 0.8 + 0.1) * 100) / 100;
-  const harmonyLock  = Math.round((Math.random() * 0.5 + 0.5) * 100) / 100; // 0.5–1.0, lean musical
-  const chordBeats   = [2, 3, 4, 4, 6, 8][Math.floor(Math.random() * 6)];
+// A preset other than the one already selected.
+function randomizeGenre() {
+  const btns = [...genreBtnsEl.children];
+  const i = pick(GENRES.map((_, j) => j).filter(j => !btns[j].classList.contains('active')));
+  applyGenre(GENRES[i], btns[i]);
+  flashSection('section-genre');
+}
 
-  rootSelect.value        = root;
-  scaleSelect.value       = scale;
-  bpmSlider.value         = bpm;
-  bpmValue.textContent    = bpm;
-  octaveSlider.value      = octave;
-  octaveVal.textContent   = (octave >= 0 ? '+' : '') + octave;
-  densitySlider.value     = density;
-  densityVal.textContent  = density.toFixed(2);
-  brightSlider.value      = brightness;
-  brightVal.textContent   = brightness.toFixed(2);
-  spaceSlider.value       = spaciousness;
-  spaceVal.textContent    = spaciousness.toFixed(2);
-  harmonySlider.value     = harmonyLock;
-  harmonyVal.textContent  = harmonyLock.toFixed(2);
-  chordSlider.value       = chordBeats;
-  chordVal.textContent    = chordBeats;
-  roomSelect.value        = roomFor(spaciousness, bpm);
-
-  state.rootMidi     = ROOT_BASE_MIDI + root;
-  state.scaleIdx     = scale;
-  state.tempo        = bpm;
-  state.octaveShift  = octave;
-  state.density      = density;
-  state.brightness   = brightness;
-  state.spaciousness = spaciousness;
-  state.harmonyLock  = harmonyLock;
-  state.chordBeats   = chordBeats;
-
-  // Clear all instruments first
-  Object.keys(manualEnabled).forEach(k => {
-    manualEnabled[k] = false;
-    if (cbElements[k]) cbElements[k].checked = false;
+function randomizeFeel() {
+  const tempo        = Math.floor(Math.random() * 91) + 50; // 50–140
+  const spaciousness = round2(Math.random() * 0.8 + 0.1);
+  applyFeel({
+    rootMidi:     ROOT_BASE_MIDI + Math.floor(Math.random() * 12),
+    scaleIdx:     Math.floor(Math.random() * SCALE_LABELS.length),
+    tempo,
+    octaveShift:  Math.floor(Math.random() * 5) - 3, // -3 to +1
+    density:      round2(Math.random() * 0.8 + 0.1),
+    brightness:   round2(Math.random() * 0.8 + 0.1),
+    spaciousness,
+    harmonyLock:  round2(Math.random() * 0.5 + 0.5), // 0.5–1.0, lean musical
+    chordBeats:   pick([2, 3, 4, 4, 6, 8]),
+    room:         roomFor(spaciousness, tempo),
   });
+  clearGenreHighlight();
+  flashSection('section-feel');
+}
 
-  // Bass: ~60% chance, one random subtype
-  if (Math.random() < 0.6) {
-    const sub = BASS_SUBTYPES[Math.floor(Math.random() * BASS_SUBTYPES.length)];
-    manualEnabled[`bass:${sub}`] = true;
-    if (cbElements[`bass:${sub}`]) cbElements[`bass:${sub}`].checked = true;
-  }
-
-  // Drums: ~60% chance, one random subtype
-  if (Math.random() < 0.6) {
-    const sub = DRUMS_SUBTYPES[Math.floor(Math.random() * DRUMS_SUBTYPES.length)];
-    manualEnabled[`drums:${sub}`] = true;
-    if (cbElements[`drums:${sub}`]) cbElements[`drums:${sub}`].checked = true;
-  }
+function randomizeInstruments() {
+  const keys = new Set();
+  // Bass and drums: ~60% chance each, one random subtype
+  if (Math.random() < 0.6) keys.add(`bass:${pick(BASS_SUBTYPES)}`);
+  if (Math.random() < 0.6) keys.add(`drums:${pick(DRUMS_SUBTYPES)}`);
 
   // Simple voices: usually a handful, similar to infinite mode's 3–5, with
   // an occasional (~12%) denser pull so manual can still go bigger than
@@ -267,19 +295,21 @@ function randomize() {
   const count = Math.random() < 0.12
     ? 6 + Math.floor(Math.random() * (simpleKeys.length - 5)) // rare: 6–20
     : 2 + Math.floor(Math.random() * 4);                      // usual: 2–5
-  pool.slice(0, count).forEach(k => {
-    manualEnabled[k] = true;
-    if (cbElements[k]) cbElements[k].checked = true;
-  });
+  pool.slice(0, count).forEach(k => keys.add(k));
 
-  if (manualPlaying) {
-    applyManualVoices();
-  }
-
-  updatePlayEnabled();
+  setInstruments(keys);
+  flashSection('section-instruments');
 }
 
-genreRandomBtn.addEventListener('click', randomize);
+function randomizeAll() {
+  randomizeFeel();
+  randomizeInstruments();
+}
+
+genreRandomBtn.addEventListener('click', randomizeGenre);
+feelRandomBtn.addEventListener('click', randomizeFeel);
+instrumentsRandomBtn.addEventListener('click', randomizeInstruments);
+randomizeAllBtn.addEventListener('click', randomizeAll);
 
 // ─── Build instrument panel ───────────────────────────────────────────────────
 const cbElements = {}; // key → <input> — needed for exclusive-group deselection
@@ -297,15 +327,7 @@ function makeCheckbox(key, label, exclusiveKeys = null) {
       });
     }
     manualEnabled[key] = cb.checked;
-    if (manualPlaying) {
-      const any = Object.values(manualEnabled).some(v => v);
-      if (!any) {
-        stopManualPlayback();
-      } else {
-        applyManualVoices();
-      }
-    }
-    updatePlayEnabled();
+    instrumentsChanged();
   });
   cbElements[key] = cb;
   const span = document.createElement('span');
@@ -343,6 +365,25 @@ grid.className = 'inst-grid';
 SIMPLE_VOICES.forEach(({ key }) => grid.appendChild(makeCheckbox(key, key.toUpperCase())));
 voiceGroups.appendChild(grid);
 
+// Replaces the whole instrument selection with `keys`.
+function setInstruments(keys) {
+  Object.keys(manualEnabled).forEach(k => {
+    manualEnabled[k] = keys.has(k);
+    if (cbElements[k]) cbElements[k].checked = keys.has(k);
+  });
+  instrumentsChanged();
+}
+
+// Live instrument changes swap the voices; removing the last one stops.
+function instrumentsChanged() {
+  if (manualPlaying) {
+    if (Object.values(manualEnabled).some(v => v)) applyManualVoices();
+    else stopManualPlayback();
+  }
+  updatePlayEnabled();
+  refreshSummaries();
+}
+
 // ─── Play-enabled gate ────────────────────────────────────────────────────────
 function updatePlayEnabled() {
   const any = Object.values(manualEnabled).some(v => v);
@@ -352,10 +393,6 @@ function updatePlayEnabled() {
 updatePlayEnabled();
 
 // ─── Live slider / select updates (take effect mid-playback) ─────────────────
-function clearGenreHighlight() {
-  document.querySelectorAll('.genre-btn').forEach(b => b.classList.remove('active'));
-}
-
 bpmSlider.addEventListener('input', () => {
   state.tempo = parseInt(bpmSlider.value, 10);
   bpmValue.textContent = bpmSlider.value;
@@ -363,8 +400,7 @@ bpmSlider.addEventListener('input', () => {
 });
 octaveSlider.addEventListener('input', () => {
   state.octaveShift = parseInt(octaveSlider.value, 10);
-  const v = state.octaveShift;
-  octaveVal.textContent = (v >= 0 ? '+' : '') + v;
+  octaveVal.textContent = signed(state.octaveShift);
   clearGenreHighlight();
 });
 densitySlider.addEventListener('input', () => {
@@ -395,9 +431,15 @@ chordSlider.addEventListener('input', () => {
 lengthInput.addEventListener('input', () => {
   lengthValue.textContent = `${lengthInput.value}s`;
 });
-scaleSelect.addEventListener('change', clearGenreHighlight);
-roomSelect.addEventListener('change', () => { applyRoom(roomSelect.value); clearGenreHighlight(); });
-rootSelect.addEventListener('change',  clearGenreHighlight);
+rootSelect.addEventListener('change', () => {
+  applyFeel({ rootMidi: ROOT_BASE_MIDI + parseInt(rootSelect.value, 10) });
+  clearGenreHighlight();
+});
+scaleSelect.addEventListener('change', () => {
+  applyFeel({ scaleIdx: parseInt(scaleSelect.value, 10) });
+  clearGenreHighlight();
+});
+roomSelect.addEventListener('change', () => { applyFeel({ room: roomSelect.value }); clearGenreHighlight(); });
 
 // Carry the settings infinite mode was playing into the edit panel's controls.
 // Infinite mode has already been stopped by the time this runs — this only
@@ -406,41 +448,11 @@ rootSelect.addEventListener('change',  clearGenreHighlight);
 // once we're in edit mode.
 function syncManualFromInfinite() {
   clearGenreHighlight();
-
-  rootSelect.value        = state.rootMidi - ROOT_BASE_MIDI;
-  scaleSelect.value       = state.scaleIdx;
-  bpmSlider.value         = state.tempo;
-  bpmValue.textContent    = bpmSlider.value;
-  octaveSlider.value      = state.octaveShift;
-  octaveVal.textContent   = (state.octaveShift >= 0 ? '+' : '') + state.octaveShift;
-  densitySlider.value     = state.density;
-  densityVal.textContent  = state.density.toFixed(2);
-  brightSlider.value      = state.brightness;
-  brightVal.textContent   = state.brightness.toFixed(2);
-  spaceSlider.value       = state.spaciousness;
-  spaceVal.textContent    = state.spaciousness.toFixed(2);
-  harmonySlider.value     = state.harmonyLock;
-  harmonyVal.textContent  = state.harmonyLock.toFixed(2);
-  chordSlider.value       = state.chordBeats;
-  chordVal.textContent    = state.chordBeats;
-  roomSelect.value        = state.room;
-
-  Object.keys(manualEnabled).forEach(k => {
-    manualEnabled[k] = false;
-    if (cbElements[k]) cbElements[k].checked = false;
-  });
-  const bassKey = `bass:${bassVoice.style}`;
-  manualEnabled[bassKey] = true;
-  if (cbElements[bassKey]) cbElements[bassKey].checked = true;
-  activeVoices.forEach(v => {
-    const key = v.name === 'drums' ? `drums:${v.style}` : v.name;
-    if (key in manualEnabled) {
-      manualEnabled[key] = true;
-      if (cbElements[key]) cbElements[key].checked = true;
-    }
-  });
-
-  updatePlayEnabled();
+  showFeel();
+  setInstruments(new Set([
+    `bass:${bassVoice.style}`,
+    ...activeVoices.map(v => v.name === 'drums' ? `drums:${v.style}` : v.name),
+  ].filter(k => k in manualEnabled)));
 }
 
 // ─── Mode toggle ──────────────────────────────────────────────────────────────
@@ -456,32 +468,22 @@ modeTabs.forEach(tab => {
     currentMode = mode;
     modeTabs.forEach(t => t.classList.toggle('active', t.dataset.mode === mode));
     infiniteUi.style.display = mode === 'infinite' ? '' : 'none';
+    manualUi.classList.toggle('active', mode === 'manual');
     if (mode === 'manual') {
-      panelVisible = true;
-      manualUi.classList.add('active');
-      panelToggleBtn.style.display = 'none';
       if (wasInfinitePlaying) {
         syncManualFromInfinite();
       } else if (!Object.values(manualEnabled).some(v => v)) {
-        randomize();
+        randomizeAll();
       }
-    } else {
-      panelVisible = false;
-      manualUi.classList.remove('active');
-      panelToggleBtn.style.display = 'none';
     }
   });
 });
 
+// The sheet folds into its own top bar (see #manual-ui in index.html).
 panelHideBtn.addEventListener('click', () => {
   const collapsed = manualUi.classList.toggle('collapsed');
-  panelHideBtn.textContent = collapsed ? 'SHOW' : 'HIDE';
-});
-
-panelToggleBtn.addEventListener('click', () => {
-  panelVisible = true;
-  manualUi.classList.add('active');
-  panelToggleBtn.style.display = 'none';
+  panelHideBtn.setAttribute('aria-expanded', String(!collapsed));
+  manualUiBody.inert = collapsed;
 });
 
 // ─── Keys ─────────────────────────────────────────────────────────────────────
@@ -502,11 +504,19 @@ function updateInfiniteDisplay() {
   stateEl.textContent = `${rootName()} ${scaleName()}  ·  ${Math.round(state.tempo)} bpm  ·  oct ${oct >= 0 ? '+' : ''}${oct}  ·  ${ROOMS[state.room].label.toLowerCase()}  ·  era ${state.era}  [${prog}%]\n${voiceNames}`;
 }
 
+function showNext(shown) {
+  nextBtn.classList.toggle('shown', shown);
+  nextBtn.classList.remove('pending');
+  nextBtn.tabIndex = shown ? 0 : -1;
+  nextBtn.setAttribute('aria-hidden', String(!shown));
+}
+
 function stopInfinite() {
   clearInterval(infiniteInterval);
   infiniteInterval = null;
   infiniteRunning  = false;
   muteAudio();
+  showNext(false);
   startBtn.textContent = 'PLAY';
   startBtn.classList.remove('playing');
   infoEl.classList.remove('active');
@@ -521,6 +531,7 @@ startBtn.addEventListener('click', async () => {
 
   startBtn.textContent = 'STOP';
   startBtn.classList.add('playing');
+  showNext(true);
   infoEl.classList.add('active');
   stateEl.classList.add('active');
 
@@ -544,7 +555,15 @@ startBtn.addEventListener('click', async () => {
   infiniteInterval = setInterval(() => {
     tick();
     updateInfiniteDisplay();
+    if (eraAt === null) nextBtn.classList.remove('pending');
   }, TICK_MS);
+});
+
+// Moves on to a new era at the next bar line, without stopping.
+nextBtn.addEventListener('click', () => {
+  if (!infiniteRunning) return;
+  requestEra();
+  if (eraAt !== null) nextBtn.classList.add('pending');
 });
 
 // ─── Manual helpers ───────────────────────────────────────────────────────────
@@ -760,20 +779,18 @@ manualExportBtn.addEventListener('click', async () => {
 });
 
 // ─── Clear instruments ────────────────────────────────────────────────────────
-clearInstrumentsBtn.addEventListener('click', () => {
-  if (manualPlaying) stopManualPlayback();
-  Object.keys(manualEnabled).forEach(k => {
-    manualEnabled[k] = false;
-    if (cbElements[k]) cbElements[k].checked = false;
-  });
-  updatePlayEnabled();
-});
+clearInstrumentsBtn.addEventListener('click', () => setInstruments(new Set()));
 
 // ─── Collapsible sections ─────────────────────────────────────────────────────
+// An accordion: opening one section closes the others, which keeps the panel
+// short (the collapsed ones still show their summary line).
+const sections = document.querySelectorAll('.collapsible-section');
 document.querySelectorAll('.section-header').forEach(header => {
   header.addEventListener('click', e => {
-    if (e.target.closest('.clear-btn')) return;
-    header.closest('.collapsible-section').classList.toggle('collapsed');
+    if (e.target.closest('.header-btn')) return;
+    const section = header.closest('.collapsible-section');
+    const opening = section.classList.contains('collapsed');
+    sections.forEach(s => s.classList.toggle('collapsed', !(opening && s === section)));
   });
 });
 
@@ -830,29 +847,8 @@ function applyConfig(cfg) {
   state.harmonyLock  = cfg.hl ?? state.harmonyLock;
   state.chordBeats   = cfg.cb ?? state.chordBeats;
   state.room         = cfg.rm ?? state.room;
-
-  rootSelect.value        = state.rootMidi - ROOT_BASE_MIDI;
-  scaleSelect.value       = state.scaleIdx;
-  bpmSlider.value         = state.tempo;
-  bpmValue.textContent    = state.tempo;
-  densitySlider.value     = state.density;
-  densityVal.textContent  = state.density.toFixed(2);
-  brightSlider.value      = state.brightness;
-  brightVal.textContent   = state.brightness.toFixed(2);
-  spaceSlider.value       = state.spaciousness;
-  spaceVal.textContent    = state.spaciousness.toFixed(2);
-  harmonySlider.value     = state.harmonyLock;
-  harmonyVal.textContent  = state.harmonyLock.toFixed(2);
-  chordSlider.value       = state.chordBeats;
-  chordVal.textContent    = state.chordBeats;
-  roomSelect.value        = state.room;
-
-  const enabled = new Set(cfg.m || []);
-  Object.keys(manualEnabled).forEach(k => {
-    manualEnabled[k] = enabled.has(k);
-    if (cbElements[k]) cbElements[k].checked = enabled.has(k);
-  });
-  updatePlayEnabled();
+  showFeel();
+  setInstruments(new Set(cfg.m || []));
 }
 
 manualShareBtn.addEventListener('click', () => {
@@ -868,6 +864,7 @@ manualShareBtn.addEventListener('click', () => {
 
 // ─── Boot ─────────────────────────────────────────────────────────────────────
 startAnimation();
+showFeel();
 
 // Restore config from URL hash (after all UI is wired)
 const _hashMatch = location.hash.match(/[#&]c=([A-Za-z0-9\-_]+)/);

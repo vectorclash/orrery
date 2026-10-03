@@ -92,6 +92,7 @@ export function startSession(t) {
   for (const v of ALL_VOICES) v.reset();
   lastTickTime = 0;
   eraTimer = 0;
+  eraAt = null;
 }
 
 // ─── Space ────────────────────────────────────────────────────────────────────
@@ -107,6 +108,17 @@ export function roomFor(spaciousness, tempo) {
 // ─── Era / evolution ──────────────────────────────────────────────────────────
 export let eraTimer = 0;
 export const ERA_DURATION = 38;
+
+// Beat position of a requested era change (infinite mode's NEXT), or null.
+// Lands on the next bar line rather than waiting for the era to run out:
+// a bar line keeps the drums and the new chord progression on the grid.
+// It's computed from now + LOOKAHEAD, which is past anything already
+// scheduled, so no note gets scheduled in the old key after it.
+export let eraAt = null;
+export function requestEra() {
+  if (!audio.started || eraAt !== null) return;
+  eraAt = transport.nextBeat(audio.ctx.currentTime + LOOKAHEAD, 4);
+}
 
 // Starts the new era exactly at beat `at` (a chord change).
 function advanceEra(at) {
@@ -168,10 +180,11 @@ export function tick({ skipBass = false, skipEvolve = false } = {}) {
     // A new era waits for the next chord change. Everything before the change
     // is scheduled in the old key, then the key/scale/tempo switch, then the
     // rest of the window is scheduled in the new one.
-    const at = harmony.nextChange;
-    if (eraTimer >= ERA_DURATION && transport.timeAt(at) < now + LOOKAHEAD) {
+    const at = eraAt ?? harmony.nextChange;
+    if ((eraAt !== null || eraTimer >= ERA_DURATION) && transport.timeAt(at) < now + LOOKAHEAD) {
       runVoices(now, transport.timeAt(at), skipBass);
       eraTimer = 0;
+      eraAt = null;
       advanceEra(at);
     }
   }
