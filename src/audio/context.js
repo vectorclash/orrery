@@ -438,12 +438,18 @@ const LEVEL_TAU       = 4;   // seconds of history
 const LEVEL_GATE_DB   = 20;  // below target − this, hold
 
 export function updateLevel() {
+  if (!audio.level) return;
+  audio.meter.getFloatTimeDomainData(audio.level.data);
+  rideLevel(audio.ctx.currentTime);
+}
+
+// The leveller's move for the meter reading in audio.level.data, taken at
+// audio time `now`. The export fills in readings itself where it can't take
+// them mid-render (see src/render.js).
+export function rideLevel(now) {
   const lv = audio.level;
-  if (!lv) return;
-  const now = audio.ctx.currentTime;
-  const dt  = Math.min(1, now - lv.last);
+  const dt = Math.min(1, now - lv.last);
   lv.last = now;
-  audio.meter.getFloatTimeDomainData(lv.data);
   let e = 0;
   for (let i = 0; i < lv.data.length; i++) e += lv.data[i] * lv.data[i];
   e /= lv.data.length;
