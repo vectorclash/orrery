@@ -6,7 +6,8 @@ import {
   bellVoice, arpeggioVoice, malletVoice, droneVoice, fluteVoice,
   choirVoice, stringsVoice, rhodesVoice, organVoice, glassVoice,
   harpVoice, brassVoice, drumsVoice,
-  vibraphoneVoice, clavinetVoice, sitarVoice, kalimbaVoice,
+  vibraphoneVoice, clavinetVoice, sitarVoice, kalimbaVoice, supersawVoice,
+  junoVoice, solinaVoice, synthbrassVoice, monoleadVoice,
   activeVoices, eraTimer, ERA_DURATION, eraAt, requestEra,
 } from './audio/scheduler.js';
 import { startAnimation } from './visuals/animate.js';
@@ -36,13 +37,14 @@ const BASS_SUBTYPES  = ['sub','plucked','walking','synth','rumble'];
 const DRUMS_SUBTYPES = [
   'minimal','four_four','house','funk','boombap','breakbeat','jungle','garage','trap','halftime',
   'shuffle','swing','brushes','bossanova','reggae','dembow','afro','cinematic','ghost',
+  'synthwave','outrun',
 ];
 const BASS_LABELS    = { sub:'SUB', plucked:'PLUCK', walking:'WALK', synth:'SYNTH', rumble:'RUMBLE' };
 const DRUMS_LABELS   = {
   minimal:'MINIMAL', four_four:'4/4', house:'HOUSE', funk:'FUNK', boombap:'BOOM BAP', breakbeat:'BREAK',
   jungle:'JUNGLE', garage:'2-STEP', trap:'TRAP', halftime:'HALF TIME', shuffle:'SHUFFLE', swing:'SWING',
   brushes:'BRUSHES', bossanova:'BOSSA', reggae:'ONE DROP', dembow:'DEMBOW', afro:'AFRO 12/8',
-  cinematic:'CINEMATIC', ghost:'GHOST',
+  cinematic:'CINEMATIC', ghost:'GHOST', synthwave:'SYNTHWAVE', outrun:'OUTRUN',
 };
 
 const SIMPLE_VOICES = [
@@ -66,7 +68,13 @@ const SIMPLE_VOICES = [
   { key:'clavinet',   voice:clavinetVoice },
   { key:'sitar',      voice:sitarVoice },
   { key:'kalimba',    voice:kalimbaVoice },
+  { key:'supersaw',   voice:supersawVoice },
+  { key:'juno',       voice:junoVoice },
+  { key:'solina',     voice:solinaVoice },
+  { key:'synthbrass', voice:synthbrassVoice, label:'SYNTH BRASS' },
+  { key:'monolead',   voice:monoleadVoice,   label:'MONO LEAD' },
 ];
+const voiceLabel = ({ key, label }) => label ?? key.toUpperCase();
 // Canonical instrument order for the share-link bitmask. Spelled out rather
 // than derived from the display lists above, so reordering the UI can never
 // silently remap old links. Only ever append.
@@ -79,7 +87,10 @@ const ALL_INST_KEYS = [
   // added with the expanded drum machine
   'drums:house','drums:funk','drums:boombap','drums:garage','drums:swing','drums:brushes',
   'drums:reggae','drums:dembow','drums:afro','drums:cinematic',
-]; // 44 keys: bits 0–39 in bytes 6–10, bits 40–47 in byte 13 (byte 14 is the room)
+  'supersaw',
+  // the 80s instruments
+  'drums:synthwave','drums:outrun','juno','solina','synthbrass','monolead',
+]; // 51 keys: bits 0–39 in bytes 6–10, 40–47 in byte 13, 48–55 in byte 15 (byte 14 is the room)
 
 // ─── UI refs ──────────────────────────────────────────────────────────────────
 const startBtn        = document.getElementById('start-btn');
@@ -199,7 +210,7 @@ function enabledInstrumentLabels() {
   return [
     ...BASS_SUBTYPES.filter(s => manualEnabled[`bass:${s}`]).map(s => `${BASS_LABELS[s]} BASS`),
     ...DRUMS_SUBTYPES.filter(s => manualEnabled[`drums:${s}`]).map(s => `${DRUMS_LABELS[s]} DRUMS`),
-    ...SIMPLE_VOICES.filter(({ key }) => manualEnabled[key]).map(({ key }) => key.toUpperCase()),
+    ...SIMPLE_VOICES.filter(({ key }) => manualEnabled[key]).map(voiceLabel),
   ];
 }
 
@@ -362,7 +373,7 @@ voiceGroups.appendChild(divider);
 
 const grid = document.createElement('div');
 grid.className = 'inst-grid';
-SIMPLE_VOICES.forEach(({ key }) => grid.appendChild(makeCheckbox(key, key.toUpperCase())));
+SIMPLE_VOICES.forEach(v => grid.appendChild(makeCheckbox(v.key, voiceLabel(v))));
 voiceGroups.appendChild(grid);
 
 // Replaces the whole instrument selection with `keys`.
@@ -795,17 +806,17 @@ document.querySelectorAll('.section-header').forEach(header => {
 });
 
 // ─── Share / restore config via URL hash ─────────────────────────────────────
-// Binary pack: 15 bytes → 20 base64url chars
+// Binary pack: 16 bytes → 22 base64url chars
 // [rootOffset(1), scale(1), tempo(1), density×100(1), brightness×100(1),
 //  spaciousness×100(1), instBitmask bits 0–39 (5 bytes),
 //  harmonyLock×100(1), chordBeats(1), instBitmask bits 40–47 (1 byte),
-//  room index(1)]
-// Fields were appended over time; older 11-, 13- and 14-byte links still decode
-// (missing fields fall back to current/default values).
-const instByte = i => (i < 40 ? 6 + (i >> 3) : 13 + ((i - 40) >> 3));
+//  room index(1), instBitmask bits 48–55 (1 byte)]
+// Fields were appended over time; older 11-, 13-, 14- and 15-byte links still
+// decode (missing fields fall back to current/default values).
+const instByte = i => (i < 40 ? 6 + (i >> 3) : i < 48 ? 13 : 15);
 
 function encodeConfig() {
-  const b = new Uint8Array(15);
+  const b = new Uint8Array(16);
   b[0] = state.rootMidi - ROOT_BASE_MIDI;
   b[1] = state.scaleIdx;
   b[2] = state.tempo;

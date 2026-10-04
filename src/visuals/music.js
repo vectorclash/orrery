@@ -12,8 +12,9 @@ import { state, currentScale } from '../state.js';
 
 const ROLE = {
   bass: 'bass',
-  drone: 'bed', pad: 'bed', strings: 'bed', choir: 'bed', organ: 'bed',
-  melody: 'lead', flute: 'lead', brass: 'lead', sitar: 'lead', vibraphone: 'lead',
+  drone: 'bed', pad: 'bed', strings: 'bed', choir: 'bed', organ: 'bed', supersaw: 'bed',
+  juno: 'bed', solina: 'bed', synthbrass: 'bed',
+  melody: 'lead', flute: 'lead', brass: 'lead', sitar: 'lead', vibraphone: 'lead', monolead: 'lead',
   arpeggio: 'motion', harp: 'motion', pluck: 'motion', kalimba: 'motion',
   mallet: 'motion', clavinet: 'motion', rhodes: 'motion',
   bell: 'air', glass: 'air', texture: 'air',
@@ -22,6 +23,7 @@ const HIT = {
   kick: 'kick', k808: 'kick', taiko: 'kick',
   snare: 'snare', clap: 'snare', rim: 'snare', btap: 'snare',
   tomLo: 'snare', tomHi: 'snare', congaLo: 'snare', congaHi: 'snare', bell: 'snare',
+  gsnare: 'snare', simLo: 'snare', simMid: 'snare', simHi: 'snare',
   hat: 'hat', ohat: 'hat', ride: 'hat', shaker: 'hat', swish: 'hat', crash: 'crash',
 };
 const HIT_DECAY = { kick: 0.14, snare: 0.12, hat: 0.06, crash: 0.8 };

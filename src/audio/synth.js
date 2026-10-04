@@ -68,6 +68,102 @@ export function lfo(hz, depth, t, stop, delay = 0, fadeIn = 0.3) {
   return g;
 }
 
+// ─── Modulation effects ───────────────────────────────────────────────────────
+// Built into an instrument the way they were built into the hardware, one per
+// chord or note, so they stop with it. Each returns { input, output }; the
+// input is mono, the output stereo.
+
+// A free-running LFO: a cached one-cycle buffer, looped, and started at the
+// phase it would have reached had it been running since time zero. Effects
+// made per chord therefore sweep on continuously from one chord to the next,
+// as a single hardware LFO would, instead of restarting at every change.
+// `shift` offsets the phase by a fraction of a cycle. Output is ±1.
+const cycles = new Map();
+function freeLfo(shape, hz, t, stop, shift = 0) {
+  const ctx = audio.ctx, key = `${shape}|${hz}|${ctx.sampleRate}`;
+  if (!cycles.has(key)) {
+    const n = Math.round(ctx.sampleRate / hz), buf = ctx.createBuffer(1, n, ctx.sampleRate), d = buf.getChannelData(0);
+    for (let i = 0; i < n; i++) {
+      const p = i / n;
+      d[i] = shape === 'triangle' ? (p < 0.25 ? 4 * p : p < 0.75 ? 2 - 4 * p : 4 * p - 4) : Math.sin(2 * Math.PI * p);
+    }
+    cycles.set(key, buf);
+  }
+  const src = ctx.createBufferSource();
+  src.buffer = cycles.get(key);
+  src.loop = true;
+  const period = src.buffer.duration;
+  src.start(t, (((t / period + shift) % 1) + 1) % 1 * period);
+  src.stop(stop);
+  return src;
+}
+
+// Juno-60 chorus: the signal through a short delay swept by a triangle LFO,
+// mixed with the dry sound. The right channel's sweep runs opposite the
+// left's, so the two sides detune in opposite directions and the sound
+// spreads wide without any second oscillator. Mode I is slow and gentle
+// (0.51 Hz), mode II faster (0.86 Hz); the delay swings 1.66–5.35 ms.
+export function chorus(t, stop, mode = 1) {
+  const ctx = audio.ctx;
+  const input = gain(1), output = ctx.createChannelMerger(2);
+  const sweep = gain(0.00185), inverse = gain(-1);
+  freeLfo('triangle', mode === 2 ? 0.863 : 0.513, t, stop).connect(sweep);
+  sweep.connect(inverse);
+  [sweep, inverse].forEach((mod, ch) => {
+    const d = ctx.createDelay(0.01), dry = gain(0.7), wet = gain(0.7);
+    d.delayTime.value = 0.0035;
+    mod.connect(d.delayTime);
+    input.connect(dry); input.connect(d); d.connect(wet);
+    dry.connect(output, 0, ch); wet.connect(output, 0, ch);
+  });
+  return { input, output };
+}
+
+// String-machine ensemble (the Solina's): three delay lines, each swept by a
+// slow and a fast sine, the three a third of a cycle apart, wet only. The
+// slow sweep is the chorus, the fast one the shimmer that makes a single
+// oscillator per note sound like a section.
+export function ensemble(t, stop) {
+  const ctx = audio.ctx;
+  const input = gain(1), output = ctx.createChannelMerger(2);
+  const lines = [0, 1, 2].map(k => {
+    const d = ctx.createDelay(0.02);
+    d.delayTime.value = 0.007;
+    for (const [hz, depth] of [[0.63, 0.0016], [6.3, 0.0001]]) {
+      const g = gain(depth);
+      freeLfo('sine', hz, t, stop, k / 3).connect(g);
+      g.connect(d.delayTime);
+    }
+    input.connect(d);
+    return d;
+  });
+  // Outer lines to their own side, the middle one to both.
+  const mid = gain(0.7);
+  lines[0].connect(output, 0, 0);
+  lines[2].connect(output, 0, 1);
+  lines[1].connect(mid); mid.connect(output, 0, 0); mid.connect(output, 0, 1);
+  return { input, output };
+}
+
+// Two-stage phaser (an Electro-Harmonix Small Stone, more or less): allpass
+// filters swept by a slow LFO, mixed with the dry sound, so two notches glide
+// up and down the spectrum. The sweep is in cents, so it's even in pitch.
+// Takes and returns stereo.
+export function phaser(t, stop, rate = 0.22) {
+  const input = gain(1), output = gain(0.7);
+  const sweep = gain(1900);
+  freeLfo('sine', rate, t, stop).connect(sweep);
+  let node = input;
+  for (let i = 0; i < 2; i++) {
+    const ap = filter('allpass', 650, 0.5);
+    sweep.connect(ap.detune);
+    node.connect(ap);
+    node = ap;
+  }
+  input.connect(output); node.connect(output);
+  return { input, output };
+}
+
 // ─── Waveshaping ──────────────────────────────────────────────────────────────
 const curves = new Map();
 // Soft saturation (tanh). `bias` adds asymmetry → even harmonics.

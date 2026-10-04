@@ -20,9 +20,9 @@ Click **PLAY** to start. The button toggles to **STOP**, allowing playback to be
 
 Full control over every parameter. The panel is divided into three collapsible sections — **GENRE**, **FEEL**, and **INSTRUMENTS** — to reduce visual clutter.
 
-**Genre presets** (AMBIENT, DARK, JAZZ, ELEC, ORCH, ZEN, BLUES, FOLK, DREAM, FUNK, EPIC) instantly configure a musically coherent combination of scale, tempo, density, brightness, spaciousness, and the two harmony controls — e.g. JAZZ and BLUES loosen the chord-tone lock and move chords every 4 beats, while AMBIENT, ZEN, and DREAM keep tight, consonant voices over long 8-beat chords. **RANDOM** picks a fresh random combination of all parameters and instruments. Entering Manual mode with no instruments selected automatically randomises.
+**Genre presets** (AMBIENT, DARK, JAZZ, ELEC, ORCH, ZEN, BLUES, FOLK, DREAM, FUNK, EPIC) instantly configure a musically coherent combination of scale, tempo, density, brightness, spaciousness, room, and the two harmony controls — e.g. JAZZ and BLUES loosen the chord-tone lock and move chords every 4 beats, while AMBIENT, ZEN, and DREAM keep tight, consonant voices over long 8-beat chords. **RANDOM** picks a fresh random combination of all parameters and instruments. Entering Manual mode with no instruments selected automatically randomises.
 
-**SHARE** encodes the full current configuration — key, scale, tempo, all five feel sliders, and every enabled instrument — as a 14-byte binary payload in the URL hash (`#c=…`, 19 base64url characters). Clicking the button copies the URL to the clipboard. Loading that URL restores the exact configuration. Fields have only ever been appended, so older 11- and 13-byte links still load (missing fields fall back to their defaults). The instrument bitmask order is spelled out in `ALL_INST_KEYS` and must only ever be appended to.
+**SHARE** encodes the full current configuration — key, scale, tempo, all five feel sliders, and every enabled instrument — as a 16-byte binary payload in the URL hash (`#c=…`, 22 base64url characters), room included. Clicking the button copies the URL to the clipboard. Loading that URL restores the exact configuration. Fields have only ever been appended, so older 11-, 13-, 14- and 15-byte links still load (missing fields fall back to their defaults). The instrument bitmask order is spelled out in `ALL_INST_KEYS` and must only ever be appended to.
 
 **Controls:**
 | Control | Range | Effect |
@@ -98,7 +98,7 @@ Every style lands the chord root on each chord arrival and never holds a note ac
 
 ### Instruments
 
-Twenty instruments in four roles. Infinite mode builds each era's arrangement from roles — one or two **bed** voices, usually one **lead**, one or two **motion** voices, sometimes **air**, drums about a third of the time — instead of drawing at random (which could produce four melodies and no harmony).
+Twenty-five instruments in four roles. Infinite mode builds each era's arrangement from roles — one or two **bed** voices, usually one **lead**, one or two **motion** voices, sometimes **air**, drums about a third of the time — instead of drawing at random (which could produce four melodies and no harmony).
 
 #### Bed — chordal, change on the harmonic rhythm, voice-led
 
@@ -109,6 +109,10 @@ Twenty instruments in four roles. Infinite mode builds each era's arrangement fr
 | **Choir** | Formant synthesis: the chord's detuned saws (plus a breath of aspiration noise) feed one bank of three band-pass filters tuned to the formants F1–F3 of a vowel (alto tables), which glides from one vowel to another ("ooh" → "aah") over the chord. Vibrato from two slightly different LFOs |
 | **Organ** | Tonewheel drawbars at true organ footages (16′ 5⅓′ 8′ 4′ … = 0.5, 1.5, 1, 2 … × pitch), 3 dB per drawbar step, one of five classic registrations per session; one Leslie rotor for the whole chord (amplitude + Doppler pitch wobble, chorale or tremolo speed); percussion (decaying 2⅔′) and key click |
 | **Drone** | Tonic + perfect fifth pedal, detuned pairs, very slow filter sweep; successive drones cross-fade, and a key change releases the old one |
+| **Supersaw** | Roland JP-8000 style: seven saws per note on its uneven detune curve (inner pairs close, outer pair ±28 cents), side saws split left and right with one of every width on each side, each saw started at its own phase so they don't flange as they drift apart. A much brighter filter than the pad (1.5–7.5 kHz with Brightness) that swells open with the attack |
+| **Juno** | Roland Juno-60 pad: one oscillator per note (saw plus a square sub-oscillator an octave down, no detuning), a 24 dB/oct lowpass (two cascaded stages) that opens with the attack, and the Juno chorus — mode I or II per session — which is where all its width comes from |
+| **Solina** | String machine (ARP Solina String Ensemble): one plain saw per note at 8′ plus a quieter 4′, slow swell and long fade, through the string ensemble (three delay lines swept by a slow and a fast LFO, a third of a cycle apart). Some sessions add a two-stage phaser after it, Jarre-style |
+| **Synth brass** | Two detuned saws per note into a lowpass that carries the brass shape, in one of two settings per session: *stab* (Oberheim OB-Xa: a fast bright "blat" settling to a darker sustain) or *swell* (Yamaha CS-80, Vangelis: the filter climbs slowly with the level, then vibrato arrives) |
 
 #### Lead — phrase generator, call and response
 
@@ -119,6 +123,7 @@ Twenty instruments in four roles. Infinite mode builds each era's arrangement fr
 | **Brass** | Brightness follows loudness (lowpass "bloom"), pitch scoops up as the lips lock on, delayed vibrato; strong notes are sometimes harmonised a third below |
 | **Sitar** | Bright Karplus–Strong string plucked near the bridge, through an asymmetric waveshaper and presence band (the buzzing *jawari* bridge); *meend* glides from the previous note when it is close; sympathetic strings ring when the played pitch class matches |
 | **Vibraphone** | Tuned bar partials at 1 : 4 : ~10, motor tremolo (speed chosen per session, sometimes off), soft mallet contact, pedal-length ring |
+| **Mono lead** | The synthwave lead: saw and square a few cents apart through a resonant lowpass with its own envelope. Monophonic — a new note cuts the old one, and connected notes glide (portamento, up to 70 ms and never more than a quarter of the note). Delayed vibrato, Juno chorus, plenty of echo |
 
 #### Motion — rhythmic figures
 
@@ -165,8 +170,10 @@ A step sequencer: one bar per pattern, written as strings (`X` accent, `x` hit, 
 | AFRO 12/8 | 12 | West African standard bell pattern, shaker, congas tuned to the key |
 | CINEMATIC | 16 | Taiko hits, tom ostinato tuned to the key, tom fills |
 | GHOST | 16 | Very sparse, atmospheric |
+| SYNTHWAVE | 16 | 80s drum machine: kick 1, 3, 3&, gated snare on 2 & 4, eighth hats, Simmons tom fills |
+| OUTRUN | 16 | Four on the floor, gated snare, driving sixteenth hats, Simmons tom fills |
 
-**Kit** (all synthesised): kick (sine sweep, soft saturation for small speakers, beater click) · 808 kick (long boom tuned to the key root) · snare (two shell modes + band-passed wires) · clap (three hands + room tail) · cross-stick · hi-hats (TR-808 "metal": six square waves at inharmonic frequencies, band-passed; closing the hat chokes a ringing open hat) · ride (noise wash + metal shimmer + stick ping) · crash · toms and congas (tuned to root and fifth) · taiko · shaker · cowbell · brush sweep and tap. Kick, snare and clap sit centre; the other pieces are spread across the stereo field.
+**Kit** (all synthesised): kick (sine sweep, soft saturation for small speakers, beater click) · 808 kick (long boom tuned to the key root) · snare (two shell modes + band-passed wires) · clap (three hands + room tail) · cross-stick · hi-hats (TR-808 "metal": six square waves at inharmonic frequencies, band-passed; closing the hat chokes a ringing open hat) · ride (noise wash + metal shimmer + stick ping) · crash · toms and congas (tuned to root and fifth) · taiko · shaker · cowbell · brush sweep and tap · for the 80s styles, a gated snare (a deeper body and longer wires, mostly heard through a gated reverb: an impulse of dense noise that holds its level for 0.32 s and then stops dead, the AMS RMX16 "nonlinear" trick) and Simmons SDS-V toms (pitch falling steeply through the note — the "pew" — tuned to root, fifth and octave, partly through the gated reverb). Kick, snare and clap sit centre; the other pieces are spread across the stereo field.
 
 Kick and snare levels scale with `density`; cymbals and shaker with `brightness`.
 
@@ -192,7 +199,9 @@ Pluck, harp, sitar, clavinet and the plucked/walking bass use a physical string 
 
 ### Mix and effects
 
-- **Reverb:** a stereo impulse of decaying noise whose spectrum darkens over the tail (real rooms absorb highs faster than lows), with 22 ms pre-delay and a 180 Hz high-pass on the send so the low end stays dry and clear.
+- **Spaces (ROOM control):** each is a room and a hall that belong together. Every dry signal shares the room's early reflections and short tail; the per-voice reverb sends feed the hall, a stereo impulse of decaying noise whose spectrum darkens over the tail (real rooms absorb highs faster than lows), behind a pre-delay and a 180 Hz high-pass so the low end stays dry and clear. STUDIO, ROOM, HALL and CATHEDRAL grow in size; changing space crossfades the inputs and lets the old tail ring out.
+- **Shimmer:** the SHIMMER space is not a real place. Its 7 s tail stays bright, and an octave-up pitch shifter sits in the hall's feedback loop, so each pass through the tail comes back an octave higher: a chord blooms upward into its own upper octaves. The shifter is the delay-line kind (two Hann-windowed taps whose delay shrinks at one second per second, restarting every 100 ms, half a grain apart). Nothing goes round the loop twice at the same pitch, and a 250 Hz–3 kHz band limit lets the top octaves fade out instead of climbing into fizz. On a 440 Hz note the octave sits 6–10 dB under it for the first few seconds.
+- **Built-in modulation effects:** the 80s instruments carry their own, as the hardware did — the Juno chorus (a delay swept 1.66–5.35 ms by a triangle LFO, the right side swept opposite the left), the string ensemble and a phaser. Each chord or note gets its own, but its LFO is free-running: it starts at the phase it would have reached had it been running all along, so the sweep carries on smoothly across chord changes instead of restarting.
 - **Echo:** a tempo-synced ping-pong delay (dotted eighth) with band-limited repeats, used by the arpeggio, kalimba, bell, texture and melody. Its time follows tempo changes.
 - **Master:** 30 Hz high-pass and a gentle compressor, as before.
 - **Levels:** every voice was measured offline (ITU-R BS.1770 loudness) and balanced by role — beds ≈ −24 LUFS, bass ≈ −22 to −26, leads ≈ −27, motion ≈ −30, air ≈ −32, drum kits ≈ −25 (jazz kits ≈ −29) when soloed. Previously the spread was over 40 dB (the pluck was effectively silent).
@@ -293,6 +302,8 @@ setInterval (60ms)
 
 voice ─► [per-voice panner] ─► session dry ─────────────► masterGain ─► analyser ─► 30 Hz HP ─► compressor ─► out
       └─► session reverb send ─► pre-delay ─► 180 Hz HP ─► convolver ─► reverbGain ─┘
+                                                            ▲   └─► (SHIMMER) band-limit ─► octave-up shifter ─┐
+                                                            └───────────────────────────────────────────────────┘
       └─► session echo send ─► band-limit ─► ping-pong delay ─► masterGain (+ a little into the reverb)
 
 requestAnimationFrame

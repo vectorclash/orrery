@@ -181,6 +181,85 @@ function brushTap(t, v) {
   send(env, audio.reverbSend, 0.2);
 }
 
+// ─── 80s pieces ───────────────────────────────────────────────────────────────
+// Gated reverb, the drum sound of the 80s: a big, dense room that is cut off
+// dead after a third of a second, so the snare sounds enormous but never
+// washes over the next beat. Rather than gating a real reverb, the impulse
+// itself has the gated shape — dense noise that holds its level and then
+// stops, which is what the AMS RMX16's "nonlinear" program did. One per
+// session (it follows the session's dry bus), shared by the 80s pieces.
+const GATE_SECONDS = 0.32;
+const gateImpulses = new Map();
+function gateImpulse(ctx) {
+  const sr = ctx.sampleRate;
+  if (!gateImpulses.has(sr)) {
+    const len = Math.floor(sr * GATE_SECONDS), buf = ctx.createBuffer(2, len, sr);
+    for (let ch = 0; ch < 2; ch++) {
+      const d = buf.getChannelData(ch);
+      let y = 0, e = 0;
+      for (let i = 0; i < len; i++) {
+        y += 0.55 * ((Math.random() * 2 - 1) - y);
+        const build = Math.min(1, i / (sr * 0.008));
+        const hold  = 1 - 0.3 * i / len;                 // sags a little, but doesn't decay
+        const cut   = Math.min(1, (len - i) / (sr * 0.01)); // the gate closing
+        d[i] = y * build * hold * cut;
+        e += d[i] * d[i];
+      }
+      for (let i = 0; i < len; i++) d[i] /= Math.sqrt(e);
+    }
+    gateImpulses.set(sr, buf);
+  }
+  return gateImpulses.get(sr);
+}
+let gate = null;
+function gateIn() {
+  if (gate?.dry !== audio.dry) {
+    const c = audio.ctx.createConvolver();
+    c.normalize = false;
+    c.buffer = gateImpulse(audio.ctx);
+    c.connect(audio.dry);
+    gate = { dry: audio.dry, input: c };
+  }
+  return gate.input;
+}
+
+// Snare for the gated room: a deeper body than the acoustic one, longer
+// wires, and most of its size from the gate.
+function gatedSnare(t, v) {
+  const hit = gain(1);
+  for (const [f, level, decay] of [[180, 0.6, 0.12], [320, 0.3, 0.07]]) {
+    const o = osc('triangle', f * 1.15, t, t + decay + 0.05), e = gain(0);
+    o.frequency.setValueAtTime(f * 1.15, t);
+    o.frequency.exponentialRampToValueAtTime(f, t + 0.025);
+    perc(e.gain, t, v * level, decay, 0.001);
+    o.connect(e); e.connect(hit);
+  }
+  const wires = noise(t, 0.3), bp = filter('bandpass', 3000, 0.5), hp = filter('highpass', 900), e = gain(0);
+  perc(e.gain, t, v, 0.2, 0.001);
+  wires.connect(bp); bp.connect(hp); hp.connect(e); e.connect(hit);
+  const wet = gain(1.2);
+  hit.connect(out()); hit.connect(wet); wet.connect(gateIn());
+}
+
+// Simmons SDS-V electronic tom: an oscillator whose pitch falls steeply
+// through the whole note (the "pew"), a filtered-noise stick attack, and some
+// of the gated room. Tuned to the key: root, fifth and octave.
+function simmons(t, v, hz, piece) {
+  const o = osc('triangle', hz * 2.2, t, t + 0.6), body = gain(0);
+  o.frequency.setValueAtTime(hz * 2.2, t);
+  o.frequency.exponentialRampToValueAtTime(hz * 0.7, t + 0.5);
+  perc(body.gain, t, v, 0.5, 0.001);
+  const n = noise(t, 0.06), bp = filter('bandpass', hz * 6, 1.2), stick = gain(0);
+  perc(stick.gain, t, v * 0.4, 0.04, 0.0005);
+  const hit = gain(1), wet = gain(0.5);
+  o.connect(body); body.connect(hit);
+  n.connect(bp); bp.connect(stick); stick.connect(hit);
+  hit.connect(out(piece)); hit.connect(wet); wet.connect(gateIn());
+}
+const simLo  = (t, v) => simmons(t, v, midiToHz(fold(state.rootMidi, 38, 49)), 'tomLo');
+const simMid = (t, v) => simmons(t, v, midiToHz(fold(state.rootMidi + 7, 45, 56)), 'tomMid');
+const simHi  = (t, v) => simmons(t, v, midiToHz(fold(state.rootMidi + 12, 50, 61)), 'tomHi');
+
 // Per-piece loudness (before density/brightness scaling and velocity).
 const KIT = {
   kick:    [kick,    0.32],  k808:  [kick808, 0.28], snare:   [snare,   0.2],
@@ -190,6 +269,8 @@ const KIT = {
   congaLo: [congaLo, 0.2],   congaHi: [congaHi, 0.18], taiko: [taiko,   0.3],
   shaker:  [shaker,  0.06],  bell:  [cowbell, 0.07], swish:   [swish,   0.3],
   btap:    [brushTap, 0.34],
+  gsnare:  [gatedSnare, 0.2], simLo: [simLo,   0.26], simMid:  [simMid,  0.24],
+  simHi:   [simHi,   0.22],
 };
 
 // ─── Patterns ─────────────────────────────────────────────────────────────────
@@ -289,6 +370,16 @@ const STYLES = {
     snare:  '....x.......x...',
     hat:    'x.o.x.o.x.o.x.o.',
     shaker: '.g.g.g.g.g.g.g.g' } },
+  // 80s drum machine: the rock beat with a gated snare and Simmons fills.
+  synthwave: { bpm: [80, 125], fill: 'simmons', tracks: {
+    kick:   'x.......x.x.....',
+    gsnare: '....x.......x...',
+    hat:    'x.o.x.o.x.o.x.o.' } },
+  // Outrun: four on the floor under driving sixteenths (Kavinsky, Carpenter Brut).
+  outrun: { bpm: [95, 130], fill: 'simmons', tracks: {
+    kick:   'x...x...x...x...',
+    gsnare: '....x.......x...',
+    hat:    'xoxoxoxoxoxoxoxo' } },
 };
 
 // Fills replace snare/toms/cymbals over the last beat (or two, every 8th bar).
@@ -296,13 +387,15 @@ const FILLS = {
   16: {
     snare: { 4: { snare: 'goxX' }, 8: { snare: 'g.gooxxX' } },
     tom:   { 4: { tomHi: 'xo..', tomLo: '..xx' }, 8: { snare: 'x.......', tomHi: '.xx.o...', tomLo: '....xxoX' } },
+    // Electronic toms rolling down from high to low.
+    simmons: { 4: { simHi: 'xx..', simMid: '..x.', simLo: '...x' }, 8: { simHi: 'xxo.....', simMid: '...xxo..', simLo: '......xX' } },
   },
   12: {
     snare: { 3: { snare: 'gox' }, 6: { snare: 'gogoxX' } },
     tom:   { 3: { tomHi: 'xo.', tomLo: '..x' }, 6: { tomHi: 'xxo...', tomLo: '...xoX' } },
   },
 };
-const FILL_REPLACES = ['snare', 'tomHi', 'tomLo', 'hat', 'ohat', 'ride', 'rim', 'clap'];
+const FILL_REPLACES = ['snare', 'gsnare', 'tomHi', 'tomLo', 'hat', 'ohat', 'ride', 'rim', 'clap'];
 
 // ─── Sequencer ────────────────────────────────────────────────────────────────
 let style = 'four_four';

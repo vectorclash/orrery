@@ -26,13 +26,19 @@ import { vibraphoneVoice } from './voices/vibraphone.js';
 import { clavinetVoice }   from './voices/clavinet.js';
 import { sitarVoice }      from './voices/sitar.js';
 import { kalimbaVoice }    from './voices/kalimba.js';
+import { supersawVoice }   from './voices/supersaw.js';
+import { junoVoice }       from './voices/juno.js';
+import { solinaVoice }     from './voices/solina.js';
+import { synthbrassVoice } from './voices/synthbrass.js';
+import { monoleadVoice }   from './voices/monolead.js';
 
 export {
   bassVoice, padVoice, melodyVoice, textureVoice, pluckVoice,
   bellVoice, arpeggioVoice, malletVoice, droneVoice, fluteVoice,
   choirVoice, stringsVoice, rhodesVoice, organVoice, glassVoice,
   harpVoice, brassVoice, drumsVoice,
-  vibraphoneVoice, clavinetVoice, sitarVoice, kalimbaVoice,
+  vibraphoneVoice, clavinetVoice, sitarVoice, kalimbaVoice, supersawVoice,
+  junoVoice, solinaVoice, synthbrassVoice, monoleadVoice,
 };
 
 // ─── Orchestration ────────────────────────────────────────────────────────────
@@ -41,8 +47,8 @@ export {
 // a harmonic bed, usually one lead line, something that moves, and
 // optionally some air on top and drums.
 const ROLES = {
-  bed:    [padVoice, stringsVoice, choirVoice, organVoice, droneVoice],
-  lead:   [melodyVoice, fluteVoice, brassVoice, sitarVoice, vibraphoneVoice],
+  bed:    [padVoice, stringsVoice, choirVoice, organVoice, droneVoice, supersawVoice, junoVoice, solinaVoice, synthbrassVoice],
+  lead:   [melodyVoice, fluteVoice, brassVoice, sitarVoice, vibraphoneVoice, monoleadVoice],
   motion: [arpeggioVoice, harpVoice, pluckVoice, kalimbaVoice, malletVoice, clavinetVoice, rhodesVoice],
   air:    [bellVoice, glassVoice, textureVoice],
 };

@@ -29,8 +29,9 @@ const NOISE_SECONDS = 2;
 
 // Stereo impulse response: decaying noise whose spectrum darkens over time.
 // Real rooms absorb high frequencies faster than lows; a tail that stays
-// uniformly bright sounds like hiss rather than space.
-function buildImpulse(ctx, seconds = 3.6, decay = 2.6) {
+// uniformly bright sounds like hiss rather than space. `darken` is how far
+// the lowpass closes by the end: 0.82 ends near 800 Hz, 0.4 near 5.6 kHz.
+function buildImpulse(ctx, seconds = 3.6, decay = 2.6, darken = 0.82) {
   const sr  = ctx.sampleRate;
   const len = Math.floor(sr * seconds);
   const buf = ctx.createBuffer(2, len, sr);
@@ -39,7 +40,7 @@ function buildImpulse(ctx, seconds = 3.6, decay = 2.6) {
     let y = 0;
     for (let i = 0; i < len; i++) {
       const x = i / len;
-      const k = 0.92 - 0.82 * x;          // one-pole lowpass coefficient: bright → dark
+      const k = 0.92 - darken * x;        // one-pole lowpass coefficient: bright → dark
       y += k * ((Math.random() * 2 - 1) - y);
       const norm = Math.sqrt((2 - k) / k); // keep noise power constant as the filter closes
       // A real tail builds up over its first ~40 ms as reflections multiply;
@@ -111,11 +112,17 @@ function buildRoom(ctx, rt60, er) {
 // signal for the nearest voices (others sit further back, see VOICE_DISTANCE);
 // `hallDb` scales the per-voice hall sends. `room` reproduces the original
 // single space.
+//
+// SHIMMER isn't a real place. Its tail stays bright instead of darkening, and
+// `shimmer` is the feedback level of an octave-up pitch shifter around the
+// hall (see makeShimmer). Order matters: share links store the index, so only
+// ever append.
 export const ROOMS = {
   studio:    { label: 'STUDIO',    rt60: 0.35, er: 35,  roomDb: -15, hall: [1.6, 3.4], hallDb: -5, preDelay: 0.008 },
   room:      { label: 'ROOM',      rt60: 0.7,  er: 70,  roomDb: -13, hall: [3.6, 2.6], hallDb: 0,  preDelay: 0.022 },
   hall:      { label: 'HALL',      rt60: 1.3,  er: 110, roomDb: -12, hall: [5.0, 2.3], hallDb: 1,  preDelay: 0.032 },
   cathedral: { label: 'CATHEDRAL', rt60: 2.2,  er: 160, roomDb: -11, hall: [8.0, 2.0], hallDb: 2,  preDelay: 0.045 },
+  shimmer:   { label: 'SHIMMER',   rt60: 1.3,  er: 110, roomDb: -12, hall: [7.0, 1.8, 0.4], hallDb: 1, preDelay: 0.04, shimmer: 0.35 },
 };
 
 // Impulses are noise-built and cost a few ms each, so they're made once per
@@ -132,6 +139,68 @@ function impulsesFor(name, ctx) {
 
 const dbToGain = db => Math.pow(10, db / 20);
 const SPACE_FADE = 0.25; // seconds; see setRoom()
+
+// ─── Shimmer ──────────────────────────────────────────────────────────────────
+// An octave-up pitch shifter in the hall's feedback loop: whatever the tail
+// holds comes back an octave higher and rings on, so a chord blooms upward
+// into its own upper octaves. Each pass climbs another octave until the
+// loop's lowpass takes it, which is also what keeps the loop from running
+// away: nothing goes round twice at the same pitch.
+//
+// The shifter is the delay-line kind. A delay that shrinks at one second
+// per second plays its input back twice as fast — an octave up. It can't
+// shrink forever, so two taps restart every grain, half a grain apart, each
+// faded in and out by a Hann window; the two windows sum to one. All four
+// control signals come from one looping buffer, so they can't drift apart.
+const GRAIN     = 0.1;   // seconds; shorter grains warble, longer ones echo
+const MIN_DELAY = 0.003; // a delay inside a feedback loop can't go below one render quantum
+const grains = new Map();
+function grainBuffer(ctx) {
+  const sr = ctx.sampleRate;
+  if (!grains.has(sr)) {
+    const n = Math.round(GRAIN * sr), buf = ctx.createBuffer(4, n, sr);
+    const [delA, winA, delB, winB] = [0, 1, 2, 3].map(c => buf.getChannelData(c));
+    for (let i = 0; i < n; i++) {
+      const b = (i + n / 2) % n;
+      delA[i] = MIN_DELAY + (n - i) / sr;
+      delB[i] = MIN_DELAY + (n - b) / sr;
+      winA[i] = Math.sin(Math.PI * i / n) ** 2;
+      winB[i] = Math.sin(Math.PI * b / n) ** 2;
+    }
+    grains.set(sr, buf);
+  }
+  return grains.get(sr);
+}
+
+// Wraps the convolver `hall` in the shimmer loop. Returns a handle whose
+// stop() halts the clock and disconnects the loop, for when the space goes.
+function makeShimmer(hall, level) {
+  const ctx = audio.ctx;
+  // Band-limit what goes round: no low end to smear upward, and a ceiling so
+  // the top octaves fade out rather than climbing into fizz.
+  const hp = ctx.createBiquadFilter(), lp = ctx.createBiquadFilter();
+  hp.type = 'highpass'; hp.frequency.value = 250;
+  lp.type = 'lowpass';  lp.frequency.value = 3000; lp.Q.value = 0.5;
+  const clock = ctx.createBufferSource();
+  clock.buffer = grainBuffer(ctx);
+  clock.loop = true;
+  const split = ctx.createChannelSplitter(4);
+  clock.connect(split);
+  const back = ctx.createGain();
+  back.gain.value = level;
+  hall.connect(hp); hp.connect(lp);
+  const nodes = [hp, lp, split, back];
+  for (const c of [0, 2]) {
+    const tap = ctx.createDelay(GRAIN + 0.01), win = ctx.createGain();
+    tap.delayTime.value = 0; win.gain.value = 0; // the clock supplies both
+    split.connect(tap.delayTime, c); split.connect(win.gain, c + 1);
+    lp.connect(tap); tap.connect(win); win.connect(back);
+    nodes.push(tap, win);
+  }
+  back.connect(hall);
+  clock.start();
+  return { stop() { clock.stop(); clock.disconnect(); for (const n of nodes) n.disconnect(); } };
+}
 
 // One space, fed from the session's room and hall buses. Its inputs start
 // closed; open() and close() fade them.
@@ -150,6 +219,7 @@ function makeSpace(name) {
   const hall = ctx.createConvolver();
   hall.buffer = ir.hall;
   session.hallBus.connect(hallIn); hallIn.connect(preDelay); preDelay.connect(hall); hall.connect(audio.reverbGain);
+  const shimmer = p.shimmer ? makeShimmer(hall, p.shimmer) : null;
 
   const fade = (param, to, at) => {
     param.cancelScheduledValues(at);
@@ -158,10 +228,10 @@ function makeSpace(name) {
   };
   return {
     name,
-    tail: Math.max(p.hall[0], p.rt60 * 1.3) + p.preDelay,
+    tail: Math.max(p.hall[0], p.rt60 * 1.3) * (shimmer ? 2 : 1) + p.preDelay, // shimmer octaves outlast the impulse
     open(at)  { fade(roomIn.gain, dbToGain(p.roomDb), at); fade(hallIn.gain, dbToGain(p.hallDb), at); },
     close(at) { fade(roomIn.gain, 0, at); fade(hallIn.gain, 0, at); },
-    disconnect() { roomIn.disconnect(); hallIn.disconnect(); room.disconnect(); hall.disconnect(); },
+    disconnect() { roomIn.disconnect(); hallIn.disconnect(); room.disconnect(); hall.disconnect(); shimmer?.stop(); },
   };
 }
 
@@ -193,6 +263,7 @@ const VOICE_PAN = {
   arpeggio: 0.5, mallet: -0.45, drone: 0.15, flute: 0.35, choir: -0.15,
   strings: -0.2, rhodes: 0.2, organ: -0.3, glass: 0.4, harp: -0.4,
   brass: 0.3, vibraphone: 0.45, clavinet: -0.5, sitar: 0.5, kalimba: -0.35,
+  synthbrass: -0.25, monolead: 0.15, // juno and solina are centred: their chorus spreads them
   'kit:hat': 0.3, 'kit:ride': -0.35, 'kit:crash': -0.25, 'kit:tomHi': -0.3,
   'kit:tomLo': 0.3, 'kit:perc': -0.4, 'kit:shaker': 0.45, 'kit:rim': 0.12,
 };
@@ -204,7 +275,8 @@ const VOICE_PAN = {
 // ensemble reads in depth, not just side to side.
 const VOICE_DISTANCE = {
   arpeggio: 3, harp: 3, pluck: 3, kalimba: 3, mallet: 3, clavinet: 3, rhodes: 3, vibraphone: 3, organ: 3,
-  pad: 6, strings: 6, choir: 6, drone: 6, texture: 6, glass: 6, bell: 6,
+  pad: 6, strings: 6, choir: 6, drone: 6, supersaw: 6, juno: 6, solina: 6, synthbrass: 6,
+  texture: 6, glass: 6, bell: 6,
 };
 
 // Low cut: the bass owns the bottom octave and a half. Measured solo, pads,
@@ -216,9 +288,9 @@ const VOICE_DISTANCE = {
 // so the filter keeps the same place relative to each voice's notes instead of
 // stripping their fundamentals.
 const VOICE_LOW_CUT = {
-  pad: 110, strings: 110, choir: 110, organ: 110, drone: 110,
+  pad: 110, strings: 110, choir: 110, organ: 110, drone: 110, supersaw: 110, juno: 110, solina: 110, synthbrass: 110,
   arpeggio: 120, harp: 120, pluck: 120, kalimba: 120, mallet: 120, clavinet: 120, rhodes: 120,
-  melody: 140, flute: 140, brass: 140, sitar: 140, vibraphone: 140,
+  melody: 140, flute: 140, brass: 140, sitar: 140, vibraphone: 140, monolead: 140,
   bell: 250, glass: 250, texture: 250,
 };
 const RUMBLE_CUT = 35;
