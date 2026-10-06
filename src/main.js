@@ -10,6 +10,7 @@ import {
   junoVoice, solinaVoice, synthbrassVoice, monoleadVoice,
   activeVoices, eraTimer, ERA_DURATION, eraAt, requestEra,
 } from './audio/scheduler.js';
+import { encodeConfig, decodeConfig } from './share.js';
 import { startAnimation } from './visuals/animate.js';
 import { post } from './visuals/post.js';
 
@@ -75,23 +76,6 @@ const SIMPLE_VOICES = [
   { key:'monolead',   voice:monoleadVoice,   label:'MONO LEAD' },
 ];
 const voiceLabel = ({ key, label }) => label ?? key.toUpperCase();
-// Canonical instrument order for the share-link bitmask. Spelled out rather
-// than derived from the display lists above, so reordering the UI can never
-// silently remap old links. Only ever append.
-const ALL_INST_KEYS = [
-  'bass:sub','bass:plucked','bass:walking','bass:synth','bass:rumble',
-  'drums:minimal','drums:four_four','drums:jungle','drums:shuffle','drums:trap',
-  'drums:ghost','drums:halftime','drums:breakbeat','drums:bossanova',
-  'pad','melody','texture','pluck','bell','arpeggio','mallet','drone','flute','choir',
-  'strings','rhodes','organ','glass','harp','brass','vibraphone','clavinet','sitar','kalimba',
-  // added with the expanded drum machine
-  'drums:house','drums:funk','drums:boombap','drums:garage','drums:swing','drums:brushes',
-  'drums:reggae','drums:dembow','drums:afro','drums:cinematic',
-  'supersaw',
-  // the 80s instruments
-  'drums:synthwave','drums:outrun','juno','solina','synthbrass','monolead',
-]; // 51 keys: bits 0–39 in bytes 6–10, 40–47 in byte 13, 48–55 in byte 15 (byte 14 is the room)
-
 // ─── UI refs ──────────────────────────────────────────────────────────────────
 const startBtn        = document.getElementById('start-btn');
 const nextBtn         = document.getElementById('next-btn');
@@ -806,46 +790,7 @@ document.querySelectorAll('.section-header').forEach(header => {
 });
 
 // ─── Share / restore config via URL hash ─────────────────────────────────────
-// Binary pack: 16 bytes → 22 base64url chars
-// [rootOffset(1), scale(1), tempo(1), density×100(1), brightness×100(1),
-//  spaciousness×100(1), instBitmask bits 0–39 (5 bytes),
-//  harmonyLock×100(1), chordBeats(1), instBitmask bits 40–47 (1 byte),
-//  room index(1), instBitmask bits 48–55 (1 byte)]
-// Fields were appended over time; older 11-, 13-, 14- and 15-byte links still
-// decode (missing fields fall back to current/default values).
-const instByte = i => (i < 40 ? 6 + (i >> 3) : i < 48 ? 13 : 15);
-
-function encodeConfig() {
-  const b = new Uint8Array(16);
-  b[0] = state.rootMidi - ROOT_BASE_MIDI;
-  b[1] = state.scaleIdx;
-  b[2] = state.tempo;
-  b[3] = Math.round(state.density * 100);
-  b[4] = Math.round(state.brightness * 100);
-  b[5] = Math.round(state.spaciousness * 100);
-  ALL_INST_KEYS.forEach((k, i) => {
-    if (manualEnabled[k]) b[instByte(i)] |= (1 << (i % 8));
-  });
-  b[11] = Math.round(state.harmonyLock * 100);
-  b[12] = state.chordBeats;
-  b[14] = Math.max(0, Object.keys(ROOMS).indexOf(state.room));
-  return btoa(String.fromCharCode(...b)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
-}
-
-function decodeConfig(str) {
-  try {
-    const pad = str + '==='.slice(0, (4 - str.length % 4) % 4);
-    const b   = Uint8Array.from(atob(pad.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0));
-    return {
-      r: ROOT_BASE_MIDI + (b[0] % 12), s: b[1], t: b[2],
-      d: b[3] / 100, b: b[4] / 100, p: b[5] / 100,
-      m: ALL_INST_KEYS.filter((_, i) => b[instByte(i)] & (1 << (i % 8))),
-      hl: b[11] !== undefined ? b[11] / 100 : undefined,
-      cb: b[12] !== undefined ? b[12] : undefined,
-      rm: b[14] !== undefined ? Object.keys(ROOMS)[b[14]] : undefined,
-    };
-  } catch { return null; }
-}
+// The link's format lives in share.js.
 
 function applyConfig(cfg) {
   if (!cfg) return;
@@ -863,7 +808,7 @@ function applyConfig(cfg) {
 }
 
 manualShareBtn.addEventListener('click', () => {
-  const hash = `c=${encodeConfig()}`;
+  const hash = `c=${encodeConfig(manualEnabled)}`;
   history.replaceState(null, '', `#${hash}`);
   navigator.clipboard.writeText(window.location.href).then(() => {
     manualShareBtn.textContent = 'COPIED!';

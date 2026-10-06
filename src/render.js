@@ -5,6 +5,7 @@
 import { TICK_MS, LOOKAHEAD } from './state.js';
 import { audio, initAudio, rideLevel } from './audio/context.js';
 import { applyPlan, startSession, tick } from './audio/scheduler.js';
+import { planFromShare } from './share.js';
 
 const QUANTUM = 128; // frames per render quantum
 
@@ -36,6 +37,14 @@ window.renderExport = async (plan, durationSec, sampleRate, onProgress) => {
   const progress = t => onProgress(t / durationSec);
   return stepped ? renderStepped(ctx, times, opts, progress) : renderAhead(ctx, times, opts, progress);
 };
+
+// A share link (or its `#c=…` hash) as the plan renderExport takes, or null if
+// it isn't one. For pages embedding this renderer, which have no copy of the
+// link format: Chromaforge's ad builder.
+window.planFromShare = planFromShare;
+// Where beat 0 falls in a rendered file (startSession(LOOKAHEAD) above), so an
+// embedding page can line its own cuts up with the bars.
+window.exportBeatZero = LOOKAHEAD;
 
 // Pause the render at each tick and run the scheduler there.
 function renderStepped(ctx, times, opts, onProgress) {
