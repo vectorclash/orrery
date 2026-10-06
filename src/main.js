@@ -8,6 +8,7 @@ import {
   harpVoice, brassVoice, drumsVoice,
   vibraphoneVoice, clavinetVoice, sitarVoice, kalimbaVoice, supersawVoice,
   junoVoice, solinaVoice, synthbrassVoice, monoleadVoice,
+  stabVoice, voxVoice, sawpluckVoice, guitarVoice,
   activeVoices, eraTimer, ERA_DURATION, eraAt, requestEra,
 } from './audio/scheduler.js';
 import { encodeConfig, decodeConfig } from './share.js';
@@ -16,36 +17,126 @@ import { post } from './visuals/post.js';
 
 // ─── Definitions ──────────────────────────────────────────────────────────────
 const ROOT_NAMES   = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
-const SCALE_LABELS = ['AEOLIAN','DORIAN','PHRYGIAN','PENT MINOR','PENT MAJOR','LYDIAN','MIXOLYDIAN'];
+const SCALE_LABELS = ['AEOLIAN','DORIAN','PHRYGIAN','PENT MINOR','PENT MAJOR','LYDIAN','MIXOLYDIAN','MAJOR'];
 
-// harmony = chord-tone lock (0 loose/roaming … 1 strict/consonant)
-// chord   = beats per chord (low = fast harmonic motion, high = slow/static)
+// A genre is a style: a FEEL and a KIT.
+//   feel  -- what the genre's button sets: scale, tempo, the sliders, room, pump and sweep.
+//            harmony = chord-tone lock (0 loose/roaming … 1 strict/consonant),
+//            chord = beats per chord (low = fast harmonic motion, high = slow).
+//            RANDOMIZE ALL varies it: a tempo within `bpm`, a scale from `scales`,
+//            any root, the sliders nudged.
+//   kit   -- what it plays: one drum style and one bass style (null = sometimes
+//            none), one voice from each `cores` pool, then `extras` [min, max]
+//            more from `extra`.
+// `electronic` genres are weighted 2:1 in RANDOMIZE ALL (see weightedGenre):
+// before kits, a random pick drew from all 25 instruments evenly, and with
+// most of them acoustic, orchestral or folk, most rolls sounded old-fashioned.
+// (It was 3:1 with nine electronic genres; 2:1 with seventeen keeps the same
+// share, about two thirds electronic.)
 const GENRES = [
-  { name:'AMBIENT', scaleIdx:5, tempo:65,  density:0.25, brightness:0.25, spaciousness:0.88, harmony:0.72, chord:8, room:'cathedral' },
-  { name:'DARK',    scaleIdx:2, tempo:72,  density:0.45, brightness:0.12, spaciousness:0.65, harmony:0.75, chord:8, room:'hall' },
-  { name:'JAZZ',    scaleIdx:1, tempo:112, density:0.75, brightness:0.50, spaciousness:0.40, harmony:0.50, chord:4, room:'room' },
-  { name:'ELEC',    scaleIdx:3, tempo:128, density:0.82, brightness:0.72, spaciousness:0.28, harmony:0.85, chord:4, room:'studio' },
-  { name:'ORCH',    scaleIdx:0, tempo:82,  density:0.60, brightness:0.38, spaciousness:0.78, harmony:0.85, chord:4, room:'hall' },
-  { name:'ZEN',     scaleIdx:4, tempo:56,  density:0.18, brightness:0.40, spaciousness:0.94, harmony:0.80, chord:8, room:'cathedral' },
-  { name:'BLUES',   scaleIdx:3, tempo:88,  density:0.55, brightness:0.30, spaciousness:0.45, harmony:0.45, chord:4, room:'room' },
-  { name:'FOLK',    scaleIdx:6, tempo:96,  density:0.48, brightness:0.55, spaciousness:0.58, harmony:0.85, chord:4, room:'room' },
-  { name:'DREAM',   scaleIdx:5, tempo:72,  density:0.32, brightness:0.72, spaciousness:0.82, harmony:0.72, chord:8, room:'hall' },
-  { name:'FUNK',    scaleIdx:3, tempo:110, density:0.82, brightness:0.68, spaciousness:0.20, harmony:0.55, chord:4, room:'studio' },
-  { name:'EPIC',    scaleIdx:0, tempo:84,  density:0.62, brightness:0.42, spaciousness:0.74, harmony:0.90, chord:4, room:'hall' },
+  // ─── Electronic ─────────────────────────────────────────────────────────────
+  { name:'DEEP HOUSE', electronic:true, scaleIdx:1, tempo:122, density:0.62, brightness:0.45, spaciousness:0.50, harmony:0.82, chord:8, room:'room', pump:0.35,
+    bpm:[118,125], scales:[1,0],
+    kit:{ drums:['deep_house'], bass:['deep','deep','sub'], cores:[['stab','rhodes']], extra:['pad','juno','vox','texture','glass','solina'], extras:[1,2] } },
+  { name:'NU-DISCO', electronic:true, scaleIdx:1, tempo:118, density:0.75, brightness:0.65, spaciousness:0.45, harmony:0.72, chord:4, room:'room', pump:0.30, sweep:0.55,
+    bpm:[112,124], scales:[1,7,0],
+    kit:{ drums:['disco'], bass:['disco','disco','synth'], cores:[['guitar'],['strings','synthbrass','rhodes']], extra:['clavinet','vox','stab','juno','solina','brass','glass'], extras:[1,2] } },
+  { name:'AFRO HOUSE', electronic:true, scaleIdx:0, tempo:122, density:0.70, brightness:0.50, spaciousness:0.60, harmony:0.85, chord:8, room:'hall', pump:0.30,
+    bpm:[118,124], scales:[0,1,2],
+    kit:{ drums:['afro_house'], bass:['deep','sub'], cores:[['kalimba','mallet']], extra:['vox','pad','flute','choir','stab','texture'], extras:[1,2] } },
+  { name:'AMAPIANO', electronic:true, scaleIdx:1, tempo:113, density:0.62, brightness:0.50, spaciousness:0.55, harmony:0.75, chord:4, room:'room',
+    bpm:[110,116], scales:[1,0,7],
+    kit:{ drums:['amapiano'], bass:['log'], cores:[['rhodes']], extra:['pad','vox','flute','glass','mallet','strings'], extras:[1,2] } },
+  { name:'TECHNO', electronic:true, scaleIdx:2, tempo:130, density:0.78, brightness:0.55, spaciousness:0.35, harmony:0.90, chord:8, room:'studio', pump:0.40,
+    bpm:[126,134], scales:[2,0,1],
+    kit:{ drums:['techno'], bass:['acid','acid','rumble','synth'], cores:[['arpeggio','stab','sawpluck']], extra:['texture','monolead','glass','pad','drone'], extras:[1,2] } },
+  { name:'MELODIC TECHNO', electronic:true, scaleIdx:0, tempo:124, density:0.72, brightness:0.50, spaciousness:0.75, harmony:0.90, chord:8, room:'hall', pump:0.35, sweep:0.20,
+    bpm:[120,126], scales:[0,2,1],
+    kit:{ drums:['techno'], bass:['rolling','rolling','synth'], cores:[['arpeggio','sawpluck'],['pad','juno','solina']], extra:['monolead','glass','texture','vox','drone'], extras:[1,2] } },
+  { name:'TRANCE', electronic:true, scaleIdx:0, tempo:138, density:0.80, brightness:0.70, spaciousness:0.72, harmony:0.90, chord:4, room:'hall', pump:0.50,
+    bpm:[134,140], scales:[0,7],
+    kit:{ drums:['trance'], bass:['rolling'], cores:[['supersaw'],['sawpluck','arpeggio']], extra:['glass','monolead','pad','vox','solina'], extras:[0,1] } },
+  { name:'EDM', electronic:true, scaleIdx:0, tempo:126, density:0.85, brightness:0.80, spaciousness:0.55, harmony:0.90, chord:4, room:'hall', pump:0.60,
+    bpm:[124,128], scales:[0,7,3],
+    kit:{ drums:['big_room'], bass:['rolling','synth','deep'], cores:[['supersaw'],['sawpluck','vox','monolead']], extra:['glass','arpeggio','vox','solina'], extras:[0,1] } },
+  { name:'UK GARAGE', electronic:true, scaleIdx:1, tempo:132, density:0.70, brightness:0.55, spaciousness:0.45, harmony:0.75, chord:4, room:'room', pump:0.25,
+    bpm:[128,136], scales:[1,0],
+    kit:{ drums:['garage'], bass:['deep','sub','synth'], cores:[['stab','vox']], extra:['rhodes','pad','glass','texture','organ'], extras:[1,2] } },
+  { name:'LIQUID DNB', electronic:true, scaleIdx:1, tempo:174, density:0.65, brightness:0.60, spaciousness:0.72, harmony:0.85, chord:8, room:'hall', pump:0.15,
+    bpm:[170,176], scales:[1,0,7],
+    kit:{ drums:['dnb','dnb','jungle'], bass:['reese','reese','sub'], cores:[['pad','juno','solina'],['rhodes','pluck','arpeggio']], extra:['vox','strings','glass','bell','texture'], extras:[1,2] } },
+  { name:'SYNTHWAVE', electronic:true, scaleIdx:0, tempo:104, density:0.70, brightness:0.60, spaciousness:0.65, harmony:0.85, chord:4, room:'hall', pump:0.15,
+    bpm:[88,118], scales:[0,2,1],
+    kit:{ drums:['synthwave','outrun'], bass:['synth','rolling'], cores:[['juno','solina','synthbrass'],['monolead','arpeggio']], extra:['arpeggio','glass','supersaw','synthbrass'], extras:[0,1] } },
+  { name:'FUTURE BASS', electronic:true, scaleIdx:7, tempo:75, density:0.75, brightness:0.75, spaciousness:0.70, harmony:0.90, chord:4, room:'hall', pump:0.55,
+    bpm:[70,80], scales:[7,0,4],
+    kit:{ drums:['halftime','trap'], bass:['sub'], cores:[['supersaw'],['vox','sawpluck']], extra:['glass','solina','vox','bell'], extras:[0,1] } },
+  { name:'TRAP', electronic:true, scaleIdx:0, tempo:70, density:0.70, brightness:0.50, spaciousness:0.55, harmony:0.85, chord:8, room:'room',
+    bpm:[64,76], scales:[0,2,3],
+    kit:{ drums:['drill'], bass:['808'], cores:[['bell','glass','pluck','flute']], extra:['pad','choir','vox','strings','monolead','texture'], extras:[1,2] } },
+  { name:'REGGAETON', electronic:true, scaleIdx:0, tempo:94, density:0.72, brightness:0.60, spaciousness:0.42, harmony:0.85, chord:4, room:'room',
+    bpm:[88,100], scales:[0,1,2],
+    kit:{ drums:['dembow'], bass:['808','sub'], cores:[['pluck','sawpluck','guitar']], extra:['vox','pad','juno','glass','monolead'], extras:[1,2] } },
+  { name:'AFROBEATS', electronic:true, scaleIdx:1, tempo:104, density:0.66, brightness:0.60, spaciousness:0.45, harmony:0.80, chord:4, room:'room',
+    bpm:[98,110], scales:[1,7,4],
+    kit:{ drums:['afrobeats','afrobeats','afro'], bass:['plucked','sub','synth'], cores:[['guitar','kalimba','mallet']], extra:['pad','vox','rhodes','flute','glass','pluck'], extras:[1,2] } },
+  { name:'LO-FI', electronic:true, scaleIdx:1, tempo:80, density:0.45, brightness:0.30, spaciousness:0.45, harmony:0.70, chord:4, room:'room', pump:0.10,
+    bpm:[70,88], scales:[1,6,5],
+    kit:{ drums:['boombap'], bass:['sub','plucked'], cores:[['rhodes']], extra:['pad','texture','vibraphone','juno','glass','mallet'], extras:[1,2] } },
+  { name:'ELEC', electronic:true, scaleIdx:3, tempo:128, density:0.82, brightness:0.72, spaciousness:0.28, harmony:0.85, chord:4, room:'studio',
+    bpm:[118,134], scales:[3,0,2],
+    kit:{ drums:['four_four','breakbeat','house','minimal'], bass:['synth','sub'], cores:[['arpeggio','supersaw','juno']], extra:['pad','glass','monolead','texture','sawpluck'], extras:[1,2] } },
+  // ─── Classic ────────────────────────────────────────────────────────────────
+  { name:'AMBIENT', scaleIdx:5, tempo:65,  density:0.25, brightness:0.25, spaciousness:0.88, harmony:0.72, chord:8, room:'cathedral',
+    bpm:[56,72], scales:[5,4,0],
+    kit:{ drums:[null,null,null,'minimal'], bass:['sub',null,null], cores:[['pad','drone','texture']], extra:['glass','bell','choir','strings','harp','solina'], extras:[1,3] } },
+  { name:'DARK',    scaleIdx:2, tempo:72,  density:0.45, brightness:0.12, spaciousness:0.65, harmony:0.75, chord:8, room:'hall',
+    bpm:[60,80], scales:[2,0],
+    kit:{ drums:['ghost','cinematic','minimal',null], bass:['rumble','sub'], cores:[['drone','choir','strings']], extra:['texture','organ','bell','brass','glass'], extras:[1,2] } },
+  { name:'JAZZ',    scaleIdx:1, tempo:112, density:0.75, brightness:0.50, spaciousness:0.40, harmony:0.50, chord:4, room:'room',
+    bpm:[96,128], scales:[1,6],
+    kit:{ drums:['swing','brushes'], bass:['walking'], cores:[['rhodes','vibraphone','organ']], extra:['brass','melody','clavinet','flute'], extras:[1,2] } },
+  { name:'ORCH',    scaleIdx:0, tempo:82,  density:0.60, brightness:0.38, spaciousness:0.78, harmony:0.85, chord:4, room:'hall',
+    bpm:[70,96], scales:[0,1,5],
+    kit:{ drums:['cinematic',null], bass:['plucked','sub'], cores:[['strings']], extra:['brass','choir','harp','flute','bell','mallet'], extras:[1,3] } },
+  { name:'ZEN',     scaleIdx:4, tempo:56,  density:0.18, brightness:0.40, spaciousness:0.94, harmony:0.80, chord:8, room:'cathedral',
+    bpm:[50,66], scales:[4,5],
+    kit:{ drums:[null], bass:[null,'sub'], cores:[['kalimba','glass','flute']], extra:['drone','bell','texture','harp'], extras:[1,2] } },
+  { name:'BLUES',   scaleIdx:3, tempo:88,  density:0.55, brightness:0.30, spaciousness:0.45, harmony:0.45, chord:4, room:'room',
+    bpm:[76,100], scales:[3,6],
+    kit:{ drums:['shuffle','swing'], bass:['walking','plucked'], cores:[['organ','rhodes']], extra:['brass','clavinet','melody'], extras:[1,2] } },
+  { name:'FOLK',    scaleIdx:6, tempo:96,  density:0.48, brightness:0.55, spaciousness:0.58, harmony:0.85, chord:4, room:'room',
+    bpm:[84,110], scales:[6,4,0],
+    kit:{ drums:['brushes','four_four',null], bass:['plucked'], cores:[['pluck','harp']], extra:['flute','strings','kalimba','mallet','melody'], extras:[1,2] } },
+  { name:'DREAM',   scaleIdx:5, tempo:72,  density:0.32, brightness:0.72, spaciousness:0.82, harmony:0.72, chord:8, room:'hall',
+    bpm:[64,84], scales:[5,7,4],
+    kit:{ drums:['halftime','minimal','ghost',null], bass:['sub'], cores:[['pad','juno','solina']], extra:['glass','texture','bell','supersaw','vox'], extras:[1,2] } },
+  { name:'FUNK',    scaleIdx:3, tempo:110, density:0.82, brightness:0.68, spaciousness:0.20, harmony:0.55, chord:4, room:'studio',
+    bpm:[98,118], scales:[3,1,6],
+    kit:{ drums:['funk','boombap'], bass:['plucked','synth'], cores:[['clavinet','rhodes']], extra:['brass','organ','synthbrass','monolead'], extras:[1,2] } },
+  { name:'EPIC',    scaleIdx:0, tempo:84,  density:0.62, brightness:0.42, spaciousness:0.74, harmony:0.90, chord:4, room:'hall',
+    bpm:[76,92], scales:[0,7],
+    kit:{ drums:['cinematic','halftime'], bass:['sub','rumble'], cores:[['strings','choir']], extra:['brass','supersaw','bell','choir'], extras:[1,2] } },
 ];
 
-const BASS_SUBTYPES  = ['sub','plucked','walking','synth','rumble'];
+const BASS_SUBTYPES  = ['sub','plucked','walking','synth','rumble','deep','acid','rolling','disco','808','reese','log'];
 const DRUMS_SUBTYPES = [
   'minimal','four_four','house','funk','boombap','breakbeat','jungle','garage','trap','halftime',
   'shuffle','swing','brushes','bossanova','reggae','dembow','afro','cinematic','ghost',
-  'synthwave','outrun',
+  'synthwave','outrun','deep_house','techno','trance','big_room',
+  'disco','afro_house','amapiano','afrobeats','dnb','drill',
 ];
-const BASS_LABELS    = { sub:'SUB', plucked:'PLUCK', walking:'WALK', synth:'SYNTH', rumble:'RUMBLE' };
+const BASS_LABELS    = {
+  sub:'SUB', plucked:'PLUCK', walking:'WALK', synth:'SYNTH', rumble:'RUMBLE', deep:'DEEP', acid:'ACID', rolling:'ROLLING',
+  disco:'DISCO', '808':'808', reese:'REESE', log:'LOG DRUM',
+};
 const DRUMS_LABELS   = {
   minimal:'MINIMAL', four_four:'4/4', house:'HOUSE', funk:'FUNK', boombap:'BOOM BAP', breakbeat:'BREAK',
   jungle:'JUNGLE', garage:'2-STEP', trap:'TRAP', halftime:'HALF TIME', shuffle:'SHUFFLE', swing:'SWING',
   brushes:'BRUSHES', bossanova:'BOSSA', reggae:'ONE DROP', dembow:'DEMBOW', afro:'AFRO 12/8',
   cinematic:'CINEMATIC', ghost:'GHOST', synthwave:'SYNTHWAVE', outrun:'OUTRUN',
+  deep_house:'DEEP HOUSE', techno:'TECHNO', trance:'TRANCE', big_room:'BIG ROOM',
+  disco:'DISCO', afro_house:'AFRO HOUSE', amapiano:'AMAPIANO', afrobeats:'AFROBEATS', dnb:'D&B', drill:'DRILL',
 };
 
 const SIMPLE_VOICES = [
@@ -74,6 +165,11 @@ const SIMPLE_VOICES = [
   { key:'solina',     voice:solinaVoice },
   { key:'synthbrass', voice:synthbrassVoice, label:'SYNTH BRASS' },
   { key:'monolead',   voice:monoleadVoice,   label:'MONO LEAD' },
+  // Same order as share.js's ALL_INST_KEYS, which a share link's voices follow.
+  { key:'stab',       voice:stabVoice,       label:'CHORD STAB' },
+  { key:'vox',        voice:voxVoice,        label:'VOCAL CHOP' },
+  { key:'sawpluck',   voice:sawpluckVoice,   label:'SAW PLUCK' },
+  { key:'guitar',     voice:guitarVoice,     label:'FUNK GUITAR' },
 ];
 const voiceLabel = ({ key, label }) => label ?? key.toUpperCase();
 // ─── UI refs ──────────────────────────────────────────────────────────────────
@@ -102,6 +198,10 @@ const harmonySlider   = document.getElementById('harmony-slider');
 const harmonyVal      = document.getElementById('harmony-val');
 const chordSlider     = document.getElementById('chord-slider');
 const chordVal        = document.getElementById('chord-val');
+const pumpSlider      = document.getElementById('pump-slider');
+const pumpVal         = document.getElementById('pump-val');
+const sweepSlider     = document.getElementById('sweep-slider');
+const sweepVal        = document.getElementById('sweep-val');
 const lengthInput     = document.getElementById('manual-length');
 const lengthValue     = document.getElementById('manual-length-value');
 const voiceGroups     = document.getElementById('voice-groups');
@@ -178,6 +278,10 @@ function showFeel() {
   harmonyVal.textContent = fmt2(state.harmonyLock);
   chordSlider.value      = state.chordBeats;
   chordVal.textContent   = state.chordBeats;
+  pumpSlider.value       = state.pump;
+  pumpVal.textContent    = fmt2(state.pump);
+  sweepSlider.value      = state.sweep;
+  sweepVal.textContent   = fmt2(state.sweep);
   roomSelect.value       = state.room;
   refreshSummaries();
 }
@@ -205,6 +309,8 @@ function refreshSummaries() {
     `${bpmSlider.value} BPM`,
     `OCT ${octaveVal.textContent}`,
     roomSelect.selectedOptions[0]?.textContent ?? '',
+    ...(state.pump > 0 ? [`PUMP ${Math.round(state.pump * 100)}%`] : []),
+    ...(state.sweep > 0 ? [`SWEEP ${Math.round(state.sweep * 100)}%`] : []),
   ].join(' · ');
   instrumentsSummary.textContent = enabledInstrumentLabels().join(' · ') || 'NONE';
 }
@@ -218,46 +324,109 @@ function flashSection(id) {
 }
 
 // ─── Genre buttons ────────────────────────────────────────────────────────────
+// A genre button sets the genre's feel AND rolls its kit, so it sounds like
+// the genre straight away. The genre stays "active" until a control is moved by
+// hand; while it is, the FEEL and INSTRUMENTS randoms stay inside it.
+let activeGenre = null;
+const genreButtons = new Map(); // genre → its button
+
 function setGenreHighlight(btn) {
   document.querySelectorAll('.genre-btn').forEach(b => b.classList.toggle('active', b === btn));
+  activeGenre = btn ? [...genreButtons].find(([, b]) => b === btn)?.[0] ?? null : null;
   refreshSummaries();
 }
 function clearGenreHighlight() { setGenreHighlight(null); }
 
-function applyGenre(g, btn) {
-  applyFeel({
-    scaleIdx:     g.scaleIdx,
-    tempo:        g.tempo,
-    density:      g.density,
-    brightness:   g.brightness,
-    spaciousness: g.spaciousness,
-    harmonyLock:  g.harmony,
-    chordBeats:   g.chord,
-    room:         g.room,
-  });
-  setGenreHighlight(btn);
+const round2 = x => Math.round(x * 100) / 100;
+const between = ([lo, hi]) => lo + Math.floor(Math.random() * (hi - lo + 1));
+
+// The genre's feel: exactly its preset, or (vary) somewhere inside it.
+function genreFeel(g, vary) {
+  const feel = {
+    scaleIdx: g.scaleIdx, tempo: g.tempo, density: g.density, brightness: g.brightness,
+    spaciousness: g.spaciousness, harmonyLock: g.harmony, chordBeats: g.chord, room: g.room,
+    pump: g.pump ?? 0, sweep: g.sweep ?? 0,
+  };
+  if (!vary) return feel;
+  const nudge = (x, by) => round2(Math.min(0.95, Math.max(0.05, x + (Math.random() * 2 - 1) * by)));
+  return {
+    ...feel,
+    rootMidi:     ROOT_BASE_MIDI + Math.floor(Math.random() * 12),
+    scaleIdx:     pick(g.scales),
+    tempo:        between(g.bpm),
+    density:      nudge(g.density, 0.1),
+    brightness:   nudge(g.brightness, 0.12),
+    spaciousness: nudge(g.spaciousness, 0.1),
+  };
 }
 
-GENRES.forEach(g => {
-  const btn = document.createElement('button');
-  btn.className = 'genre-btn';
-  btn.textContent = g.name;
-  btn.addEventListener('click', () => applyGenre(g, btn));
-  genreBtnsEl.appendChild(btn);
-});
+// The genre's kit, rolled: a drum style, a bass style, a voice from each core
+// pool and a few extras.
+function rollKit(g) {
+  const { drums, bass, cores, extra, extras } = g.kit;
+  const keys = new Set();
+  const d = pick(drums), b = pick(bass);
+  if (d) keys.add(`drums:${d}`);
+  if (b) keys.add(`bass:${b}`);
+  for (const pool of cores) keys.add(pick(pool.filter(v => !keys.has(v))));
+  extra.filter(v => !keys.has(v)).sort(() => Math.random() - 0.5).slice(0, between(extras)).forEach(v => keys.add(v));
+  return keys;
+}
+
+function applyGenre(g, { vary = false } = {}) {
+  applyFeel(genreFeel(g, vary));
+  setInstruments(rollKit(g));
+  setGenreHighlight(genreButtons.get(g));
+}
+
+// Electronic genres twice as likely as classic ones.
+const GENRE_WEIGHT = g => (g.electronic ? 2 : 1);
+function weightedGenre(except = null) {
+  const pool = GENRES.filter(g => g !== except);
+  let r = Math.random() * pool.reduce((s, g) => s + GENRE_WEIGHT(g), 0);
+  for (const g of pool) if ((r -= GENRE_WEIGHT(g)) <= 0) return g;
+  return pool[pool.length - 1];
+}
+
+for (const [label, electronic] of [['ELECTRONIC', true], ['CLASSIC', false]]) {
+  const group = document.createElement('div');
+  group.className = 'genre-group';
+  const name = document.createElement('span');
+  name.className = 'group-label';
+  name.textContent = label;
+  const row = document.createElement('div');
+  row.className = 'genre-row';
+  for (const g of GENRES.filter(x => !!x.electronic === electronic)) {
+    const btn = document.createElement('button');
+    btn.className = 'genre-btn';
+    btn.textContent = g.name;
+    btn.addEventListener('click', () => applyGenre(g));
+    genreButtons.set(g, btn);
+    row.appendChild(btn);
+  }
+  group.append(name, row);
+  genreBtnsEl.appendChild(group);
+}
 
 // ─── Randomize ────────────────────────────────────────────────────────────────
-const round2 = x => Math.round(x * 100) / 100;
-
-// A preset other than the one already selected.
+// A genre other than the one already selected.
 function randomizeGenre() {
-  const btns = [...genreBtnsEl.children];
-  const i = pick(GENRES.map((_, j) => j).filter(j => !btns[j].classList.contains('active')));
-  applyGenre(GENRES[i], btns[i]);
+  applyGenre(weightedGenre(activeGenre));
   flashSection('section-genre');
+  flashSection('section-instruments');
 }
 
+// Inside the active genre if there is one; otherwise anything at all.
 function randomizeFeel() {
+  if (activeGenre) {
+    applyFeel(genreFeel(activeGenre, true));
+  } else {
+    freeFeel();
+  }
+  flashSection('section-feel');
+}
+
+function freeFeel() {
   const tempo        = Math.floor(Math.random() * 91) + 50; // 50–140
   const spaciousness = round2(Math.random() * 0.8 + 0.1);
   applyFeel({
@@ -271,34 +440,43 @@ function randomizeFeel() {
     harmonyLock:  round2(Math.random() * 0.5 + 0.5), // 0.5–1.0, lean musical
     chordBeats:   pick([2, 3, 4, 4, 6, 8]),
     room:         roomFor(spaciousness, tempo),
+    pump:         0,
+    sweep:        0,
   });
   clearGenreHighlight();
-  flashSection('section-feel');
 }
 
+// The active genre's kit, or (with none) a genre's kit, electronic-weighted --
+// a coherent set either way. The feel is left alone.
 function randomizeInstruments() {
-  const keys = new Set();
-  // Bass and drums: ~60% chance each, one random subtype
-  if (Math.random() < 0.6) keys.add(`bass:${pick(BASS_SUBTYPES)}`);
-  if (Math.random() < 0.6) keys.add(`drums:${pick(DRUMS_SUBTYPES)}`);
-
-  // Simple voices: usually a handful, similar to infinite mode's 3–5, with
-  // an occasional (~12%) denser pull so manual can still go bigger than
-  // infinite ever does — just rarely, not as the common case.
-  const simpleKeys = SIMPLE_VOICES.map(v => v.key);
-  const pool  = [...simpleKeys].sort(() => Math.random() - 0.5);
-  const count = Math.random() < 0.12
-    ? 6 + Math.floor(Math.random() * (simpleKeys.length - 5)) // rare: 6–20
-    : 2 + Math.floor(Math.random() * 4);                      // usual: 2–5
-  pool.slice(0, count).forEach(k => keys.add(k));
-
-  setInstruments(keys);
+  const keep = activeGenre;
+  setInstruments(rollKit(activeGenre ?? weightedGenre()));
+  if (keep) setGenreHighlight(genreButtons.get(keep));
   flashSection('section-instruments');
 }
 
+// Anything goes: the old free roll -- any feel, any 2–5 of every instrument.
+// Kept as RANDOMIZE ALL's rare wildcard, for the combinations no genre makes.
+function freeInstruments() {
+  const keys = new Set();
+  if (Math.random() < 0.6) keys.add(`bass:${pick(BASS_SUBTYPES)}`);
+  if (Math.random() < 0.6) keys.add(`drums:${pick(DRUMS_SUBTYPES)}`);
+  const pool = SIMPLE_VOICES.map(v => v.key).sort(() => Math.random() - 0.5);
+  pool.slice(0, 2 + Math.floor(Math.random() * 4)).forEach(k => keys.add(k));
+  setInstruments(keys);
+}
+
+const WILDCARD = 0.1;
 function randomizeAll() {
-  randomizeFeel();
-  randomizeInstruments();
+  if (Math.random() < WILDCARD) {
+    freeFeel();
+    freeInstruments();
+  } else {
+    applyGenre(weightedGenre(), { vary: true });
+  }
+  flashSection('section-genre');
+  flashSection('section-feel');
+  flashSection('section-instruments');
 }
 
 genreRandomBtn.addEventListener('click', randomizeGenre);
@@ -333,32 +511,61 @@ function makeCheckbox(key, label, exclusiveKeys = null) {
   return lbl;
 }
 
-function makeGroup(groupLabel, entries, exclusiveKeys = null) {
+// The panel is grouped for finding things: the drums by kind (the genre
+// panel's two groups) and the voices by the part they play in an arrangement
+// -- the roles Infinite mode builds its eras from. Display only: the summary,
+// share links and the order a manual plan lists its voices in follow
+// BASS_SUBTYPES, DRUMS_SUBTYPES and SIMPLE_VOICES, which are untouched.
+const DRUM_GROUPS = [
+  ['ELECTRONIC DRUMS', ['house','deep_house','disco','afro_house','amapiano','techno','trance','big_room','garage',
+                        'breakbeat','jungle','dnb','trap','drill','halftime','boombap','dembow','afrobeats','synthwave','outrun']],
+  ['CLASSIC DRUMS',    ['four_four','funk','shuffle','swing','brushes','bossanova','reggae','afro','cinematic','minimal','ghost']],
+];
+const VOICE_GROUPS = [
+  ['PADS & CHORDS', ['pad','strings','choir','organ','drone','supersaw','juno','solina','synthbrass']],
+  ['LEADS',         ['melody','flute','brass','sitar','vibraphone','monolead','vox']],
+  ['RHYTHM',        ['arpeggio','rhodes','clavinet','harp','pluck','kalimba','mallet','stab','sawpluck','guitar']],
+  ['AIR',           ['bell','glass','texture']],
+];
+// Anything added to the instrument lists but not to a group above still shows,
+// at the end of the last group, rather than silently going missing.
+function withStragglers(groups, all) {
+  const placed = new Set(groups.flatMap(([, keys]) => keys));
+  const left = all.filter(k => !placed.has(k));
+  if (!left.length) return groups;
+  console.warn('Ungrouped instruments:', left);
+  return groups.map(([label, keys], i) => [label, i === groups.length - 1 ? [...keys, ...left] : keys]);
+}
+
+function makeGroup(groupLabel, toggles, layout = 'subtype-row') {
   const wrap = document.createElement('div');
-  wrap.className = 'voice-group';
+  wrap.className = 'inst-group';
   const name = document.createElement('span');
   name.className = 'group-label';
   name.textContent = groupLabel;
-  wrap.appendChild(name);
   const row = document.createElement('div');
-  row.className = 'subtype-row';
-  entries.forEach(([key, label]) => row.appendChild(makeCheckbox(key, label, exclusiveKeys)));
-  wrap.appendChild(row);
+  row.className = layout;
+  toggles.forEach(t => row.appendChild(t));
+  wrap.append(name, row);
   return wrap;
 }
 
+// One drum style at a time, across both drum groups; any number of bass styles
+// (a plan picks one of them).
 const drumsKeys = DRUMS_SUBTYPES.map(s => `drums:${s}`);
-voiceGroups.appendChild(makeGroup('BASS',  BASS_SUBTYPES.map(s  => [`bass:${s}`,  BASS_LABELS[s]])));
-voiceGroups.appendChild(makeGroup('DRUMS', DRUMS_SUBTYPES.map(s => [`drums:${s}`, DRUMS_LABELS[s]]), drumsKeys));
+voiceGroups.appendChild(makeGroup('BASS', BASS_SUBTYPES.map(s => makeCheckbox(`bass:${s}`, BASS_LABELS[s]))));
+for (const [label, styles] of withStragglers(DRUM_GROUPS, DRUMS_SUBTYPES)) {
+  voiceGroups.appendChild(makeGroup(label, styles.map(s => makeCheckbox(`drums:${s}`, DRUMS_LABELS[s], drumsKeys))));
+}
 
 const divider = document.createElement('div');
 divider.className = 'voices-divider';
 voiceGroups.appendChild(divider);
 
-const grid = document.createElement('div');
-grid.className = 'inst-grid';
-SIMPLE_VOICES.forEach(v => grid.appendChild(makeCheckbox(v.key, voiceLabel(v))));
-voiceGroups.appendChild(grid);
+const voiceByKey = new Map(SIMPLE_VOICES.map(v => [v.key, v]));
+for (const [label, keys] of withStragglers(VOICE_GROUPS, SIMPLE_VOICES.map(v => v.key))) {
+  voiceGroups.appendChild(makeGroup(label, keys.map(k => makeCheckbox(k, voiceLabel(voiceByKey.get(k)))), 'inst-grid'));
+}
 
 // Replaces the whole instrument selection with `keys`.
 function setInstruments(keys) {
@@ -416,6 +623,16 @@ spaceSlider.addEventListener('input', () => {
 harmonySlider.addEventListener('input', () => {
   state.harmonyLock = parseFloat(harmonySlider.value);
   harmonyVal.textContent = state.harmonyLock.toFixed(2);
+  clearGenreHighlight();
+});
+pumpSlider.addEventListener('input', () => {
+  state.pump = parseFloat(pumpSlider.value);
+  pumpVal.textContent = state.pump.toFixed(2);
+  clearGenreHighlight();
+});
+sweepSlider.addEventListener('input', () => {
+  state.sweep = parseFloat(sweepSlider.value);
+  sweepVal.textContent = state.sweep.toFixed(2);
   clearGenreHighlight();
 });
 chordSlider.addEventListener('input', () => {
@@ -535,6 +752,8 @@ startBtn.addEventListener('click', async () => {
   state.tempo       = Math.floor(Math.random() * 79) + 52; // 52–130
   state.octaveShift = pick([-1, 0, 0, 1]);
   state.harmonyLock = 0.78;
+  state.pump        = 0; // Infinite mode's eras have no sidechain
+  state.sweep       = 0; // or filter sweep
   state.chordBeats  = 4;
   state.room        = roomFor(state.spaciousness, state.tempo);
 
@@ -586,6 +805,8 @@ function manualPlan() {
       spaciousness: parseFloat(spaceSlider.value),
       harmonyLock:  parseFloat(harmonySlider.value),
       chordBeats:   parseInt(chordSlider.value, 10),
+      pump:         parseFloat(pumpSlider.value),
+      sweep:        parseFloat(sweepSlider.value),
       room:         roomSelect.value,
     },
     bassStyle: bassSubs.length ? pick(bassSubs) : null,
@@ -610,7 +831,7 @@ function buildExportName(ext) {
   const scale    = SCALE_LABELS[parseInt(scaleSelect.value, 10)].toLowerCase().replace(/\s+/g, '-');
   const bpm      = bpmSlider.value;
   const genreBtn = document.querySelector('.genre-btn.active');
-  const prefix   = genreBtn ? genreBtn.textContent.toLowerCase() + '_' : '';
+  const prefix   = genreBtn ? genreBtn.textContent.toLowerCase().replace(/[^a-z0-9]+/g, '-') + '_' : '';
   return `${prefix}${root}_${scale}_${bpm}bpm.${ext}`;
 }
 
@@ -802,6 +1023,8 @@ function applyConfig(cfg) {
   state.spaciousness = cfg.p ?? state.spaciousness;
   state.harmonyLock  = cfg.hl ?? state.harmonyLock;
   state.chordBeats   = cfg.cb ?? state.chordBeats;
+  state.pump         = cfg.pu ?? 0;
+  state.sweep        = cfg.sw ?? 0;
   state.room         = cfg.rm ?? state.room;
   showFeel();
   setInstruments(new Set(cfg.m || []));

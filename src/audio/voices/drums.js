@@ -25,6 +25,25 @@ function kick(t, v) {
   click.connect(hp); hp.connect(ce); ce.connect(out());
 }
 
+// 909-style kick, the kick of house and techno: a harder, faster pitch drop
+// than the acoustic one, more drive, a click on top, and a body that holds
+// long enough to be felt between hats.
+function kick909(t, v) {
+  const body = osc('sine', 260, t, t + 0.6);
+  body.frequency.setValueAtTime(260, t);
+  body.frequency.exponentialRampToValueAtTime(62, t + 0.035);
+  body.frequency.exponentialRampToValueAtTime(48, t + 0.32);
+  const sat = shaper(2.6), env = gain(0);
+  env.gain.setValueAtTime(0, t);
+  env.gain.linearRampToValueAtTime(v, t + 0.0015);
+  env.gain.setTargetAtTime(v * 0.6, t + 0.0015, 0.05);
+  env.gain.setTargetAtTime(0, t + 0.12, 0.09);
+  body.connect(sat); sat.connect(env); env.connect(out());
+  const click = noise(t, 0.008), hp = filter('highpass', 3500), ce = gain(0);
+  perc(ce.gain, t, v * 0.45, 0.005, 0.0003);
+  click.connect(hp); hp.connect(ce); ce.connect(out());
+}
+
 // 808-style long boom, tuned to the key's root — the pitched kick of trap.
 function kick808(t, v) {
   const hz = midiToHz(fold(state.rootMidi, 28, 39));
@@ -156,6 +175,21 @@ function shaker(t, v) {
   n.connect(bp); bp.connect(env); env.connect(out('shaker'));
 }
 
+// Tambourine: the jingles. The 808 metal and bright noise, band-passed high,
+// struck and then shaken once more a few milliseconds later as the zils settle.
+function tambourine(t, v) {
+  const bp = filter('bandpass', 8500, 1.1), hp = filter('highpass', 5500);
+  metal(t, 0.25).connect(bp);
+  const n = noise(t, 0.25), nG = gain(0.6);
+  n.connect(nG); nG.connect(bp);
+  bp.connect(hp);
+  for (const [dt, level, decay] of [[0, 1, 0.09], [0.014, 0.55, 0.13]]) {
+    const e = gain(0);
+    perc(e.gain, t + dt, v * level, decay, 0.002);
+    hp.connect(e); e.connect(out('tamb'));
+  }
+}
+
 // 808 cowbell (two detuned squares) — the timeline bell in the 12/8 groove.
 function cowbell(t, v) {
   const bp = filter('bandpass', 1400, 1.1), env = gain(0);
@@ -263,6 +297,7 @@ const simHi  = (t, v) => simmons(t, v, midiToHz(fold(state.rootMidi + 12, 50, 61
 // Per-piece loudness (before density/brightness scaling and velocity).
 const KIT = {
   kick:    [kick,    0.32],  k808:  [kick808, 0.28], snare:   [snare,   0.2],
+  k909:    [kick909, 0.21], // level-matched: harder and longer than the acoustic kick
   clap:    [clap,    0.17],  rim:   [rim,     0.16], hat:     [(t, v) => hat(t, v), 0.1],
   ohat:    [(t, v) => hat(t, v, true), 0.08],        ride:    [ride,    0.55],
   crash:   [crash,   0.08],  tomLo: [tomLo,   0.26], tomHi:   [tomHi,   0.22],
@@ -271,6 +306,7 @@ const KIT = {
   btap:    [brushTap, 0.34],
   gsnare:  [gatedSnare, 0.2], simLo: [simLo,   0.26], simMid:  [simMid,  0.24],
   simHi:   [simHi,   0.22],
+  tamb:    [tambourine, 0.09],
 };
 
 // ─── Patterns ─────────────────────────────────────────────────────────────────
@@ -380,6 +416,94 @@ const STYLES = {
     kick:   'x...x...x...x...',
     gsnare: '....x.......x...',
     hat:    'xoxoxoxoxoxoxoxo' } },
+
+  // ─── Dance ──────────────────────────────────────────────────────────────────
+  // `dance` styles are picked in Manual mode (or by a genre); Infinite mode's
+  // reroll leaves them out, so it sounds as it always has.
+  // Wherever an open hat plays, the closed hat leaves that step empty: a closed
+  // hat chokes the open one (see hat), so the two on one step left only a tick.
+  // Deep house: a swung 909 groove -- off-beat open hats, a shaker and rim
+  // ghosts under the clap.
+  deep_house: { dance: true, bpm: [115, 128], swing: 0.56, human: true, fill: 'snare', tracks: {
+    k909:   'x...x...x...x...',
+    clap:   '....x.......x...',
+    ohat:   '..o...o...o...o.',
+    hat:    'g...g...g...g...',
+    rim:    '.......g......g.',
+    shaker: '.g.g.g.g.g.g.g.g' } },
+  // Techno: a driving kick, sixteenth hats with an accent pattern, a rim on
+  // the off-beat sixteenth.
+  techno: { dance: true, bpm: [122, 140], tracks: {
+    k909:  'X...x...X...x...',
+    hat:   'xg.gxg.gxg.gxg.g',
+    ohat:  '..x...x...x...x.',
+    rim:   '...g.......g..g.',
+    clap:  '....g.......g...' } },
+  // Trance: four on the floor, a clap on two and four, off-beat open hats and
+  // a snare roll into every fourth bar.
+  trance: { dance: true, bpm: [128, 140], fill: 'snare', tracks: {
+    k909:  'x...x...x...x...',
+    clap:  '....x.......x...',
+    ohat:  '..x...x...x...x.',
+    hat:   'g...g...g...g...' } },
+  // Big room / EDM: a heavy kick, clap and snare stacked on two and four.
+  big_room: { dance: true, bpm: [120, 132], fill: 'snare', tracks: {
+    k909:  'X...X...X...X...',
+    clap:  '....x.......x...',
+    snare: '....o.......o...',
+    ohat:  '..x...x...x...x.',
+    shaker: 'g.g.g.g.g.g.g.g.' } },
+  // Disco / nu-disco: four on the floor, snare and clap on two and four, the
+  // open hat on every "and" (cut by the closed one a sixteenth later -- the
+  // "tss-t"), a tambourine, and tom fills.
+  disco: { dance: true, bpm: [110, 128], human: true, fill: 'tom', tracks: {
+    kick:  'x...x...x...x...',
+    snare: '....x.......x...',
+    clap:  '....g.......g...',
+    hat:   'x..gx..gx..gx..g',
+    ohat:  '..x...x...x...x.',
+    tamb:  'g.g.x.g.g.g.x.g.' } },
+  // Afro house: a 909 four on the floor under busy shakers, congas and a bell.
+  afro_house: { dance: true, bpm: [116, 126], swing: 0.54, human: true, tracks: {
+    k909:    'x...x...x...x...',
+    clap:    '....o.......o...',
+    shaker:  'xgogxgogxgogxgog',
+    ohat:    '..o...o...o...o.',
+    congaHi: '...o..o....o.o..',
+    congaLo: '.o.....o.o......',
+    bell:    'g..g..g...g.g...' } },
+  // Amapiano: a sparse kick (the log drum carries the low end), loud
+  // sixteenth shakers, claps on two and four, rim and conga syncopations.
+  amapiano: { dance: true, bpm: [108, 118], swing: 0.56, human: true, tracks: {
+    kick:    'x.......x.......',
+    clap:    '....x.......x...',
+    shaker:  'xgogxgogxgogxgog',
+    rim:     '..g..g.g..g..g..',
+    ohat:    '..o...o...o...o.',
+    congaHi: '.......o......o.' } },
+  // Afrobeats: a swung 4/4 with the tresillo on the rim over a kick on one and
+  // three, shakers and congas.
+  afrobeats: { dance: true, bpm: [94, 112], swing: 0.55, human: true, tracks: {
+    kick:    'x.......x..x....',
+    rim:     '...x..x....x..x.',
+    clap:    '....x.......x...',
+    shaker:  'xgogxgogxgogxgog',
+    congaHi: '..o..o....o..o..',
+    congaLo: 'o.....o.........' } },
+  // Drum & bass: the two-step -- a kick on one and the "and" of three, the
+  // snare on two and four with ghosts between, over driving hats.
+  dnb: { dance: true, bpm: [160, 178], fill: 'snare', tracks: {
+    kick:   'x.........x.....',
+    snare:  '....x..g.g..x..g',
+    hat:    'x.o.x.o.x.o.x.o.',
+    shaker: '.g.g.g.g.g.g.g.g' } },
+  // Drill (trap): a short kick that leaves room for a sliding 808 bass, the
+  // snare on three with a late one after it, bouncing hats with rolls.
+  drill: { dance: true, bpm: [60, 80], rolls: true, tracks: {
+    kick:  'x.........x.....',
+    snare: '........x......o',
+    clap:  '........x.......',
+    hat:   'x..x..x.x..x..x.' } },
 };
 
 // Fills replace snare/toms/cymbals over the last beat (or two, every 8th bar).
@@ -444,7 +568,7 @@ function play(t, b) {
     let v = ch === '?' ? (Math.random() < 0.35 ? VEL.g : 0) : VEL[ch] || 0;
     if (!v) continue;
     const [fn, level] = KIT[track];
-    const scale = ['hat', 'ohat', 'ride', 'shaker', 'crash', 'swish'].includes(track) ? bright : density;
+    const scale = ['hat', 'ohat', 'ride', 'shaker', 'crash', 'swish', 'tamb'].includes(track) ? bright : density;
     let at = st;
     if (p.human) { at += rand(-0.004, 0.004); v *= rand(0.9, 1.07); }
     if (track === 'hat' && rollSteps.has(i)) {
@@ -471,8 +595,9 @@ export const drumsVoice = {
   get style() { return style; },
   // Infinite mode: choose a style that suits the current tempo.
   reroll() {
-    const fits = DRUM_STYLES.filter(s => state.tempo >= STYLES[s].bpm[0] && state.tempo <= STYLES[s].bpm[1]);
-    style = pick(fits.length ? fits : DRUM_STYLES);
+    const classic = DRUM_STYLES.filter(s => !STYLES[s].dance);
+    const fits = classic.filter(s => state.tempo >= STYLES[s].bpm[0] && state.tempo <= STYLES[s].bpm[1]);
+    style = pick(fits.length ? fits : classic);
   },
   setStyle(s) { style = s; },
 };

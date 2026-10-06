@@ -20,6 +20,8 @@ export const audio = {
   // these, so ending a session silences everything it scheduled — including
   // long notes that were queued into the future before the user pressed stop.
   dry:        null, // centred dry signal (bass, drums)
+  pumped:     null, // into dry through the sidechain pump: every voice bus and the bass
+  sweeps:     [],   // the filter sweep's stages (see sweep.js and sweepStage below)
   reverbSend: null,
   echoSend:   null, // tempo-synced ping-pong delay
   noise:      null, // shared white-noise buffer (see noise())
@@ -264,8 +266,9 @@ const VOICE_PAN = {
   strings: -0.2, rhodes: 0.2, organ: -0.3, glass: 0.4, harp: -0.4,
   brass: 0.3, vibraphone: 0.45, clavinet: -0.5, sitar: 0.5, kalimba: -0.35,
   synthbrass: -0.25, monolead: 0.15, // juno and solina are centred: their chorus spreads them
+  stab: -0.2, vox: 0.25, sawpluck: 0.35, guitar: 0.4,
   'kit:hat': 0.3, 'kit:ride': -0.35, 'kit:crash': -0.25, 'kit:tomHi': -0.3,
-  'kit:tomLo': 0.3, 'kit:perc': -0.4, 'kit:shaker': 0.45, 'kit:rim': 0.12,
+  'kit:tomLo': 0.3, 'kit:perc': -0.4, 'kit:shaker': 0.45, 'kit:rim': 0.12, 'kit:tamb': -0.45,
 };
 
 // Distance: how far back each voice sits, as extra room on top of the shared
@@ -275,6 +278,7 @@ const VOICE_PAN = {
 // ensemble reads in depth, not just side to side.
 const VOICE_DISTANCE = {
   arpeggio: 3, harp: 3, pluck: 3, kalimba: 3, mallet: 3, clavinet: 3, rhodes: 3, vibraphone: 3, organ: 3,
+  stab: 3, sawpluck: 3, vox: 3, guitar: 3,
   pad: 6, strings: 6, choir: 6, drone: 6, supersaw: 6, juno: 6, solina: 6, synthbrass: 6,
   texture: 6, glass: 6, bell: 6,
 };
@@ -290,6 +294,7 @@ const VOICE_DISTANCE = {
 const VOICE_LOW_CUT = {
   pad: 110, strings: 110, choir: 110, organ: 110, drone: 110, supersaw: 110, juno: 110, solina: 110, synthbrass: 110,
   arpeggio: 120, harp: 120, pluck: 120, kalimba: 120, mallet: 120, clavinet: 120, rhodes: 120,
+  stab: 120, sawpluck: 120, vox: 160, guitar: 160,
   melody: 140, flute: 140, brass: 140, sitar: 140, vibraphone: 140, monolead: 140,
   bell: 250, glass: 250, texture: 250,
 };
@@ -328,7 +333,9 @@ export function getVoiceBus(name) {
     } else {
       dry.connect(panner);
     }
-    panner.connect(audio.dry);
+    // Everything but the kit goes through the pump (see pump.js), as a real
+    // sidechain would: the drums are what it ducks for.
+    panner.connect(name.startsWith('kit:') ? audio.dry : audio.pumped);
     // The dry bus already feeds the room at gain 1; this adds the rest. Both
     // copies are the same signal, so they add in amplitude, not energy.
     const extra = dbToGain(VOICE_DISTANCE[name] ?? 0) - 1;
@@ -357,6 +364,11 @@ export function beginSession() {
   const dry = ctx.createGain();
   dry.connect(audio.masterGain);
 
+  // Pump: the sidechain bus. Unity gain unless pump.js is ducking it on the beat.
+  // It reaches the dry bus through the filter sweep (see sweepStage).
+  const pumped = ctx.createGain();
+  const sweeps = [sweepStage(ctx, pumped, dry)];
+
   // Room bus: the whole dry mix, stereo image and all (plus the extra sends
   // of voices further back). The high-pass keeps bass and kick fundamentals
   // out of it — a room on the low end reads as boom, not space.
@@ -369,7 +381,7 @@ export function beginSession() {
   const reverbSend = ctx.createGain();
   const hallBus = ctx.createBiquadFilter();
   hallBus.type = 'highpass'; hallBus.frequency.value = 180;
-  reverbSend.connect(hallBus);
+  sweeps.push(sweepStage(ctx, reverbSend, hallBus));
 
   // Ping-pong echo: left tap → right tap → back to left, band-limited so the
   // repeats sit behind the dry signal. Delay time follows the tempo.
@@ -381,7 +393,8 @@ export function beginSession() {
   const feedback = ctx.createGain(); feedback.gain.value = 0.42;
   const merger = ctx.createChannelMerger(2);
   const echoOut = ctx.createGain(); echoOut.gain.value = 0.8;
-  echoSend.connect(echoHp); echoHp.connect(echoLp); echoLp.connect(left);
+  sweeps.push(sweepStage(ctx, echoSend, echoHp));
+  echoHp.connect(echoLp); echoLp.connect(left);
   left.connect(right); right.connect(feedback); feedback.connect(left);
   left.connect(merger, 0, 0); right.connect(merger, 0, 1);
   merger.connect(echoOut); echoOut.connect(audio.masterGain);
@@ -389,13 +402,34 @@ export function beginSession() {
   const echoToVerb = ctx.createGain(); echoToVerb.gain.value = 0.25;
   echoOut.connect(echoToVerb); echoToVerb.connect(reverbSend);
 
-  session = { roomBus, hallBus, outputs: [dry, echoOut], echo: [left, right], spaces: [] };
+  session = { roomBus, hallBus, outputs: [dry, pumped, echoOut], echo: [left, right], spaces: [] };
   session.space = makeSpace(ROOMS[state.room] ? state.room : 'room');
   session.space.open(0);
   session.spaces.push(session.space);
   audio.dry        = dry;
+  audio.pumped     = pumped;
+  audio.sweeps     = sweeps;
   audio.reverbSend = reverbSend;
   audio.echoSend   = echoSend;
+}
+
+// The filter sweep's place in the chain (sweep.js automates it): two parallel
+// paths from `from` to `into` -- straight through at unity, and through a
+// lowpass at gain 0. At sweep 0 nothing reaches `into` through the filter, so
+// the mix is exactly what it was without one; sweep.js crossfades to the
+// filtered path while it's on. One stage on the voices' dry bus and one on
+// each of their effect sends, so a closed filter darkens the echo and the hall
+// with the dry sound. The drums bypass it, as they bypass the pump.
+function sweepStage(ctx, from, into) {
+  const direct = ctx.createGain();
+  const lp = ctx.createBiquadFilter();
+  lp.type = 'lowpass';
+  lp.frequency.value = 20000;
+  const wet = ctx.createGain();
+  wet.gain.value = 0;
+  from.connect(direct); direct.connect(into);
+  from.connect(lp); lp.connect(wet); wet.connect(into);
+  return { direct, lp, wet };
 }
 
 // Echo time in seconds (a dotted eighth is the classic choice).

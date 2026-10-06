@@ -31,6 +31,12 @@ import { junoVoice }       from './voices/juno.js';
 import { solinaVoice }     from './voices/solina.js';
 import { synthbrassVoice } from './voices/synthbrass.js';
 import { monoleadVoice }   from './voices/monolead.js';
+import { stabVoice }       from './voices/stab.js';
+import { voxVoice }        from './voices/vox.js';
+import { sawpluckVoice }   from './voices/sawpluck.js';
+import { guitarVoice }     from './voices/guitar.js';
+import { pumpVoice }       from './voices/pump.js';
+import { sweepVoice }      from './voices/sweep.js';
 
 export {
   bassVoice, padVoice, melodyVoice, textureVoice, pluckVoice,
@@ -39,6 +45,7 @@ export {
   harpVoice, brassVoice, drumsVoice,
   vibraphoneVoice, clavinetVoice, sitarVoice, kalimbaVoice, supersawVoice,
   junoVoice, solinaVoice, synthbrassVoice, monoleadVoice,
+  stabVoice, voxVoice, sawpluckVoice, guitarVoice,
 };
 
 // ─── Orchestration ────────────────────────────────────────────────────────────
@@ -52,7 +59,10 @@ const ROLES = {
   motion: [arpeggioVoice, harpVoice, pluckVoice, kalimbaVoice, malletVoice, clavinetVoice, rhodesVoice],
   air:    [bellVoice, glassVoice, textureVoice],
 };
-const ALL_VOICES = [bassVoice, drumsVoice, ...Object.values(ROLES).flat()];
+// The dance voices are chosen in Manual mode (or by a genre), not drawn into
+// Infinite mode's eras by role, so Infinite sounds as it always has.
+const DANCE_VOICES = [stabVoice, voxVoice, sawpluckVoice, guitarVoice];
+const ALL_VOICES = [bassVoice, drumsVoice, ...Object.values(ROLES).flat(), ...DANCE_VOICES];
 
 export let activeVoices = [];
 
@@ -96,6 +106,8 @@ export function startSession(t) {
   ensemble.motif = null;
   ensemble.motifPhrase = -1;
   for (const v of ALL_VOICES) v.reset();
+  pumpVoice.reset();
+  sweepVoice.reset();
   lastTickTime = 0;
   eraTimer = 0;
   eraAt = null;
@@ -164,6 +176,8 @@ function drift() {
 let lastTickTime = 0;
 
 function runVoices(now, horizon, skipBass) {
+  pumpVoice.tick(now, horizon);
+  sweepVoice.tick(now, horizon);
   if (!skipBass) bassVoice.tick(now, horizon);
   for (const v of activeVoices) v.tick(now, horizon);
 }

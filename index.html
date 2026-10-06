@@ -455,13 +455,15 @@
       margin-bottom: 22px;
     }
 
-    /* bass / drums subtype rows */
-    .voice-group {
+    /* instrument groups: a heading over its toggles, like the genre groups */
+    .inst-group {
       display: flex;
-      align-items: baseline;
-      gap: 12px;
-      margin-bottom: 10px;
+      flex-direction: column;
+      gap: 7px;
+      margin-bottom: 14px;
     }
+    .inst-group:last-child { margin-bottom: 0; }
+    .inst-group .group-label { text-align: left; }
     .group-label {
       font-size: 9px;
       letter-spacing: 3px;
@@ -561,6 +563,14 @@
     .action-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
     /* genre preset buttons */
+    .genre-groups {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      flex: 1;
+    }
+    .genre-group { display: flex; flex-direction: column; gap: 6px; }
+    .genre-group .group-label { text-align: left; }
     .genre-row {
       display: flex;
       flex-wrap: wrap;
@@ -852,7 +862,7 @@
         </div>
         <div class="section-body">
           <div class="ctrl-row" style="margin-bottom:12px">
-            <div id="genre-btns" class="genre-row"></div>
+            <div id="genre-btns" class="genre-groups"></div>
           </div>
         </div>
       </div>
@@ -876,7 +886,7 @@
           </div>
           <div class="ctrl-row">
             <span class="ctrl-label">BPM</span>
-            <input id="manual-bpm-slider" type="range" min="40" max="160" step="1" value="90">
+            <input id="manual-bpm-slider" type="range" min="40" max="180" step="1" value="90">
             <span id="manual-bpm-value" class="ctrl-value">90</span>
           </div>
           <div class="ctrl-row">
@@ -908,10 +918,20 @@
             <input type="range" class="feel-slider" id="harmony-slider" min="0" max="1" step="0.01" value="0.78">
             <span class="ctrl-value" id="harmony-val">0.78</span>
           </div>
-          <div class="ctrl-row" style="margin-bottom:4px">
+          <div class="ctrl-row">
             <span class="ctrl-label">CHORD</span>
             <input type="range" class="feel-slider" id="chord-slider" min="2" max="8" step="1" value="4">
             <span class="ctrl-value" id="chord-val">4</span>
+          </div>
+          <div class="ctrl-row" title="Sidechain: everything but the drums ducks on every beat, the breathing of house and EDM">
+            <span class="ctrl-label">PUMP</span>
+            <input type="range" class="feel-slider" id="pump-slider" min="0" max="1" step="0.01" value="0">
+            <span class="ctrl-value" id="pump-val">0.00</span>
+          </div>
+          <div class="ctrl-row" style="margin-bottom:4px" title="Filter sweep: everything but the drums closes down and opens back up over sixteen bars, the French house filter">
+            <span class="ctrl-label">SWEEP</span>
+            <input type="range" class="feel-slider" id="sweep-slider" min="0" max="1" step="0.01" value="0">
+            <span class="ctrl-value" id="sweep-val">0.00</span>
           </div>
         </div>
       </div>

@@ -62,6 +62,15 @@ const PROGRESSIONS = {
     [0, 5, 6, 0],               // I – vi – ♭VII – I
     [6, 3, 0, 0],               // ♭VII – IV – I        (double plagal)
   ],
+  major: [                      // I ii iii IV V vi vii°
+    [0, 4, 5, 3],               // I – V – vi – IV      (the pop / EDM axis)
+    [5, 3, 0, 4],               // vi – IV – I – V      (the same, from the minor side)
+    [0, 3, 5, 4],               // I – IV – vi – V
+    [3, 4, 5, 5],               // IV – V – vi          (future bass)
+    [0, 5, 3, 4],               // I – vi – IV – V
+    [1, 4, 0, 0],               // ii – V – I
+    [0, 2, 3, 3],               // I – iii – IV
+  ],
   // Pentatonic "chords" stack scale-thirds of a 5-note scale, which gives
   // open quartal voicings — gentle motion suits them best.
   minor_pent: [[0, 2, 3, 0], [0, 3, 2, 0], [0, 2, 4, 3], [0, 3, 0, 2], [0, 4, 3, 0]],

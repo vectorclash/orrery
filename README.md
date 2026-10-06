@@ -20,20 +20,26 @@ Click **PLAY** to start. The button toggles to **STOP**, allowing playback to be
 
 Full control over every parameter. The panel is divided into three collapsible sections — **GENRE**, **FEEL**, and **INSTRUMENTS** — to reduce visual clutter.
 
-**Genre presets** (AMBIENT, DARK, JAZZ, ELEC, ORCH, ZEN, BLUES, FOLK, DREAM, FUNK, EPIC) instantly configure a musically coherent combination of scale, tempo, density, brightness, spaciousness, room, and the two harmony controls — e.g. JAZZ and BLUES loosen the chord-tone lock and move chords every 4 beats, while AMBIENT, ZEN, and DREAM keep tight, consonant voices over long 8-beat chords. **RANDOM** picks a fresh random combination of all parameters and instruments. Entering Manual mode with no instruments selected automatically randomises.
+**Genres** are styles: each sets a feel (scale, tempo, density, brightness, spaciousness, room, the two harmony controls, the pump and the sweep) *and* rolls a kit of instruments that belong to it — a drum style, a bass style, a voice from each of the genre's core pools and a few extras. They come in two groups: **ELECTRONIC** (DEEP HOUSE, NU-DISCO, AFRO HOUSE, AMAPIANO, TECHNO, MELODIC TECHNO, TRANCE, EDM, UK GARAGE, LIQUID DNB, SYNTHWAVE, FUTURE BASS, TRAP, REGGAETON, AFROBEATS, LO-FI, ELEC) and **CLASSIC** (AMBIENT, DARK, JAZZ, ORCH, ZEN, BLUES, FOLK, DREAM, FUNK, EPIC). Clicking a genre again rolls a new kit from it. While a genre is selected, the FEEL and INSTRUMENTS randoms stay inside it; moving a control by hand deselects it.
 
-**SHARE** encodes the full current configuration — key, scale, tempo, all five feel sliders, and every enabled instrument — as a 16-byte binary payload in the URL hash (`#c=…`, 22 base64url characters), room included. Clicking the button copies the URL to the clipboard. Loading that URL restores the exact configuration. Fields have only ever been appended, so older 11-, 13-, 14- and 15-byte links still load (missing fields fall back to their defaults). The instrument bitmask order is spelled out in `ALL_INST_KEYS` and must only ever be appended to.
+**Instruments** are grouped for finding things: BASS; the drums as ELECTRONIC DRUMS and CLASSIC DRUMS (one drum style plays at a time, across both); and the instruments by the part they play in an arrangement — PADS & CHORDS, LEADS, RHYTHM and AIR, the roles Infinite mode builds its eras from. The grouping is display only: share links and what plays are unaffected.
+
+**RANDOMIZE ALL** picks a genre — electronic ones twice as likely as classic, about two rolls in three — then varies its feel (any root, a tempo and scale from the genre's range, the sliders nudged) and rolls its kit. About one roll in ten is a wildcard: any feel and any 2–5 instruments, for the combinations no genre makes. Entering Manual mode with no instruments selected automatically randomises.
+
+**SHARE** encodes the full current configuration — key, scale, tempo, all five feel sliders, room, pump, sweep, and every enabled instrument — as a 20-byte binary payload in the URL hash (`#c=…`, 27 base64url characters). Clicking the button copies the URL to the clipboard. Loading that URL restores the exact configuration. Fields have only ever been appended, so older 11-, 13-, 14-, 15-, 16- and 18-byte links still load (missing fields fall back to their defaults; a missing pump or sweep is none). The link format lives in `src/share.js`, which the export renderer also exposes to pages embedding it. The instrument bitmask order is spelled out in `ALL_INST_KEYS` and must only ever be appended to.
 
 **Controls:**
 | Control | Range | Effect |
 |---|---|---|
-| BPM | 50–140 | Tempo (changes take effect on the beat grid without drift) |
+| BPM | 40–180 | Tempo (changes take effect on the beat grid without drift) |
 | Octave | −3…+1 | Moves every voice by whole octaves from its home register. Instruments only stop at the edge of audibility (≈30–40 Hz) or where they'd turn piercing, so at −3 the low instruments hold at the floor (the bass never drops below D1) while the higher ones keep descending |
 | Density | 0–1 | Note volume and presence |
 | Brightness | 0–1 | Filter cutoffs (pad, drone, strings, brass, arpeggio, clavinet) and cymbal level |
 | Spaciousness | 0–1 | Reverb send on the sustained voices |
 | Harmony | 0–1 | How strongly melodic voices lock to chord tones — 0 lets them roam the whole scale (looser, more random), 1 keeps them strictly on the chord (tighter, more consonant). Triads and bass always follow the progression. |
 | Chord | 2–8 beats | How often the chord progression advances — low = fast harmonic motion, high = long, slow-changing chords |
+| Pump | 0–1 | Sidechain: everything but the drums dips on every beat and swells back — the breathing of house and EDM. Up to about −14 dB at 1 |
+| Sweep | 0–1 | The French house filter: everything but the drums (and their echo and reverb) runs through a resonant lowpass that stays open for six bars, closes over two and opens back up over eight, landing fully open on the next sixteen-bar downbeat. The depth sets how far it closes — about 220 Hz at 1 (the bass line and little else), 2 kHz at 0.5. At 0 the filter is routed around entirely |
 
 **Export** records a WAV file of exactly the requested duration. A 3-2-1 countdown mutes any previously playing audio so the recording starts clean. Over the last moments of the recording window (up to 0.4 s) a fade on the audio clock lets decaying voices die away instead of being chopped, and no new notes start inside it. The raw MediaRecorder capture is decoded and trimmed to exactly `duration × sampleRate` samples before writing the WAV header, so a 10-second export is precisely 10 seconds.
 
@@ -95,10 +101,19 @@ Every style lands the chord root on each chord arrival and never holds a note ac
 | WALK | Quarter notes: root on arrival, chord tones on strong beats, scale steps heading toward the next root, and a chromatic, diatonic or dominant approach on the last beat | Upright bass — Karplus–Strong string, dark and plucked mid-string, plus a finger thump |
 | SYNTH | 16th-note patterns: octave bounce, off-beat, 3-3-2 syncopation, driving eighths | Detuned saws through a resonant filter sweep |
 | RUMBLE | One root per chord | Square + sine sub with slow tremolo |
+| DEEP | Syncopated sixteenths that leave the beat to the kick (deep house) | Organ bass — a sine with its 2nd and 3rd harmonics, plucked into a held body |
+| ACID | A two-bar sixteenth sequence of chord tones with accents and slides, mutating a little each phrase | TB-303 — one saw (sometimes square) through a resonant lowpass whose envelope is the squelch, a little drive; accents open it further, slides glide without retriggering, the cutoff wanders over bars |
+| ROLLING | Sixteenths that skip the beat (trance / EDM) | The SYNTH bass, gated short |
+| DISCO | Octaves in eighths — root, octave, root, octave — some syncopated, some with the fifth | Moog-style: a saw and a square through a resonant lowpass that snaps open on every note |
+| 808 | Long notes under a sparse kick, held until the next; a note following one still sounding usually slides into its pitch | A sine with a fast pitch drop and saturation (so it is heard on a phone) — the trap 808 |
+| REESE | Long notes, at most a few per bar (drum & bass) | Two saws a few cents apart beating slowly against each other, through a drifting lowpass, over a sine sub |
+| LOG DRUM | A syncopated, melodic sixteenth riff (amapiano) | A hollow pitched knock: a sine dropping into its pitch, a woody click, saturation and a lowpass closing behind the hit |
+
+The dance styles (DEEP onwards) are chosen in Manual mode or by a genre; Infinite mode keeps to the first five.
 
 ### Instruments
 
-Twenty-five instruments in four roles. Infinite mode builds each era's arrangement from roles — one or two **bed** voices, usually one **lead**, one or two **motion** voices, sometimes **air**, drums about a third of the time — instead of drawing at random (which could produce four melodies and no harmony).
+Twenty-nine instruments in four roles (the four dance voices are Manual mode's). Infinite mode builds each era's arrangement from roles — one or two **bed** voices, usually one **lead**, one or two **motion** voices, sometimes **air**, drums about a third of the time — instead of drawing at random (which could produce four melodies and no harmony).
 
 #### Bed — chordal, change on the harmonic rhythm, voice-led
 
@@ -136,6 +151,12 @@ Twenty-five instruments in four roles. Infinite mode builds each era's arrangeme
 | **Mallet** | Marimba bars at 1 : 4 : ~9.4 with pitch-dependent decay and a yarn-mallet thump; ostinato figures |
 | **Clavinet** | Very bright Karplus–Strong string struck near the bridge, damped on key-up, through a lowpass that snaps shut (the funk "quack"); repeating riffs with occasional double-stops |
 | **Rhodes** | Two-operator FM tine piano (1:1 modulator whose depth follows velocity for the "bark", 14:1 for the tine ping) comping rootless voicings (3-5-7-9, ♭9 avoided) in syncopated rhythms, anticipating chord changes by an eighth, through a stereo auto-pan |
+| **Chord stab** | House stab: the chord's four tones (minor 7ths in minor keys), voice-led, on off-beats and syncopations; detuned saw pairs plus a square an octave down through a lowpass that snaps shut, into the tempo echo |
+| **Saw pluck** | Trance / EDM pluck: three detuned saws through a fast-closing lowpass, chord tones in a gated sixteenth rhythm that holds for a phrase like a hook, heavy tempo echo |
+| **Vocal chop** | A synthesised sung syllable — a saw and a breath of noise through the three formant resonances of a soprano vowel (ah, oh, ee, oo, eh) — chopped into a two-bar hook on chord tones, some chops falling a step at the end like a pitched-down sample |
+| **Funk guitar** | Disco rhythm guitar, the "chicken scratch": Karplus–Strong strings strummed in sixteenths (down on the beat and the "and", up between, a few ms per string), the chord's four tones high on the neck, voice-led. Most strokes are muted scratches; a few ring out as short chops cut by the fretting hand. Patterns hold for a phrase |
+
+The four dance voices are chosen in Manual mode or by a genre; Infinite mode doesn't draw them into its eras.
 
 #### Air — sparse chord tones
 
@@ -172,14 +193,28 @@ A step sequencer: one bar per pattern, written as strings (`X` accent, `x` hit, 
 | GHOST | 16 | Very sparse, atmospheric |
 | SYNTHWAVE | 16 | 80s drum machine: kick 1, 3, 3&, gated snare on 2 & 4, eighth hats, Simmons tom fills |
 | OUTRUN | 16 | Four on the floor, gated snare, driving sixteenth hats, Simmons tom fills |
+| DEEP HOUSE | 16 | Swung 909 groove: kick on every beat, clap 2 & 4, off-beat open hats, closed hats on the beat, rim and shaker |
+| TECHNO | 16 | Driving 909 kick with accents, sixteenth hats around off-beat open hats, rim ghosts |
+| TRANCE | 16 | Four on the floor, clap 2 & 4, off-beat open hats, snare-roll fills |
+| BIG ROOM | 16 | Heavy kick, clap and snare stacked on 2 & 4, off-beat open hats, shaker |
+| DISCO | 16 | Four on the floor, snare and clap on 2 & 4, the open hat on every "and" cut by the closed one a sixteenth later, tambourine, tom fills |
+| AFRO HOUSE | 16 | Swung 909 four on the floor under sixteenth shakers, congas, off-beat open hats and a bell |
+| AMAPIANO | 16 | Sparse kick (the log drum carries the low end), loud sixteenth shakers, claps on 2 & 4, rim and conga syncopations |
+| AFROBEATS | 16 | Swung 4/4: kick on 1 and 3, the tresillo on the rim, claps, shakers, congas |
+| D&B | 16 | The two-step at 160–178 BPM: kick on 1 and the "and" of 3, snare on 2 & 4 with ghosts, driving hats |
+| DRILL | 16 | A short kick that leaves room for an 808, snare on 3 with a late one after it, bouncing hats with rolls |
 
-**Kit** (all synthesised): kick (sine sweep, soft saturation for small speakers, beater click) · 808 kick (long boom tuned to the key root) · snare (two shell modes + band-passed wires) · clap (three hands + room tail) · cross-stick · hi-hats (TR-808 "metal": six square waves at inharmonic frequencies, band-passed; closing the hat chokes a ringing open hat) · ride (noise wash + metal shimmer + stick ping) · crash · toms and congas (tuned to root and fifth) · taiko · shaker · cowbell · brush sweep and tap · for the 80s styles, a gated snare (a deeper body and longer wires, mostly heard through a gated reverb: an impulse of dense noise that holds its level for 0.32 s and then stops dead, the AMS RMX16 "nonlinear" trick) and Simmons SDS-V toms (pitch falling steeply through the note — the "pew" — tuned to root, fifth and octave, partly through the gated reverb). Kick, snare and clap sit centre; the other pieces are spread across the stereo field.
+Where a dance style plays an open hat, its closed hat leaves that step empty — a closed hat chokes an open one, so the two on one step leave only a tick.
+
+The dance styles (DEEP HOUSE onwards) are chosen in Manual mode or by a genre; Infinite mode's pick by tempo leaves them out.
+
+**Kit** (all synthesised): kick (sine sweep, soft saturation for small speakers, beater click) · 808 kick (long boom tuned to the key root) · snare (two shell modes + band-passed wires) · clap (three hands + room tail) · cross-stick · hi-hats (TR-808 "metal": six square waves at inharmonic frequencies, band-passed; closing the hat chokes a ringing open hat) · ride (noise wash + metal shimmer + stick ping) · crash · toms and congas (tuned to root and fifth) · taiko · shaker · cowbell · tambourine (the 808 metal and bright noise, struck and shaken once more as the jingles settle) · brush sweep and tap · a 909-style kick for the dance styles (a harder, faster pitch drop than the acoustic kick, more drive, a click, and a body that holds) · for the 80s styles, a gated snare (a deeper body and longer wires, mostly heard through a gated reverb: an impulse of dense noise that holds its level for 0.32 s and then stops dead, the AMS RMX16 "nonlinear" trick) and Simmons SDS-V toms (pitch falling steeply through the note — the "pew" — tuned to root, fifth and octave, partly through the gated reverb). Kick, snare and clap sit centre; the other pieces are spread across the stereo field.
 
 Kick and snare levels scale with `density`; cymbals and shaker with `brightness`.
 
 ### Musical scales
 
-Seven scales defined as semitone intervals from the root:
+Eight scales defined as semitone intervals from the root:
 
 | Scale | Intervals | Character |
 |---|---|---|
@@ -190,6 +225,7 @@ Seven scales defined as semitone intervals from the root:
 | Major pentatonic | 0 2 4 7 9 | 5 notes — open, optimistic |
 | Lydian | 0 2 4 6 7 9 11 | Raised 4th — floating, ethereal |
 | Mixolydian | 0 2 4 5 7 9 10 | Flat 7th — bright but unresolved |
+| Major | 0 2 4 5 7 9 11 | Ionian — bright, resolved; EDM and future bass (I–V–vi–IV and friends) |
 
 Pitches are standard MIDI note numbers (69 = A4 = 440 Hz): `hz = 440 × 2^((midi − 69) / 12)`. The tonic is kept within C3–B3; each instrument has a home register, and the octave setting moves it by whole octaves within that instrument's audible range.
 

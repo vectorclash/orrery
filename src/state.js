@@ -7,6 +7,8 @@ export const SCALES = {
   major_pent: [0, 2, 4, 7, 9],
   lydian:     [0, 2, 4, 6, 7, 9, 11],
   mixolydian: [0, 2, 4, 5, 7, 9, 10],
+  // Appended: share links store the scale's index, so the order is fixed.
+  major:      [0, 2, 4, 5, 7, 9, 11],
 };
 export const SCALE_NAMES = Object.keys(SCALES);
 
@@ -26,6 +28,8 @@ export const state = {
   chordBeats:  4,    // beats per chord — how often the progression advances
   era:         0,
   room:        'room', // acoustic space — see ROOMS in audio/context.js
+  pump:        0,      // sidechain pump depth, 0–1 — see pump.js
+  sweep:       0,      // filter sweep depth, 0–1 — see sweep.js
   get rootBase() { return this.rootMidi + this.octaveShift * 12; },
 };
 

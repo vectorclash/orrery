@@ -21,22 +21,30 @@ export const ALL_INST_KEYS = [
   'supersaw',
   // the 80s instruments
   'drums:synthwave','drums:outrun','juno','solina','synthbrass','monolead',
-]; // 51 keys: bits 0–39 in bytes 6–10, 40–47 in byte 13, 48–55 in byte 15 (byte 14 is the room)
+  // dance music
+  'drums:deep_house','drums:techno','drums:trance','drums:big_room',
+  'bass:deep','bass:acid','bass:rolling','stab','vox','sawpluck',
+  // more dance music
+  'drums:disco','drums:afro_house','drums:amapiano','drums:afrobeats','drums:dnb','drums:drill',
+  'bass:disco','bass:808','bass:reese','bass:log','guitar',
+]; // 72 keys: bits 0–39 in bytes 6–10, 40–47 in byte 13, 48–55 in byte 15 (byte 14 is the room),
+   // 56–63 in byte 16, 64–71 in byte 19 (bytes 17 and 18 are pump and sweep)
 
-// Binary pack: 16 bytes → 22 base64url chars
+// Binary pack: 20 bytes → 27 base64url chars
 // [rootOffset(1), scale(1), tempo(1), density×100(1), brightness×100(1),
 //  spaciousness×100(1), instBitmask bits 0–39 (5 bytes),
 //  harmonyLock×100(1), chordBeats(1), instBitmask bits 40–47 (1 byte),
-//  room index(1), instBitmask bits 48–55 (1 byte)]
-// Fields were appended over time; older 11-, 13-, 14- and 15-byte links still
-// decode (missing fields fall back to current/default values). The octave is not
-// in the link.
-const instByte = i => (i < 40 ? 6 + (i >> 3) : i < 48 ? 13 : 15);
+//  room index(1), instBitmask bits 48–55 (1 byte), instBitmask bits 56–63 (1 byte),
+//  pump×100(1), sweep×100(1), instBitmask bits 64–71 (1 byte)]
+// Fields were appended over time; older 11-, 13-, 14-, 15-, 16- and 18-byte links
+// still decode (missing fields fall back to current/default values, and a missing
+// pump or sweep is none). The octave is not in the link.
+const instByte = i => (i < 40 ? 6 + (i >> 3) : i < 48 ? 13 : i < 56 ? 15 : i < 64 ? 16 : 19);
 
 // `enabled` maps an ALL_INST_KEYS key to whether that instrument is on; the
 // rest comes from the live state.
 export function encodeConfig(enabled) {
-  const b = new Uint8Array(16);
+  const b = new Uint8Array(20);
   b[0] = state.rootMidi - ROOT_BASE_MIDI;
   b[1] = state.scaleIdx;
   b[2] = state.tempo;
@@ -49,6 +57,8 @@ export function encodeConfig(enabled) {
   b[11] = Math.round(state.harmonyLock * 100);
   b[12] = state.chordBeats;
   b[14] = Math.max(0, Object.keys(ROOMS).indexOf(state.room));
+  b[17] = Math.round(state.pump * 100);
+  b[18] = Math.round(state.sweep * 100);
   return btoa(String.fromCharCode(...b)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
 }
 
@@ -63,6 +73,8 @@ export function decodeConfig(str) {
       hl: b[11] !== undefined ? b[11] / 100 : undefined,
       cb: b[12] !== undefined ? b[12] : undefined,
       rm: b[14] !== undefined ? Object.keys(ROOMS)[b[14]] : undefined,
+      pu: b[17] !== undefined ? b[17] / 100 : 0,
+      sw: b[18] !== undefined ? b[18] / 100 : 0,
     };
   } catch { return null; }
 }
@@ -89,6 +101,8 @@ export function planFromConfig(cfg) {
       harmonyLock:  cfg.hl ?? state.harmonyLock,
       chordBeats:   cfg.cb ?? state.chordBeats,
       room:         cfg.rm ?? state.room,
+      pump:         cfg.pu,
+      sweep:        cfg.sw,
     },
     bassStyle: bassSubs.length ? pick(bassSubs) : null,
     drumStyle: drumSubs.length ? pick(drumSubs) : null,
@@ -99,7 +113,7 @@ export function planFromConfig(cfg) {
   };
 }
 
-// A whole share URL, a bare `#c=…` hash, or just the 22 characters.
+// A whole share URL, a bare `#c=…` hash, or just the characters after `c=`.
 export function planFromShare(link) {
   const m = /(?:^|[#&])c=([A-Za-z0-9_-]+)/.exec(link) || /^([A-Za-z0-9_-]{14,})$/.exec(link.trim());
   const cfg = m && decodeConfig(m[1]);
