@@ -11,7 +11,7 @@ import {
   stabVoice, voxVoice, sawpluckVoice, guitarVoice,
   activeVoices, eraTimer, ERA_DURATION, eraAt, requestEra,
 } from './audio/scheduler.js';
-import { encodeConfig, decodeConfig } from './share.js';
+import { encodeConfig, decodeConfig, ALL_INST_KEYS } from './share.js';
 import { startAnimation } from './visuals/animate.js';
 import { post } from './visuals/post.js';
 
@@ -172,6 +172,16 @@ const SIMPLE_VOICES = [
   { key:'guitar',     voice:guitarVoice,     label:'FUNK GUITAR' },
 ];
 const voiceLabel = ({ key, label }) => label ?? key.toUpperCase();
+// A share link only carries the instruments listed in ALL_INST_KEYS, so one
+// added here but not there would play but be left out of links.
+{
+  const unshared = [
+    ...BASS_SUBTYPES.map(s => `bass:${s}`),
+    ...DRUMS_SUBTYPES.map(s => `drums:${s}`),
+    ...SIMPLE_VOICES.map(v => v.key),
+  ].filter(k => !ALL_INST_KEYS.includes(k));
+  if (unshared.length) console.warn('Instruments missing from ALL_INST_KEYS in share.js:', unshared);
+}
 // ─── UI refs ──────────────────────────────────────────────────────────────────
 const startBtn        = document.getElementById('start-btn');
 const nextBtn         = document.getElementById('next-btn');

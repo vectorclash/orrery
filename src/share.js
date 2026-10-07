@@ -27,24 +27,35 @@ export const ALL_INST_KEYS = [
   // more dance music
   'drums:disco','drums:afro_house','drums:amapiano','drums:afrobeats','drums:dnb','drums:drill',
   'bass:disco','bass:808','bass:reese','bass:log','guitar',
-]; // 72 keys: bits 0–39 in bytes 6–10, 40–47 in byte 13, 48–55 in byte 15 (byte 14 is the room),
-   // 56–63 in byte 16, 64–71 in byte 19 (bytes 17 and 18 are pump and sweep)
+];
 
-// Binary pack: 20 bytes → 27 base64url chars
+// Binary pack: 20 fixed bytes, then the instrument tail if there is one
 // [rootOffset(1), scale(1), tempo(1), density×100(1), brightness×100(1),
 //  spaciousness×100(1), instBitmask bits 0–39 (5 bytes),
 //  harmonyLock×100(1), chordBeats(1), instBitmask bits 40–47 (1 byte),
 //  room index(1), instBitmask bits 48–55 (1 byte), instBitmask bits 56–63 (1 byte),
-//  pump×100(1), sweep×100(1), instBitmask bits 64–71 (1 byte)]
+//  pump×100(1), sweep×100(1), instBitmask bits 64–71 (1 byte),
+//  tail length n(1), instBitmask bits 72 and up (n bytes)]
+// The first 72 instruments were fitted into spare bytes as they came. Everything
+// after them goes in the tail, which grows with ALL_INST_KEYS, so appending a key
+// needs no change here. While there are no more than 72 keys the tail is left
+// out, so a link is the 20 bytes. A new field goes after the tail, at 21 + n,
+// never in a fixed slot.
 // Fields were appended over time; older 11-, 13-, 14-, 15-, 16- and 18-byte links
 // still decode (missing fields fall back to current/default values, and a missing
-// pump or sweep is none). The octave is not in the link.
-const instByte = i => (i < 40 ? 6 + (i >> 3) : i < 48 ? 13 : i < 56 ? 15 : i < 64 ? 16 : 19);
+// pump or sweep is none). A page from before the tail reads a link's first 72
+// instruments and ignores the rest. The octave is not in the link.
+const FIXED_INST_BITS = 72;
+const TAIL_LEN = 20; // the tail's length byte; its bits start at TAIL_LEN + 1
+const instByte = i => (i < 40 ? 6 + (i >> 3) : i < 48 ? 13 : i < 56 ? 15 : i < 64 ? 16
+  : i < FIXED_INST_BITS ? 19 : TAIL_LEN + 1 + ((i - FIXED_INST_BITS) >> 3));
 
 // `enabled` maps an ALL_INST_KEYS key to whether that instrument is on; the
 // rest comes from the live state.
 export function encodeConfig(enabled) {
-  const b = new Uint8Array(20);
+  const tail = Math.ceil(Math.max(0, ALL_INST_KEYS.length - FIXED_INST_BITS) / 8);
+  const b = new Uint8Array(tail ? TAIL_LEN + 1 + tail : TAIL_LEN);
+  if (tail) b[TAIL_LEN] = tail;
   b[0] = state.rootMidi - ROOT_BASE_MIDI;
   b[1] = state.scaleIdx;
   b[2] = state.tempo;
@@ -66,10 +77,13 @@ export function decodeConfig(str) {
   try {
     const pad = str + '==='.slice(0, (4 - str.length % 4) % 4);
     const b   = Uint8Array.from(atob(pad.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0));
+    // Only the tail's own bytes: anything after it is another field.
+    const tail = b[TAIL_LEN] ?? 0;
+    const inLink = i => i < FIXED_INST_BITS || (i - FIXED_INST_BITS) >> 3 < tail;
     return {
       r: ROOT_BASE_MIDI + (b[0] % 12), s: b[1], t: b[2],
       d: b[3] / 100, b: b[4] / 100, p: b[5] / 100,
-      m: ALL_INST_KEYS.filter((_, i) => b[instByte(i)] & (1 << (i % 8))),
+      m: ALL_INST_KEYS.filter((_, i) => inLink(i) && b[instByte(i)] & (1 << (i % 8))),
       hl: b[11] !== undefined ? b[11] / 100 : undefined,
       cb: b[12] !== undefined ? b[12] : undefined,
       rm: b[14] !== undefined ? Object.keys(ROOMS)[b[14]] : undefined,
