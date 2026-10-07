@@ -6,12 +6,15 @@ export const audio = {
   ctx:        null,
   masterGain: null,
   reverbGain: null,
+  mix:        null, // where masterGain and reverbGain meet, into the master chain
   analyser:   null,
   masterOut:  null, // final node before destination — tap this for recording/export
   freqData:   null,
   waveData:   null,
   scope:      null, // long-window analyser for the waveform ring
   scopeData:  null,
+  latency:    0,    // output latency the visuals are timed to (see syncLatency)
+  lag:        [],   // delays in front of the analysers, set to that latency
   leveler:    null, // slow loudness rider on the master (see updateLevel)
   meter:      null,
   level:      null,
@@ -558,6 +561,26 @@ export function useContext(ctx) {
   };
 }
 
+// ─── Heard time ───────────────────────────────────────────────────────────────
+// Sound reaches the listener one output latency after the context renders it:
+// a few milliseconds on built-in speakers, a fifth of a second or more over
+// Bluetooth, about two seconds over AirPlay. Every visual shows that moment. The note log is read at the audio
+// clock minus audio.latency (visuals/music.js), and the analysers hear through
+// delays of the same length, so both kinds of visual agree with each other and
+// with the speakers. Called once a frame, so a change of output device is
+// followed. Jitter smaller than LAG_STEP is ignored, because each change makes
+// the analyser data jump.
+const MAX_LAG  = 4;     // seconds; AirPlay runs about 2 s behind
+const LAG_STEP = 0.008; // seconds; half a frame at 60 fps
+
+export function syncLatency() {
+  const ctx = audio.ctx;
+  const l = Math.min(MAX_LAG, ctx.outputLatency || ctx.baseLatency || 0);
+  if (Math.abs(l - audio.latency) < LAG_STEP) return;
+  audio.latency = l;
+  for (const d of audio.lag) d.delayTime.value = l;
+}
+
 export function initAudio(ctx = null) {
   const AC = window.AudioContext || window.webkitAudioContext;
   audio.ctx = ctx ?? new AC();
@@ -634,8 +657,10 @@ export function initAudio(ctx = null) {
   saturator.curve = SATURATION;
   saturator.oversample = '4x';
 
-  audio.masterGain.connect(audio.analyser);
-  audio.analyser.connect(highpass);
+  audio.mix = audio.ctx.createGain();
+  audio.masterGain.connect(audio.mix);
+  audio.reverbGain.connect(audio.mix);
+  audio.mix.connect(highpass);
   highpass.connect(leveler);
   leveler.connect(compressor);
   compressor.connect(makeup);
@@ -643,9 +668,15 @@ export function initAudio(ctx = null) {
   saturator.connect(limiter);
   limiter.connect(audio.ctx.destination);
   audio.masterOut = limiter;
-  limiter.connect(audio.scope); // what reaches the speakers; analysers need no output
 
-  audio.reverbGain.connect(audio.analyser);
+  // The analysers listen through delays of the output latency (see
+  // syncLatency), so they hold what is being heard, not what was just rendered.
+  // They are taps: nothing downstream of them reaches the speakers.
+  const lagSpectrum = audio.ctx.createDelay(MAX_LAG), lagScope = audio.ctx.createDelay(MAX_LAG);
+  audio.mix.connect(lagSpectrum); lagSpectrum.connect(audio.analyser);
+  limiter.connect(lagScope); lagScope.connect(audio.scope); // the scope hears the finished mix
+  audio.lag = [lagSpectrum, lagScope];
+  audio.latency = 0;
 
   beginSession();
   audio.started = true;

@@ -6,9 +6,10 @@ import { state, currentScale } from '../state.js';
 
 // ─── What the music is doing, frame by frame ──────────────────────────────────
 // Turns the scheduler's note log into visual state, timed to what is reaching
-// the speakers now (audio clock minus output latency — so the picture stays
-// in sync even over Bluetooth). Exact pitches, voices and hits instead of an
-// FFT means a chord shows up as its notes, not as a smear in a few bins.
+// the speakers now (audio clock minus output latency, see syncLatency — so the
+// picture stays in sync even over Bluetooth or AirPlay). Exact pitches, voices
+// and hits instead of an FFT means a chord shows up as its notes, not as a
+// smear in a few bins.
 
 const ROLE = {
   bass: 'bass',
@@ -96,8 +97,7 @@ function hear(e, now) {
 
 export function updateMusic(dt) {
   if (!audio.started) return;
-  const ctx = audio.ctx;
-  const now = ctx.currentTime - (ctx.outputLatency || ctx.baseLatency || 0);
+  const now = audio.ctx.currentTime - audio.latency;
   music.now = now;
 
   cursor = readLog(cursor, e => pending.push(e));

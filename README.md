@@ -277,7 +277,7 @@ Rendered with [Three.js r183](https://threejs.org/) via WebGL at native pixel ra
 
 ### Scene objects
 
-The ring and the central sphere are driven by the **music itself** rather than the spectrum. Every voice logs each note (pitch, voice, velocity, length) and every drum hit as the scheduler commits it (`src/audio/notes.js`); `src/visuals/music.js` plays that log back in step with what is reaching the speakers — audio clock minus the output latency, so it stays in sync even over Bluetooth. (The old 64-bar spectrum ring put every note the engine plays into 5 bars and left 37 bars above 5 kHz dark most of the time.)
+The ring and the central sphere are driven by the **music itself** rather than the spectrum. Every voice logs each note (pitch, voice, velocity, length) and every drum hit as the scheduler commits it (`src/audio/notes.js`); `src/visuals/music.js` plays that log back in step with what is reaching the speakers — audio clock minus the output latency, so it stays in sync even over Bluetooth. The two analysers (spectrum and waveform) hear the mix through delays of that same latency, so the visuals driven by them show the same moment. (The old 64-bar spectrum ring put every note the engine plays into 5 bars and left 37 bars above 5 kHz dark most of the time.)
 
 Pitch is laid out on the **circle of fifths** (C, G, D, A, E, B, F♯ …) around the scene. That puts a key's scale in one unbroken arc and a chord's tones next to each other, so harmony reads as a shape. Each pitch class has a colour: the tonic takes the palette hue and every fifth turns 30°.
 
@@ -336,11 +336,15 @@ setInterval (60ms)
        │                           switch key/scale/tempo/arrangement, continue
        └─ voice.tick() × N       → schedule events in the lookahead window, in beats
 
-voice ─► [per-voice panner] ─► session dry ─────────────► masterGain ─► analyser ─► 30 Hz HP ─► compressor ─► out
+voice ─► [per-voice panner] ─► session dry ─────────────► masterGain ─► mix ─► 30 Hz HP ─► compressor ─► … ─► limiter ─► out
       └─► session reverb send ─► pre-delay ─► 180 Hz HP ─► convolver ─► reverbGain ─┘
                                                             ▲   └─► (SHIMMER) band-limit ─► octave-up shifter ─┐
                                                             └───────────────────────────────────────────────────┘
       └─► session echo send ─► band-limit ─► ping-pong delay ─► masterGain (+ a little into the reverb)
+
+visual taps (not heard), each delayed by the output latency:
+  mix     ─► delay ─► analyser   (spectrum: energy, bass, sphere shimmer)
+  limiter ─► delay ─► scope      (waveform: ring, chord strings)
 
 requestAnimationFrame
   └─ animate()

@@ -83,7 +83,7 @@ async function renderAhead(ctx, times, opts, onProgress) {
   // mono, as the analyser hears it (a merger input down-mixes the same way).
   audio.masterOut.disconnect();
   const split = ctx.createChannelSplitter(2), merge = ctx.createChannelMerger(3);
-  audio.analyser.connect(split);
+  audio.mix.connect(split);
   split.connect(merge, 0, 0); split.connect(merge, 1, 1);
   audio.meter.connect(merge, 0, 2);
   merge.connect(ctx.destination);
@@ -99,7 +99,7 @@ async function renderAhead(ctx, times, opts, onProgress) {
   src.buffer = mix;
   src.connect(split2);
   split2.connect(merge2, 0, 0); split2.connect(merge2, 1, 1);
-  merge2.connect(audio.analyser);
+  merge2.connect(audio.mix);
   src.start(0);
 
   const meter = mix.getChannelData(2), reading = audio.level.data, n = reading.length;

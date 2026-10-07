@@ -8,7 +8,7 @@ import { updateChord } from './chord.js';
 import { render } from './post.js';
 import { updateStars } from './stars.js';
 import { updateNebulae } from './nebula.js';
-import { audio } from '../audio/context.js';
+import { audio, syncLatency } from '../audio/context.js';
 import { state } from '../state.js';
 
 let cameraAngle = 0;
@@ -31,6 +31,7 @@ function animate(timestamp) {
   let energy = 0, bass = 0, fade = 0, freqData = zeroFreq;
 
   if (audio.started && audio.analyser) {
+    syncLatency(); // before anything reads the analysers or the note log
     if (!audioStartT) audioStartT = t;
     fade = Math.min(1, (t - audioStartT) / FADE_IN);
 
