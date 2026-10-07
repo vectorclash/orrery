@@ -234,14 +234,21 @@
     }
     .collapsible-section.flash .section-summary { color: #d0e0f0; transition: color 0s; }
     .collapsible-section.collapsed .section-chevron::before { content: '+'; }
+    /* Folds with grid-template-rows 1fr → 0fr, like the panel body, so it
+       opens to the content's own height whatever that is -- a max-height
+       cap clips any section that outgrows it. */
     .section-body {
-      overflow: hidden;
-      max-height: 1000px;
+      display: grid;
+      grid-template-rows: 1fr;
       opacity: 1;
-      transition: max-height 0.3s ease, opacity 0.2s;
+      transition: grid-template-rows 0.3s ease, opacity 0.2s;
+    }
+    .section-inner {
+      min-height: 0;
+      overflow: hidden;
     }
     .collapsible-section.collapsed .section-body {
-      max-height: 0;
+      grid-template-rows: 0fr;
       opacity: 0;
     }
 
@@ -860,11 +867,11 @@
           </div>
           <span class="section-summary" id="genre-summary"></span>
         </div>
-        <div class="section-body">
+        <div class="section-body"><div class="section-inner">
           <div class="ctrl-row" style="margin-bottom:12px">
             <div id="genre-btns" class="genre-groups"></div>
           </div>
-        </div>
+        </div></div>
       </div>
 
       <!-- Feel: key, scale, BPM, sliders -->
@@ -877,7 +884,7 @@
           </div>
           <span class="section-summary" id="feel-summary"></span>
         </div>
-        <div class="section-body">
+        <div class="section-body"><div class="section-inner">
           <div class="ctrl-row">
             <span class="ctrl-label">ROOT</span>
             <select id="manual-root" class="ctrl-select"></select>
@@ -933,7 +940,7 @@
             <input type="range" class="feel-slider" id="sweep-slider" min="0" max="1" step="0.01" value="0">
             <span class="ctrl-value" id="sweep-val">0.00</span>
           </div>
-        </div>
+        </div></div>
       </div>
 
       <!-- Instruments -->
@@ -947,9 +954,9 @@
           </div>
           <span class="section-summary" id="instruments-summary"></span>
         </div>
-        <div class="section-body">
+        <div class="section-body"><div class="section-inner">
           <div id="voice-groups"></div>
-        </div>
+        </div></div>
       </div>
 
       <button class="action-btn" id="randomize-all-btn">RANDOMIZE ALL</button>
