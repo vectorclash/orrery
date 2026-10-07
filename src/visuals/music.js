@@ -30,6 +30,7 @@ const HIT = {
 };
 const HIT_DECAY = { kick: 0.14, snare: 0.12, hat: 0.06, crash: 0.8 };
 const MAX_RIPPLES = 24;
+const MAX_STRIKES = 32, STRIKE_LIFE = 2; // seconds
 
 // Circle-of-fifths position of a pitch class (C 0, G 1, D 2 … F 11). Laying
 // pitch out this way puts a key's scale in one unbroken arc and a chord's
@@ -49,12 +50,13 @@ export const music = {
   roleLevel: { bass: 0, bed: 0, lead: 0, motion: 0, air: 0 },
   hits:      { kick: 0, snare: 0, hat: 0, crash: 0 },    // decaying envelopes
   ripples:   [],   // note onsets: { x, y, z, role, vel, age }
+  strikes:   [],   // drum hits: { kind, vel, age, id }, kind as in hits; id counts up
   chord:     [],   // pitch classes of the sounding chord, root first
   scale:     new Set(),
   tonic:     0,
 };
 
-let cursor = 0;
+let cursor = 0, strikeId = 0;
 const pending = []; // logged but not yet heard
 const active  = []; // heard and still visible
 
@@ -75,7 +77,10 @@ function hear(e, now) {
   if (e.kind === 'hit') {
     if (late > 0.2) return; // stale (the tab was in the background)
     const h = HIT[e.voice];
-    if (h) music.hits[h] = Math.max(music.hits[h], e.vel);
+    if (!h) return;
+    music.hits[h] = Math.max(music.hits[h], e.vel);
+    music.strikes.push({ kind: h, vel: e.vel, age: late, id: strikeId++ });
+    if (music.strikes.length > MAX_STRIKES) music.strikes.shift();
     return;
   }
   if (late > e.dur + 0.5) return;
@@ -99,6 +104,10 @@ export function updateMusic(dt) {
   if (!audio.started) return;
   const now = audio.ctx.currentTime - audio.latency;
   music.now = now;
+
+  let kept = 0;
+  for (const s of music.strikes) if ((s.age += dt) < STRIKE_LIFE) music.strikes[kept++] = s;
+  music.strikes.length = kept;
 
   cursor = readLog(cursor, e => pending.push(e));
   for (let i = 0; i < pending.length;) {

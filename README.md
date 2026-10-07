@@ -298,9 +298,15 @@ The dust orbits with Keplerian shear (inner ringlets faster), so it streams thro
 
 **Inner glow sphere** — `AdditiveBlending`, coloured by the chord root, swells with the bass line and the kick.
 
-**Star field** — 7,500 small point stars and 80 large sprite stars, placed using 3D value noise rejection sampling for organic clustering. Each star stores cylindrical coordinates and is animated every frame by a three-component aperiodic flow field using irrational-ratio frequencies (φ, √2, √3) so the motion never visibly repeats.
+**Star field** (`src/visuals/stars.js`) — 7,500 small point stars and 80 large stars, placed using 3D value noise rejection sampling for organic clustering. Each star stores cylindrical coordinates and drifts in a three-component aperiodic flow field using irrational-ratio frequencies (φ, √2, √3), so the motion never visibly repeats. The drift, the colours and the response to the music are all computed per star in the vertex shader; each frame the CPU only sets uniforms. The small stars are one `Points` object and the large ones one instanced mesh of camera-facing quads, drawn exactly as `PointsMaterial` and `SpriteMaterial` would draw them.
 
-Small stars use a `PointsMaterial` with `vertexColors: true` — every star has a unique colour baked at placement time. Stars are divided into four personality types:
+The stars hear the music three ways, on top of the loudness swell (drift amplitude and size, from the spectrum):
+
+- **Pitch:** the sky is laid out like the ring. The circle of fifths runs round the horizon in the same directions as the chord moons and the sphere's lobes, and register is height: low notes below the horizon, high ones above. Each sounding note (the 16 strongest) lights a round patch of sky in its direction, tinted the pitch class's colour. Directions are taken from the camera, as on a real sky, so a patch is round and keeps its place as the camera orbits. A held chord glows as a few steady patches; a melody flares from patch to patch. The large stars only change colour, since they already swell with loudness.
+- **Kick:** each kick sends a ring of light out from the planet across the sky, as seen from the camera, reaching past the corners of the view in 0.8 of a beat.
+- **Hats:** each hi-hat, shaker or ride hit makes its own random 3% of the small stars flicker for about 60 ms, the way stars scintillate.
+
+Every star has a colour personality fixed at placement time:
 
 | Type | Proportion | Hue behaviour |
 |---|---|---|
@@ -309,7 +315,7 @@ Small stars use a `PointsMaterial` with `vertexColors: true` — every star has 
 | Warm orange/red (K/M type) | ~18% | Fixed warm hue (~14–40°) |
 | Near-white neutral | ~20% | Low saturation, any hue |
 
-Large stars are individual `Sprite` objects with two stacked layers: the original PNG for the soft diffuse halo, and a generated overlay providing the diffraction spikes and bright core. The overlay renders at 1.6× the halo scale (matching how diffraction spikes extend beyond the stellar disc in real telescope imagery). Both layers share the same per-star colour personality.
+Large stars share the same personalities, drawn with the large star sprite, 1.5–7 units across.
 
 **Volumetric nebulae** — 22 large cloud sprites with elliptical aspect ratios and static rotations for organic variety. Each is a soft radial gradient (white-on-transparent, generated via canvas) rendered with `AdditiveBlending` at low opacity (0.14–0.32). Colour types are weighted toward fixed deep blues, purples, and magentas, with ~20% following the palette hue. Each nebula slowly orbits with an independent speed and direction, and floats vertically on an aperiodic sine cycle (period ~63–105 seconds). Overlapping clouds accumulate intensity, producing the volumetric impression without ray-marching.
 
@@ -355,9 +361,7 @@ requestAnimationFrame
        ├─ chord constellation             ← chord tones, their note levels
        ├─ sphere: chord lobes + ripples   ← chord, note onsets, kick/snare, log spectrum
        ├─ inner glow                      ← chord root, bass line, kick
-       ├─ update 7500 star vertex colours ← hue, per-star personality
-       ├─ update 7500 star positions      ← t, energy, bass (flow field)
-       ├─ update 80 large star sprites    ← hue, energy, bass
+       ├─ star field (shader uniforms)    ← t, energy, bass, hue, sounding notes, kicks, hats
        ├─ update 22 nebula sprites        ← hue, energy, bass, t
        ├─ lerp camera orbit               ← energy, fade
        └─ renderer.render(scene, camera)
