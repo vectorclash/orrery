@@ -1,5 +1,6 @@
-import { state, rootName, scaleName, TICK_MS, LOOKAHEAD, START_DELAY, ROOT_BASE_MIDI, pick } from './state.js';
-import { audio, ensureAudioRunning, setRoom, ROOMS } from './audio/context.js';
+import { state, rootName, scaleName, LOOKAHEAD, START_DELAY, ROOT_BASE_MIDI, pick } from './state.js';
+import { audio, ensureAudioRunning, audioStopped, setRoom, ROOMS } from './audio/context.js';
+import { everyTick } from './audio/ticker.js';
 import {
   tick, pickVoices, setActiveVoices, applyPlan, startSession, roomFor,
   bassVoice, padVoice, melodyVoice, textureVoice, pluckVoice,
@@ -241,9 +242,9 @@ SIMPLE_VOICES.forEach(({ key }) => { manualEnabled[key] = false; });
 // ─── Playback state ───────────────────────────────────────────────────────────
 let currentMode       = 'infinite';
 let infiniteRunning   = false;
-let infiniteInterval  = null;
+let infiniteTicks     = null;   // each holds the function that stops its ticks
 let manualPlaying     = false;
-let manualInterval    = null;
+let manualTicks       = null;
 let exporting         = false;
 let exportId          = 0;      // incremented on each new export or cancellation
 
@@ -734,8 +735,8 @@ function showNext(shown) {
 }
 
 function stopInfinite() {
-  clearInterval(infiniteInterval);
-  infiniteInterval = null;
+  infiniteTicks?.();
+  infiniteTicks    = null;
   infiniteRunning  = false;
   muteAudio();
   showNext(false);
@@ -748,8 +749,7 @@ function stopInfinite() {
 
 startBtn.addEventListener('click', async () => {
   if (infiniteRunning) { stopInfinite(); return; }
-  if (!await ensureAudioRunning()) return;
-  unmuteAudio();
+  if (!await startAudio()) return;
 
   startBtn.textContent = 'STOP';
   startBtn.classList.add('playing');
@@ -776,11 +776,12 @@ startBtn.addEventListener('click', async () => {
   updateInfiniteDisplay();
 
   infiniteRunning  = true;
-  infiniteInterval = setInterval(() => {
+  infiniteTicks    = everyTick(() => {
     tick();
     updateInfiniteDisplay();
     if (eraAt === null) nextBtn.classList.remove('pending');
-  }, TICK_MS);
+    stopIfSilenced();
+  });
 });
 
 // Moves on to a new era at the next bar line, without stopping.
@@ -829,8 +830,7 @@ function manualPlan() {
 }
 
 async function manualInit() {
-  if (!await ensureAudioRunning()) return false;
-  unmuteAudio();
+  if (!await startAudio()) return false;
   applyPlan(manualPlan());
   startSession(audio.ctx.currentTime + START_DELAY);
   return true;
@@ -871,22 +871,39 @@ function unmuteAudio() {
 }
 
 function stopManualPlayback() {
-  if (manualInterval)    { clearInterval(manualInterval);   manualInterval    = null; }
+  manualTicks?.();
+  manualTicks = null;
   muteAudio();
   manualPlaying = false;
   manualPlayBtn.textContent = 'PLAY';
   manualPlayBtn.classList.remove('playing');
+  if (!exporting) {
+    manualStatus.textContent = '';
+    manualStatus.classList.remove('active');
+  }
   updatePlayEnabled();
+}
+
+// ─── Following the sound ──────────────────────────────────────────────────────
+// The browser can stop the sound by itself (see audioStopped), and nothing
+// else would tell the controls, so they'd go on offering STOP over silence.
+// Checked on every tick, and as soon as the context changes state.
+async function startAudio() {
+  if (!await ensureAudioRunning()) return false;
+  audio.ctx.onstatechange = stopIfSilenced;
+  unmuteAudio();
+  return true;
+}
+
+function stopIfSilenced() {
+  if (!audioStopped()) return;
+  if (infiniteRunning) stopInfinite();
+  if (manualPlaying)   stopManualPlayback();
 }
 
 // ─── Manual play ─────────────────────────────────────────────────────────────
 manualPlayBtn.addEventListener('click', async () => {
-  if (manualPlaying) {
-    stopManualPlayback();
-    manualStatus.textContent = '';
-    manualStatus.classList.remove('active');
-    return;
-  }
+  if (manualPlaying) { stopManualPlayback(); return; }
 
   if (!await manualInit()) return;
   manualPlaying = true;
@@ -896,9 +913,10 @@ manualPlayBtn.addEventListener('click', async () => {
   manualStatus.textContent = 'PLAYING';
 
   tick({ skipBass: enabledBassSubtypes().length === 0, skipEvolve: true });
-  manualInterval = setInterval(() => {
+  manualTicks = everyTick(() => {
     tick({ skipBass: enabledBassSubtypes().length === 0, skipEvolve: true });
-  }, TICK_MS);
+    stopIfSilenced();
+  });
 });
 
 // ─── Manual export ────────────────────────────────────────────────────────────

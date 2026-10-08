@@ -524,10 +524,27 @@ async function clockRuns(ctx) {
 
 // The scheduler records the clock on every tick, so a context that has been
 // running since the last play can be confirmed instantly; only a fresh,
-// suspended or frozen one waits on clockRuns().
+// suspended or frozen one waits on clockRuns(). `stuckSince` is the first
+// tick that found the clock where the previous one left it -- not the last
+// time it moved, which could be before the page was frozen in the background.
 let lastClock = null;
 export function noteClock() {
-  lastClock = { ctx: audio.ctx, time: audio.ctx.currentTime, wall: performance.now() };
+  const ctx = audio.ctx, time = ctx.currentTime, wall = performance.now();
+  const stuck = lastClock?.ctx === ctx && time === lastClock.time;
+  lastClock = { ctx, time, wall, stuckSince: stuck ? lastClock.stuckSince ?? wall : null };
+}
+
+// True when the browser has stopped the sound without being asked: the
+// context was suspended (a phone backgrounding the page) or interrupted
+// (Safari, when the window loses focus or another app takes the output), or
+// says 'running' while its clock has been stuck for STALL_MS (the output
+// device changed). Playback checks this so its controls follow the sound.
+const STALL_MS = 1000;
+export function audioStopped() {
+  const ctx = audio.ctx;
+  if (ctx.state !== 'running') return true;
+  return lastClock?.ctx === ctx && lastClock.stuckSince !== null &&
+    performance.now() - lastClock.stuckSince > STALL_MS;
 }
 function clockMovedSinceNoted() {
   const ctx = audio.ctx;
