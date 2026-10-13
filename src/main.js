@@ -1,5 +1,5 @@
 import { state, rootName, scaleName, LOOKAHEAD, START_DELAY, ROOT_BASE_MIDI, pick } from './state.js';
-import { audio, ensureAudioRunning, audioStopped, setRoom, ROOMS } from './audio/context.js';
+import { audio, ensureAudioRunning, audioStopped, setRoom, ROOMS, heardTime } from './audio/context.js';
 import { everyTick } from './audio/ticker.js';
 import {
   tick, pickVoices, setActiveVoices, applyPlan, startSession, roomFor,
@@ -10,8 +10,10 @@ import {
   vibraphoneVoice, clavinetVoice, sitarVoice, kalimbaVoice, supersawVoice,
   junoVoice, solinaVoice, synthbrassVoice, monoleadVoice,
   stabVoice, voxVoice, sawpluckVoice, guitarVoice,
-  activeVoices, eraTimer, ERA_DURATION, eraAt, requestEra,
+  activeVoices, eraTimer, ERA_DURATION, requestEra, eraDue, eraBegan, changeLandsAt,
 } from './audio/scheduler.js';
+import { transport } from './audio/transport.js';
+import { showPending, clearPending } from './pending.js';
 import { encodeConfig, decodeConfig, ALL_INST_KEYS } from './share.js';
 import { startAnimation } from './visuals/animate.js';
 import { post } from './visuals/post.js';
@@ -490,10 +492,23 @@ function randomizeAll() {
   flashSection('section-instruments');
 }
 
-genreRandomBtn.addEventListener('click', randomizeGenre);
-feelRandomBtn.addEventListener('click', randomizeFeel);
-instrumentsRandomBtn.addEventListener('click', randomizeInstruments);
-randomizeAllBtn.addEventListener('click', randomizeAll);
+// While playing, each button shows how long until its change is heard.
+function pressed(btn, change) {
+  btn.addEventListener('click', () => {
+    if (!manualPlaying) { change(); showPending(btn); return; }
+    const before = soundingVoices();
+    change();
+    if (!manualPlaying) { showPending(btn); return; } // left with no instruments
+    // Tick now, so the voices that joined take their places on the grid from
+    // the same moment changeLandsAt measures from.
+    manualTick();
+    showPending(btn, changeLandsAt(before, soundingVoices()));
+  });
+}
+pressed(genreRandomBtn, randomizeGenre);
+pressed(feelRandomBtn, randomizeFeel);
+pressed(instrumentsRandomBtn, randomizeInstruments);
+pressed(randomizeAllBtn, randomizeAll);
 
 // ─── Build instrument panel ───────────────────────────────────────────────────
 const cbElements = {}; // key → <input> — needed for exclusive-group deselection
@@ -717,7 +732,12 @@ window.addEventListener('keydown', e => {
 });
 
 // ─── Infinite mode ────────────────────────────────────────────────────────────
+// The line describes what's heard: a new era's key and voices wait until the
+// era reaches the speakers, and until then the old one reads 100%.
+let shownEra = 0;
 function updateInfiniteDisplay() {
+  if (state.era !== shownEra && heardTime() < transport.timeAt(eraBegan)) return;
+  shownEra = state.era;
   const prog       = Math.min(100, Math.round((eraTimer / ERA_DURATION) * 100));
   const voiceNames = [
     `bass(${bassVoice.style})`,
@@ -729,7 +749,7 @@ function updateInfiniteDisplay() {
 
 function showNext(shown) {
   nextBtn.classList.toggle('shown', shown);
-  nextBtn.classList.remove('pending');
+  clearPending();
   nextBtn.tabIndex = shown ? 0 : -1;
   nextBtn.setAttribute('aria-hidden', String(!shown));
 }
@@ -773,13 +793,17 @@ startBtn.addEventListener('click', async () => {
 
   startSession(audio.ctx.currentTime + START_DELAY);
   tick();
+  shownEra = state.era;
   updateInfiniteDisplay();
 
   infiniteRunning  = true;
   infiniteTicks    = everyTick(() => {
     tick();
     updateInfiniteDisplay();
-    if (eraAt === null) nextBtn.classList.remove('pending');
+    // An era that has run its time waits for the next chord change; NEXT
+    // counts down to it just as if it had been pressed.
+    const due = eraDue();
+    if (due !== null) showPending(nextBtn, due);
     stopIfSilenced();
   });
 });
@@ -788,12 +812,15 @@ startBtn.addEventListener('click', async () => {
 nextBtn.addEventListener('click', () => {
   if (!infiniteRunning) return;
   requestEra();
-  if (eraAt !== null) nextBtn.classList.add('pending');
+  showPending(nextBtn, eraDue());
 });
 
 // ─── Manual helpers ───────────────────────────────────────────────────────────
 function enabledBassSubtypes()  { return BASS_SUBTYPES.filter(s  => manualEnabled[`bass:${s}`]);  }
 function enabledDrumsSubtypes() { return DRUMS_SUBTYPES.filter(s => manualEnabled[`drums:${s}`]); }
+// Bass plays outside activeVoices, ticked only while a bass is chosen.
+function soundingVoices() { return enabledBassSubtypes().length ? [bassVoice, ...activeVoices] : [...activeVoices]; }
+function manualTick() { tick({ skipBass: enabledBassSubtypes().length === 0, skipEvolve: true }); }
 
 // Live instrument changes: swap the voices and styles, leave the rest alone.
 function applyManualVoices() {
@@ -873,6 +900,7 @@ function unmuteAudio() {
 function stopManualPlayback() {
   manualTicks?.();
   manualTicks = null;
+  clearPending();
   muteAudio();
   manualPlaying = false;
   manualPlayBtn.textContent = 'PLAY';
@@ -912,9 +940,9 @@ manualPlayBtn.addEventListener('click', async () => {
   manualStatus.classList.add('active');
   manualStatus.textContent = 'PLAYING';
 
-  tick({ skipBass: enabledBassSubtypes().length === 0, skipEvolve: true });
+  manualTick();
   manualTicks = everyTick(() => {
-    tick({ skipBass: enabledBassSubtypes().length === 0, skipEvolve: true });
+    manualTick();
     stopIfSilenced();
   });
 });

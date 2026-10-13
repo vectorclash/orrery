@@ -147,11 +147,29 @@
       border-color: #556;
     }
     #next-btn.shown:hover { border-color: #99aacc; color: #d0dde8; }
-    /* Waiting for the next bar line. */
-    #next-btn.pending { animation: next-pending 0.6s ease-in-out infinite alternate; }
-    @keyframes next-pending {
-      from { color: #8899aa; border-color: #556; }
-      to   { color: #e0ecf6; border-color: #aabece; }
+    #next-btn.shown:active { border-color: #aabece; color: #e0ecf6; }
+
+    /* A change on its way to the speakers (see src/pending.js): lit from the
+       press, with a bar along the bottom edge that fills until the change is
+       heard, then a fade back once it is. */
+    #next-btn, .header-btn, .action-btn { position: relative; }
+    #next-btn.pending, .header-btn.pending, .action-btn.pending {
+      color: #e0ecf6;
+      border-color: #aabece;
+      transition: none;
+    }
+    .pending::after {
+      content: '';
+      position: absolute;
+      left: 0; right: 0; bottom: 0;
+      height: 2px;
+      background: currentColor;
+      transform: scaleX(var(--progress, 0));
+      transform-origin: left;
+    }
+    .landed { animation: landed 0.7s ease-out; }
+    @keyframes landed {
+      from { color: #fff; border-color: #d0e0f0; }
     }
     #info {
       font-size: 16px;
@@ -565,6 +583,7 @@
       touch-action: manipulation;
     }
     .action-btn:hover:not(:disabled) { border-color: #8899aa; color: #d0dde8; }
+    .action-btn:active:not(:disabled) { border-color: #aabece; color: #e0ecf6; }
     .action-btn.playing { border-color: #7a8fa8; color: #aabbc8; }
     .action-btn.recording { border-color: #8a6a6a; color: #c8a8a8; cursor: default; }
     .action-btn:disabled { opacity: 0.5; cursor: not-allowed; }

@@ -111,6 +111,7 @@ export function startSession(t) {
   lastTickTime = 0;
   eraTimer = 0;
   eraAt = null;
+  eraBegan = 0;
 }
 
 // ─── Space ────────────────────────────────────────────────────────────────────
@@ -138,9 +139,33 @@ export function requestEra() {
   eraAt = transport.nextBeat(audio.ctx.currentTime + LOOKAHEAD, 4);
 }
 
+// Beat position at which a change of arrangement made now is heard in full,
+// given the voices sounding before it. A voice that joins waits for its next
+// `entry` grid line (a bar for drums and most leads, a beat for the rest);
+// anything else -- a new key, tempo or style, a voice dropping out -- is
+// heard as soon as the notes already scheduled have played.
+export function changeLandsAt(before, after) {
+  const now = audio.ctx.currentTime;
+  let at = transport.beatAt(now + LOOKAHEAD);
+  for (const v of after) if (!before.includes(v)) at = Math.max(at, transport.nextBeat(now, v.entry));
+  return at;
+}
+
+// Beat position of the coming era change, once one is due: a requested one
+// at its bar line, or one whose time is up at the next chord change. Null
+// while the era is still running.
+export function eraDue() {
+  if (eraAt !== null) return eraAt;
+  return eraTimer >= ERA_DURATION ? harmony.nextChange : null;
+}
+
+// Beat position at which the current era began.
+export let eraBegan = 0;
+
 // Starts the new era exactly at beat `at` (a chord change).
 function advanceEra(at) {
   state.era++;
+  eraBegan = at;
   // Move by a closely related interval (or stay), keeping the tonic within
   // one octave — register comes from octaveShift, not from the root drifting.
   const shifts = [-7, -5, -2, 0, 0, 2, 5, 7];

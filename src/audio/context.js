@@ -590,6 +590,9 @@ export function useContext(ctx) {
 const MAX_LAG  = 4;     // seconds; AirPlay runs about 2 s behind
 const LAG_STEP = 0.008; // seconds; half a frame at 60 fps
 
+// The audio time reaching the speakers now.
+export function heardTime() { return audio.ctx.currentTime - audio.latency; }
+
 export function syncLatency() {
   const ctx = audio.ctx;
   const l = Math.min(MAX_LAG, ctx.outputLatency || ctx.baseLatency || 0);

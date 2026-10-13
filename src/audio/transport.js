@@ -56,6 +56,7 @@ export function createVoice(name, play, { entry = 1, role = null, onReset = null
   return {
     name,
     role,
+    entry,
     tick(now, horizon = now + LOOKAHEAD) {
       if (next === null || transport.timeAt(next) < now) next = transport.nextBeat(now, entry);
       while (transport.timeAt(next) < horizon) {
