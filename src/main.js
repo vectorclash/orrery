@@ -11,7 +11,7 @@ import {
   junoVoice, solinaVoice, synthbrassVoice, monoleadVoice,
   stabVoice, voxVoice, sawpluckVoice, guitarVoice,
   activeVoices, eraTimer, ERA_DURATION, requestEra, eraDue, eraBegan, changeLandsAt,
-  songFor, songOver, unloadSong, skipSong, setSongFeel, rearrangeSong,
+  songFor, songOver, unloadSong, resumeSession, setSongFeel, rearrangeSong,
 } from './audio/scheduler.js';
 import { transport } from './audio/transport.js';
 import { song, songSeconds } from './audio/song.js';
@@ -222,6 +222,7 @@ const lengthInput     = document.getElementById('manual-length');
 const lengthValue     = document.getElementById('manual-length-value');
 const voiceGroups     = document.getElementById('voice-groups');
 const manualPlayBtn        = document.getElementById('manual-play-btn');
+const manualStopBtn        = document.getElementById('manual-stop-btn');
 const manualExportBtn      = document.getElementById('manual-export-btn');
 const manualStatus         = document.getElementById('manual-status');
 const exportProgressWrap   = document.getElementById('export-progress-wrap');
@@ -256,6 +257,7 @@ let infiniteRunning   = false;
 let infiniteTicks     = null;   // each holds the function that stops its ticks
 let manualPlaying     = false;
 let manualTicks       = null;
+let paused            = false;  // playing, held where it is (one mode plays at a time)
 let exporting         = false;
 let exportId          = 0;      // incremented on each new export or cancellation
 let exportBtn         = null;   // the button whose export is running
@@ -515,7 +517,7 @@ function randomizeAll() {
 // While playing, each button shows how long until its change is heard.
 function pressed(btn, change) {
   btn.addEventListener('click', () => {
-    if (!manualPlaying) { change(); showPending(btn); return; }
+    if (!manualPlaying || paused) { change(); showPending(btn); return; }
     const before = soundingVoices();
     change();
     if (!manualPlaying) { showPending(btn); return; } // left with no instruments
@@ -819,14 +821,19 @@ function showNext(shown) {
   nextBtn.setAttribute('aria-hidden', String(!shown));
 }
 
+function showInfinitePlaying(on) {
+  startBtn.textContent = on ? 'PAUSE' : 'PLAY';
+  startBtn.classList.toggle('playing', on);
+}
+
 function stopInfinite() {
   infiniteTicks?.();
   infiniteTicks    = null;
   infiniteRunning  = false;
+  paused           = false;
   muteAudio();
   showNext(false);
-  startBtn.textContent = 'PLAY';
-  startBtn.classList.remove('playing');
+  showInfinitePlaying(false);
   infoEl.classList.remove('active');
   stateEl.classList.remove('active');
   stateEl.textContent = '';
@@ -883,7 +890,7 @@ function nextSongNow() {
   setTimeout(() => {
     switching = false;
     if (!infiniteRunning) return;
-    unmuteAudio(); // switched to ERAS meanwhile: they're already playing
+    if (!paused) unmuteAudio(); // switched to ERAS meanwhile: they're already playing
     if (infiniteKind === 'songs') startSong(composeInfiniteSong());
   }, 170);
 }
@@ -901,15 +908,32 @@ function infiniteTick() {
     const due = eraDue();
     if (due !== null) showPending(nextBtn, due);
   }
-  stopIfSilenced();
+  pauseIfSilenced();
+}
+
+// Holds the song (or era) where it is, NEXT still offered; PLAY carries on.
+function pauseInfinite() {
+  infiniteTicks?.();
+  infiniteTicks = null;
+  pauseAudio();
+  showInfinitePlaying(false);
+}
+
+async function resumeInfinite() {
+  if (!await resumeAudio() || !infiniteRunning) return false;
+  infiniteTicks ??= everyTick(infiniteTick);
+  showInfinitePlaying(true);
+  return true;
 }
 
 startBtn.addEventListener('click', async () => {
-  if (infiniteRunning) { stopInfinite(); return; }
+  if (infiniteRunning) {
+    if (paused) resumeInfinite(); else pauseInfinite();
+    return;
+  }
   if (!await startAudio()) return;
 
-  startBtn.textContent = 'STOP';
-  startBtn.classList.add('playing');
+  showInfinitePlaying(true);
   showNext(true);
   infoEl.classList.add('active');
   stateEl.classList.add('active');
@@ -921,28 +945,31 @@ startBtn.addEventListener('click', async () => {
   updateKindUI();
 });
 
-// Eras: a new era at the next bar line, without stopping. Songs: on to the
-// outro, then the last chord, then the next song.
-nextBtn.addEventListener('click', () => {
+// Eras: a new era at the next bar line, without stopping. Songs: the next
+// song, straight away. Paused, either plays again with the change (a new
+// song starts from silence, so it needs no fade).
+nextBtn.addEventListener('click', async () => {
   if (!infiniteRunning) return;
   if (infiniteKind === 'songs') {
-    const at = songOver() ? null : skipSong();
-    if (at === null) { nextSongNow(); showPending(nextBtn); }
-    else showPending(nextBtn, at);
+    if (!paused) nextSongNow();
+    else if (await resumeInfinite()) startSong(composeInfiniteSong());
+    showPending(nextBtn);
     return;
   }
+  if (paused && !await resumeInfinite()) return;
   requestEra();
   showPending(nextBtn, eraDue());
 });
 
-// ERAS / SONGS. A switch while playing starts the other straight away.
+// ERAS / SONGS. A switch while playing starts the other straight away; while
+// paused, it lets go of what was paused, and PLAY starts the other.
 function updateKindUI() {
   kindBtns.forEach(b => {
     const on = b.dataset.kind === infiniteKind;
     b.classList.toggle('active', on);
     b.setAttribute('aria-pressed', String(on));
   });
-  nextBtn.title = infiniteKind === 'songs' ? 'Move on: to the outro, then the next song' : 'Move on to the next era';
+  nextBtn.title = infiniteKind === 'songs' ? 'Next song' : 'Move on to the next era';
   songExportBtn.hidden = infiniteKind !== 'songs' || !songPlan;
 }
 kindBtns.forEach(b => b.addEventListener('click', () => {
@@ -951,6 +978,7 @@ kindBtns.forEach(b => b.addEventListener('click', () => {
   localStorage.setItem('orrery.infinite', infiniteKind);
   updateKindUI();
   if (!infiniteRunning) return;
+  if (paused) { stopInfinite(); return; }
   clearPending();
   if (infiniteKind === 'songs') startSong(composeInfiniteSong());
   else startEras();
@@ -1063,14 +1091,20 @@ function unmuteAudio() {
   });
 }
 
+function showManualPlaying(on) {
+  manualPlayBtn.textContent = on ? 'PAUSE' : 'PLAY';
+  manualPlayBtn.classList.toggle('playing', on);
+}
+
 function stopManualPlayback() {
   manualTicks?.();
   manualTicks = null;
   clearPending();
   muteAudio();
   manualPlaying = false;
-  manualPlayBtn.textContent = 'PLAY';
-  manualPlayBtn.classList.remove('playing');
+  paused = false;
+  showManualPlaying(false);
+  manualStopBtn.disabled = true;
   if (!exporting) {
     manualStatus.textContent = '';
     manualStatus.classList.remove('active');
@@ -1078,52 +1112,103 @@ function stopManualPlayback() {
   updatePlayEnabled();
 }
 
+// ─── Pause ────────────────────────────────────────────────────────────────────
+// Pausing suspends the audio context. Its clock stops, and every note already
+// scheduled waits on it, so PLAY carries on from the moment it paused: the
+// same song, the same bar, the drone still held.
+function pauseAudio() {
+  paused = true;
+  muteAudio();
+  const ctx = audio.ctx;
+  // After the fade, so it doesn't click; not if PLAY came first.
+  setTimeout(() => { if (paused && audio.ctx === ctx) ctx.suspend().catch(() => {}); }, 60);
+}
+
+// Resolves false if there's still no sound (see ensureAudioRunning). If the
+// context had to be replaced, everything scheduled went with the old one, so
+// the session starts again on the new one (see resumeSession). Pressed twice
+// while waiting on the browser, it's one resume.
+let resuming = null;
+function resumeAudio() {
+  return resuming ??= (async () => {
+    const ctx = audio.ctx;
+    if (!await startAudio()) return false;
+    paused = false;
+    if (audio.ctx !== ctx) resumeSession(audio.ctx.currentTime + START_DELAY);
+    return true;
+  })().finally(() => { resuming = null; });
+}
+
 // ─── Following the sound ──────────────────────────────────────────────────────
 // The browser can stop the sound by itself (see audioStopped), and nothing
-// else would tell the controls, so they'd go on offering STOP over silence.
+// else would tell the controls, so they'd go on offering PAUSE over silence.
+// So they pause, as a player does when a call comes in, and PLAY carries on.
 // Checked on every tick, and as soon as the context changes state.
 async function startAudio() {
   if (!await ensureAudioRunning()) return false;
-  audio.ctx.onstatechange = stopIfSilenced;
+  audio.ctx.onstatechange = pauseIfSilenced;
   unmuteAudio();
   return true;
 }
 
-function stopIfSilenced() {
-  if (!audioStopped()) return;
-  if (infiniteRunning) stopInfinite();
-  if (manualPlaying)   stopManualPlayback();
+function pauseIfSilenced() {
+  if (paused || !audioStopped()) return;
+  if (infiniteRunning) pauseInfinite();
+  if (manualPlaying)   pauseManual();
 }
 
 // ─── Manual play ─────────────────────────────────────────────────────────────
+// PLAY / PAUSE, and STOP: back to the top (a song from its intro).
 manualPlayBtn.addEventListener('click', async () => {
-  if (manualPlaying) { stopManualPlayback(); return; }
+  if (manualPlaying) {
+    if (paused) resumeManual(); else pauseManual();
+    return;
+  }
 
   if (!await manualInit()) return;
   manualPlaying = true;
-  manualPlayBtn.textContent = 'STOP';
-  manualPlayBtn.classList.add('playing');
+  showManualPlaying(true);
+  manualStopBtn.disabled = false;
   manualStatus.classList.add('active');
-  manualStatus.textContent = 'PLAYING';
 
   manualTick();
-  showManualSong();
-  manualTicks = everyTick(() => {
-    manualTick();
-    showManualSong();
-    // A song stops when its last chord has rung out.
-    if (songOver() && audio.ctx.currentTime > transport.timeAt(song.current.end) + SONG_TAIL) {
-      stopManualPlayback();
-      return;
-    }
-    stopIfSilenced();
-  });
+  showManualStatus();
+  manualTicks = everyTick(manualEveryTick);
 });
+manualStopBtn.addEventListener('click', () => { if (manualPlaying) stopManualPlayback(); });
 
-// The section a song is in, while it plays.
-function showManualSong() {
+function manualEveryTick() {
+  manualTick();
+  showManualStatus();
+  // A song stops when its last chord has rung out.
+  if (songOver() && audio.ctx.currentTime > transport.timeAt(song.current.end) + SONG_TAIL) {
+    stopManualPlayback();
+    return;
+  }
+  pauseIfSilenced();
+}
+
+function pauseManual() {
+  manualTicks?.();
+  manualTicks = null;
+  pauseAudio();
+  showManualPlaying(false);
+  showManualStatus();
+}
+
+async function resumeManual() {
+  if (!await resumeAudio() || !manualPlaying) return;
+  manualTicks ??= everyTick(manualEveryTick);
+  showManualPlaying(true);
+  showManualStatus();
+}
+
+// Playing or paused, and where a song is.
+function showManualStatus() {
+  if (exporting) return;
   const p = songPosition();
-  if (p && !exporting) manualStatus.textContent = `${p.label} · ${p.at} / ${p.of}`;
+  const where = p ? `${p.label} · ${p.at} / ${p.of}` : '';
+  manualStatus.textContent = paused ? (where ? `PAUSED · ${where}` : 'PAUSED') : where || 'PLAYING';
 }
 
 // ─── Manual export ────────────────────────────────────────────────────────────
@@ -1276,7 +1361,7 @@ manualExportBtn.addEventListener('click', async () => {
 });
 
 // Infinite mode's songs: the whole of the song playing (or last played),
-// however much of it was skipped.
+// from its first bar, wherever it has got to.
 songExportBtn.addEventListener('click', async () => {
   if (exporting) {
     if (exportBtn !== songExportBtn) return;
@@ -1320,10 +1405,13 @@ function showSongLength() {
   formLength.textContent = manualForm === 'song' && any ? clock(songSeconds(songFor(manualPlan()))) : '';
 }
 
-// From the top, in the new form or with the new song.
+// From the top, in the new form or with the new song: now if playing, at
+// the next PLAY if paused.
 function replayManual() {
   if (!manualPlaying) return;
+  const wasPaused = paused;
   stopManualPlayback();
+  if (wasPaused) return;
   manualPlayBtn.click();
 }
 

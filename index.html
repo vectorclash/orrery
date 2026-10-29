@@ -817,10 +817,12 @@
 
       .kind-btn, .kind-action { font-size: 11px; padding: 9px 14px; letter-spacing: 2px; }
 
-      /* action buttons */
+      /* action buttons: four to a row, so tighter than on a desktop */
+      #manual-actions { gap: 8px; }
       .action-btn {
         font-size: 13px;
-        padding: 14px 8px;
+        padding: 14px 4px;
+        letter-spacing: 1.5px;
       }
 
       /* instrument grid: 2 columns so labels aren't cramped */
@@ -1051,6 +1053,7 @@
 
       <div id="manual-actions">
         <button class="action-btn" id="manual-play-btn" disabled>PLAY</button>
+        <button class="action-btn" id="manual-stop-btn" disabled title="Back to the top">STOP</button>
         <button class="action-btn" id="manual-export-btn" disabled>EXPORT</button>
         <button class="action-btn" id="manual-share-btn">SHARE</button>
       </div>

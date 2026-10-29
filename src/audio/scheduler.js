@@ -296,38 +296,21 @@ function levelHoldsAt(t) {
 // Whether the loaded song has played its last chord.
 export const songOver = () => !!song.current && songBeat > song.current.end;
 
+// The session again where it was paused, on a new audio context: the old one's
+// clock died while paused (the output device changed) and took everything
+// scheduled with it. A song starts again from the top of the section it had
+// reached, which plays as it did (each section is seeded on its own); eras and
+// loops carry on as they were set.
+export function resumeSession(t) {
+  const s = song.current;
+  const sec = s && song.sectionAt(Math.min(songBeat, s.end) - 1);
+  startSession(t, sec ? sec.start : 0);
+}
+
 // Back to eras or a loop: no song.
 export function unloadSong() {
   song.current = null;
   if (audio.level) audio.level.holdsAt = null;
-}
-
-// Infinite mode's NEXT in a song: on to the outro at the next bar line, or
-// from the outro to the last chord. Returns the beat it lands on, or null
-// when there's nothing left to skip to (the last chord is already playing).
-// Nothing from that beat on has been scheduled yet: the conductor only runs
-// the voices up to the next beat it acts on.
-export function skipSong() {
-  const s = song.current;
-  const sec = song.sectionAt(songBeat - 1);
-  if (!s || !sec) return null;
-  const i = s.sections.indexOf(sec);
-  const outro = s.sections.findIndex(x => x.kind === 'outro' || x.kind === 'close' || x.kind === 'dusk');
-  const to = i < outro ? outro : i < s.sections.length - 1 ? s.sections.length - 1 : -1;
-  if (to < 0) return null;
-  const at = Math.ceil(songBeat / 4) * 4;
-  const kept = s.sections.slice(0, i + 1);
-  const cut = kept[i] = { ...sec, beats: at - sec.start, gap: 0, roll: false, riser: false };
-  if (cut.beats <= 0) kept.pop();
-  let start = at;
-  const rest = s.sections.slice(to).map(x => {
-    const moved = { ...x, start };
-    start += x.beats;
-    return moved;
-  });
-  s.sections = [...kept, ...rest];
-  s.end = start;
-  return at;
 }
 
 // The song's own feel and key, which the sections vary from: Edit mode's
