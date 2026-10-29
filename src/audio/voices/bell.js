@@ -1,5 +1,5 @@
 import { audio, getVoiceBus, noise } from '../context.js';
-import { currentScale, rand, pick, register, midiToHz, scaleNotes } from '../../state.js';
+import { currentScale, rand, pick, register, midiToHz, scaleNotes, random } from '../../state.js';
 import { createVoice } from '../transport.js';
 import { logNote } from '../notes.js';
 import { harmony } from '../harmony.js';
@@ -18,7 +18,7 @@ const PARTIALS = [ // ratio, level, decay (× note length)
 
 function play(t, b) {
   const wait = pick([2, 3, 4, 4]);
-  if (Math.random() < 0.3) return wait;
+  if (random() < 0.3) return wait;
 
   const notes = scaleNotes(register(74, 32, 84), currentScale(), 2);
   const midi  = harmony.pickChordTone(notes, b);

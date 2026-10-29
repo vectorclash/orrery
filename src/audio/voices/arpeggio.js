@@ -1,5 +1,5 @@
 import { audio, getVoiceBus } from '../context.js';
-import { state, beat, pick, lerp, register, midiToHz } from '../../state.js';
+import { state, beat, pick, lerp, register, midiToHz, random } from '../../state.js';
 import { createVoice } from '../transport.js';
 import { logNote } from '../notes.js';
 import { harmony } from '../harmony.js';
@@ -32,7 +32,7 @@ function chordNotes(b) {
 
 function play(t, b) {
   const p = Math.floor(b / 16);
-  if (p !== phrase) { phrase = p; if (Math.random() < 0.5) pattern = pick(Object.keys(PATTERNS)); }
+  if (p !== phrase) { phrase = p; if (random() < 0.5) pattern = pick(Object.keys(PATTERNS)); }
   const step  = Math.round(b / rate);
   const notes = chordNotes(b);
   const seq   = PATTERNS[pattern](notes.length);

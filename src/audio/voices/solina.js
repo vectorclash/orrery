@@ -1,5 +1,5 @@
 import { audio, getVoiceBus } from '../context.js';
-import { state, beat, rand, lerp, register, midiToHz } from '../../state.js';
+import { state, beat, rand, lerp, register, midiToHz, random } from '../../state.js';
 import { createVoice } from '../transport.js';
 import { logNote } from '../notes.js';
 import { harmony } from '../harmony.js';
@@ -53,5 +53,5 @@ function play(t, b) {
 
 export const solinaVoice = createVoice('solina', play, {
   role: 'bed',
-  onReset: () => { prev = null; phased = Math.random() < 0.4; },
+  onReset: () => { prev = null; phased = random() < 0.4; },
 });

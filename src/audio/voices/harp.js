@@ -1,5 +1,5 @@
 import { audio, getVoiceBus } from '../context.js';
-import { beat, rand, pick, clamp, register, midiToHz } from '../../state.js';
+import { beat, rand, pick, clamp, register, midiToHz, random } from '../../state.js';
 import { createVoice } from '../transport.js';
 import { logNote } from '../notes.js';
 import { harmony } from '../harmony.js';
@@ -24,11 +24,11 @@ function play(t, b) {
   const seg  = harmony.at(b);
   const base = register(50, 28, 67);
   if (Math.abs(b - seg.start) < 1e-6) {
-    const notes = harmony.stack(b, base, 5 + Math.floor(Math.random() * 3));
-    if (Math.random() < 0.35) notes.reverse();
+    const notes = harmony.stack(b, base, 5 + Math.floor(random() * 3));
+    if (random() < 0.35) notes.reverse();
     const step = Math.min(0.085, beat() * 0.16);
     notes.forEach((m, i) => string(t + i * step, m, rand(0.75, 0.95) - i * 0.03));
-  } else if (Math.random() < 0.4) {
+  } else if (random() < 0.4) {
     string(t, pick(harmony.stack(b, base + 12, 4)), rand(0.55, 0.75));
   }
   return 1;

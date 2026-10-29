@@ -1,5 +1,5 @@
 import { audio, noise } from '../context.js';
-import { state, beat, rand, pick, currentScale, midiToHz } from '../../state.js';
+import { state, beat, rand, pick, currentScale, midiToHz, random } from '../../state.js';
 import { createVoice } from '../transport.js';
 import { logNote } from '../notes.js';
 import { harmony, bassRoot } from '../harmony.js';
@@ -95,17 +95,17 @@ let acidSeq = [];
 function makeAcid() {
   const seq = [];
   for (let i = 0; i < 32; i++) {
-    if (Math.random() < (i % 4 === 0 ? 0.2 : 0.38)) { seq.push(null); continue; }
+    if (random() < (i % 4 === 0 ? 0.2 : 0.38)) { seq.push(null); continue; }
     seq.push({
       code: pick(['R', 'R', 'R', 'O', 'O', 'F', '3', '7']),
-      accent: Math.random() < 0.28,
-      slide: Math.random() < 0.22,
+      accent: random() < 0.28,
+      slide: random() < 0.22,
     });
   }
   return seq;
 }
 function mutateAcid(seq) {
-  return seq.map(s => (Math.random() < 0.15 ? makeAcid()[0] : s));
+  return seq.map(s => (random() < 0.15 ? makeAcid()[0] : s));
 }
 
 let style  = 'sub';
@@ -125,7 +125,7 @@ function fifth(r)      { return r + 7 <= HI ? r + 7 : r - 5; }
 // diatonic neighbour, or the target's own fifth (a dominant approach).
 function approach(target, from) {
   const dir = from > target ? 1 : -1; // come in from the side we're already on
-  const r = Math.random();
+  const r = random();
   if (r < 0.45) return inRange(target + dir);
   if (r < 0.8) {
     for (let d = 1; d <= 2; d++) if (inScale(target + dir * d)) return inRange(target + dir * d);
@@ -180,7 +180,7 @@ function walkNote(b) {
     if (m === target) w = 0.2;
     options.push([m, w]);
   }
-  let total = options.reduce((s, [, w]) => s + w, 0), r = Math.random() * total;
+  let total = options.reduce((s, [, w]) => s + w, 0), r = random() * total;
   for (const [m, w] of options) if ((r -= w) <= 0) return m;
   return root(seg);
 }
@@ -400,16 +400,16 @@ function play(t, b) {
   if (bar !== curBar) {
     curBar = bar;
     if (GROOVE_STYLES.includes(style)) {
-      if (!groovePattern || (bar % 4 === 0 && Math.random() < 0.3)) groovePattern = pick(GROOVE_PATTERNS[style]);
+      if (!groovePattern || (bar % 4 === 0 && random() < 0.3)) groovePattern = pick(GROOVE_PATTERNS[style]);
     } else if (FIRST_DANCE_STYLES.includes(style)) {
       // The dance styles draw only here, so the classic styles' draws are untouched.
-      if (bar % 4 === 0 && Math.random() < 0.3) deepPattern = pick(DEEP_PATTERNS);
-      if (bar % 4 === 0 && Math.random() < 0.3) rollPattern = pick(ROLLING_PATTERNS);
+      if (bar % 4 === 0 && random() < 0.3) deepPattern = pick(DEEP_PATTERNS);
+      if (bar % 4 === 0 && random() < 0.3) rollPattern = pick(ROLLING_PATTERNS);
       if (!acidSeq.length) acidSeq = makeAcid();
-      else if (bar % 2 === 0 && Math.random() < 0.5) acidSeq = mutateAcid(acidSeq);
+      else if (bar % 2 === 0 && random() < 0.5) acidSeq = mutateAcid(acidSeq);
     } else {
-      if (Math.random() < 0.3) cell = pick(PLUCK_RHYTHMS);
-      if (Math.random() < 0.15) pattern = pick(SYNTH_PATTERNS);
+      if (random() < 0.3) cell = pick(PLUCK_RHYTHMS);
+      if (random() < 0.15) pattern = pick(SYNTH_PATTERNS);
     }
   }
   if (style === 'acid') {
@@ -450,7 +450,7 @@ function play(t, b) {
     else if (style === 'log') logDrum(t, midi, beats * beat());
     else {
       // Slide from the 808 still sounding, if there is one and it is another note.
-      const from = held808 && held808.until >= t - 1e-3 && held808.midi !== midi && Math.random() < 0.6 ? held808.midi : null;
+      const from = held808 && held808.until >= t - 1e-3 && held808.midi !== midi && random() < 0.6 ? held808.midi : null;
       bass808(t, midi, beats * beat(), from);
       held808 = { midi, until: t + beats * beat() };
     }
@@ -502,7 +502,7 @@ const voice = createVoice('bass', play, {
   onReset: () => {
     prev = null; curBar = -1; groovePattern = null; held808 = null;
     // Only a dance style draws here, so a classic style's sequence of draws is untouched.
-    if (FIRST_DANCE_STYLES.includes(style)) { acidSeq = makeAcid(); acidWave = Math.random() < 0.7 ? 'sawtooth' : 'square'; }
+    if (FIRST_DANCE_STYLES.includes(style)) { acidSeq = makeAcid(); acidWave = random() < 0.7 ? 'sawtooth' : 'square'; }
   },
 });
 
@@ -510,5 +510,14 @@ export const bassVoice = {
   ...voice,
   get style() { return style; },
   reroll() { style = pick(STYLES); cell = pick(PLUCK_RHYTHMS); pattern = pick(SYNTH_PATTERNS); },
+  // A song's section: the patterns the styles keep from bar to bar drawn
+  // afresh, not carried over from whatever played before, so the section
+  // plays the same every time.
+  newSection() {
+    voice.draw(() => {
+      cell = pick(PLUCK_RHYTHMS); pattern = pick(SYNTH_PATTERNS);
+      deepPattern = pick(DEEP_PATTERNS); rollPattern = pick(ROLLING_PATTERNS);
+    });
+  },
   setStyle(s) { style = s; },
 };

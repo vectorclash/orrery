@@ -1,4 +1,5 @@
 import { state, LOOKAHEAD } from '../state.js';
+import { within, stream } from '../random.js';
 
 // ─── Transport: the shared musical clock ──────────────────────────────────────
 // Voices schedule in *beats* and convert to audio time here, so bar lines,
@@ -10,10 +11,10 @@ let anchorBeat = 0;
 let bpm        = 120;
 
 export const transport = {
-  // Beat 0 = audio time `t`.
-  start(t) {
+  // Beat `from` (0, the start) = audio time `t`.
+  start(t, from = 0) {
     anchorTime = t;
-    anchorBeat = 0;
+    anchorBeat = from;
     bpm        = state.tempo;
   },
 
@@ -51,24 +52,34 @@ export const transport = {
 //
 // `horizon` lets the scheduler stop every voice exactly at a chord change,
 // switch key, then carry on — so no note straddles the old and new key.
+//
+// A voice plays and resets in its own random stream (see random.js), so what
+// it draws doesn't depend on how its notes fall across ticks.
 export function createVoice(name, play, { entry = 1, role = null, onReset = null } = {}) {
   let next = null; // beat position of the next event
-  return {
+  const voice = {
     name,
     role,
     entry,
     tick(now, horizon = now + LOOKAHEAD) {
       if (next === null || transport.timeAt(next) < now) next = transport.nextBeat(now, entry);
-      while (transport.timeAt(next) < horizon) {
-        const step = play(transport.timeAt(next), next);
-        next += step > 0 ? step : 0.25; // a zero/NaN step would spin forever
-      }
+      if (!(transport.timeAt(next) < horizon)) return;
+      within(stream(name), () => {
+        while (transport.timeAt(next) < horizon) {
+          const step = play(transport.timeAt(next), next);
+          next += step > 0 ? step : 0.25; // a zero/NaN step would spin forever
+        }
+      });
     },
     // `atBeat` restarts the voice at a specific position (an era change);
     // voices holding long notes use it to release them at that moment.
     reset(atBeat = null) {
       next = atBeat;
-      if (onReset) onReset(atBeat);
+      if (onReset) voice.draw(() => onReset(atBeat));
     },
+    // Runs `fn` in this voice's stream: for a voice's own methods that draw
+    // (bass and drums choosing a style's patterns).
+    draw(fn) { return within(stream(name), fn); },
   };
+  return voice;
 }

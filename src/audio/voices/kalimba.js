@@ -1,5 +1,5 @@
 import { audio, getVoiceBus, noise } from '../context.js';
-import { rand, register, midiToHz } from '../../state.js';
+import { rand, register, midiToHz, random } from '../../state.js';
 import { createVoice } from '../transport.js';
 import { logNote } from '../notes.js';
 import { createPhraser } from '../phrase.js';
@@ -35,7 +35,7 @@ function play(t, b) {
   const ev = phraser.next(b);
   if (ev.midi === null) return ev.gap;
   tine(t, ev.midi, ev.vel);
-  if (Math.random() < 0.25) {
+  if (random() < 0.25) {
     for (let m = ev.midi - 3; m >= ev.midi - 4; m--) {
       if (harmony.isChordTone(m, b)) { tine(t + 0.03, m, ev.vel * 0.8); break; }
     }

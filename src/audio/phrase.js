@@ -1,5 +1,6 @@
-import { state, pick, rand, currentScale, scaleNotes } from '../state.js';
+import { state, pick, rand, currentScale, scaleNotes, random } from '../state.js';
 import { harmony } from './harmony.js';
+import { within, stream } from '../random.js';
 
 // ─── Phrase generator ─────────────────────────────────────────────────────────
 // Melodic voices used to random-walk note by note, which is why they wandered.
@@ -45,8 +46,8 @@ function contour(n, leapChance) {
     else if (shape === 'fall') dir = -1;
     else if (shape === 'arch') dir = firstHalf ? 1 : -1;
     else dir = i % 2 ? 1 : -1;
-    if (Math.random() < 0.2) dir = -dir;
-    const size = Math.random() < leapChance ? pick([3, 4]) : pick([1, 1, 1, 2]);
+    if (random() < 0.2) dir = -dir;
+    const size = random() < leapChance ? pick([3, 4]) : pick([1, 1, 1, 2]);
     steps.push(dir * size);
   }
   return steps;
@@ -60,11 +61,37 @@ function newMotif(style, leapChance) {
 }
 
 // Shared by the lead voices so an answering phrase imitates the call.
+//
+// Each phrase's motif is drawn once, in phrase order, from the ensemble's own
+// random stream, in the first lead's style. Not by whichever lead reaches the
+// phrase first: within a tick each voice runs ahead to the horizon in turn, so
+// which one that is depends on where the ticks fall, and a lead still
+// finishing the last phrase would have asked for that one again.
 export const ensemble = {
-  leads: [],   // names of the active lead voices (set by the scheduler)
-  motif: null,
-  motifPhrase: -1,
+  leads:  [],        // names of the active lead voices (set by the scheduler)
+  hold:   false,     // a song's hook: keep one motif for the whole section
+  motifs: new Map(), // phrase → motif
+  last:   -1,        // the latest phrase drawn
+  styles: new Map(), // lead voice name → how it writes motifs
+  // Forget the motifs: the next phrase asked for starts afresh.
+  reset() { this.motifs.clear(); this.last = -1; },
 };
+
+function sharedMotif(phrase, own) {
+  if (phrase > ensemble.last) {
+    const { style, leap, repeat } = ensemble.styles.get(ensemble.leads[0]) ?? own;
+    within(stream('ensemble'), () => {
+      for (let q = ensemble.last < 0 ? phrase : ensemble.last + 1; q <= phrase; q++) {
+        const prev = ensemble.motifs.get(q - 1);
+        const keep = prev && (ensemble.hold || random() <= repeat);
+        ensemble.motifs.set(q, keep ? prev : newMotif(style, leap));
+        ensemble.motifs.delete(q - 3);
+      }
+    });
+    ensemble.last = phrase;
+  }
+  return ensemble.motifs.get(phrase) ?? ensemble.motifs.get(ensemble.last);
+}
 
 // With two or more leads, they trade two-bar phrases (call and response);
 // whoever isn't soloing drops to a quiet supporting role.
@@ -96,6 +123,7 @@ export function createPhraser({
   leap     = 0.18,
 }) {
   const local  = { motif: null, motifPhrase: -1 }; // non-lead voices keep their own
+  if (lead) ensemble.styles.set(name, { style, leap, repeat });
   let lastMidi = null;
   let lastStep = 0;
   let curBar   = -1;
@@ -105,12 +133,12 @@ export function createPhraser({
   // One motif per 4-bar phrase, kept into the next phrase with p = `repeat`.
   function motifFor(bar) {
     const phrase = Math.floor(bar / 4);
-    const store  = lead ? ensemble : local;
-    if (store.motifPhrase !== phrase) {
-      if (!store.motif || Math.random() > repeat) store.motif = newMotif(style, leap);
-      store.motifPhrase = phrase;
+    if (lead) return sharedMotif(phrase, { style, leap, repeat });
+    if (local.motifPhrase !== phrase) {
+      if (!local.motif || random() > repeat) local.motif = newMotif(style, leap);
+      local.motifPhrase = phrase;
     }
-    return store.motif;
+    return local.motif;
   }
 
   function startBar(bar) {
@@ -175,7 +203,7 @@ export function createPhraser({
       const solo = soloist(name, beat);
       if (!solo) {
         // Supporting role: an occasional long, soft chord tone on the downbeat.
-        if (i !== 0 || Math.random() < 0.5) return { midi: null, gap: len };
+        if (i !== 0 || random() < 0.5) return { midi: null, gap: len };
         const notes = pool();
         const j = snap(notes, nearestIndex(notes, lastMidi ?? notes[Math.floor(notes.length / 3)]), beat, 0);
         return { midi: notes[j], gap: len, dur: Math.max(len, 2), vel: 0.55 };
@@ -200,7 +228,7 @@ export function createPhraser({
         j = Math.max(0, Math.min(notes.length - 1, j));
         const strong = metricAccent(pos) >= 0.92 || len >= 1.5;
         const leapt  = Math.abs(step) >= 2;
-        if ((strong || leapt) && Math.random() < 0.35 + 0.65 * state.harmonyLock) {
+        if ((strong || leapt) && random() < 0.35 + 0.65 * state.harmonyLock) {
           j = snap(notes, j, beat, Math.sign(step), false, recovering);
         }
       }

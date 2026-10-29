@@ -1,6 +1,7 @@
 import { audio } from '../context.js';
 import { state } from '../../state.js';
 import { createVoice } from '../transport.js';
+import { song } from '../song.js';
 
 // ─── Sweep ────────────────────────────────────────────────────────────────────
 // The filter of French house and nu-disco: everything but the drums runs
@@ -37,11 +38,23 @@ export function closedAt(b) {
   return 1 - x * x;
 }
 
+// A song's build (see song.js) takes the filter over, whatever the depth: shut
+// to about 850 Hz at the start and opening, slowly and then in a rush, until
+// it is fully open where the build ends -- the music brightening into the drop.
+const BUILD_SHUT = 0.7;
+function buildClosed(b) {
+  const sec = song.sectionAt(b);
+  if (!sec?.riser) return null;
+  const x = Math.min(1, (b - sec.start) / Math.max(1, sec.beats - sec.gap));
+  return BUILD_SHUT * (1 - x * x);
+}
+
 let active = false;
 
 function play(t, b) {
   const stages = audio.sweeps;
-  if (state.sweep <= 0) {
+  const build = buildClosed(b);
+  if (state.sweep <= 0 && !build) {
     if (active) {
       for (const s of stages) {
         s.direct.gain.setTargetAtTime(1, t, XFADE);
@@ -51,7 +64,7 @@ function play(t, b) {
     }
     return STEP;
   }
-  const c  = closedAt(b) * state.sweep;
+  const c  = build ?? closedAt(b) * state.sweep;
   const hz = OPEN * (SHUT / OPEN) ** c;
   const q  = -3 + 9 * c; // dB (a lowpass's Q is a resonance in dB): flat open, +6 dB shut
   for (const s of stages) {

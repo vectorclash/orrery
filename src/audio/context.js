@@ -1,4 +1,5 @@
-import { state } from '../state.js';
+import { state, random } from '../state.js';
+import { seeded, hashSeed } from '../random.js';
 
 // ─── Audio context ────────────────────────────────────────────────────────────
 // A single mutable object so all voice modules always see the live references.
@@ -24,6 +25,7 @@ export const audio = {
   // long notes that were queued into the future before the user pressed stop.
   dry:        null, // centred dry signal (bass, drums)
   pumped:     null, // into dry through the sidechain pump: every voice bus and the bass
+  gate:       null, // after the pump: a song's silent beat before a drop closes it (see gateGap)
   sweeps:     [],   // the filter sweep's stages (see sweep.js and sweepStage below)
   reverbSend: null,
   echoSend:   null, // tempo-synced ping-pong delay
@@ -40,13 +42,14 @@ function buildImpulse(ctx, seconds = 3.6, decay = 2.6, darken = 0.82) {
   const sr  = ctx.sampleRate;
   const len = Math.floor(sr * seconds);
   const buf = ctx.createBuffer(2, len, sr);
+  const white = seeded(hashSeed('hall', seconds, decay, darken, sr));
   for (let ch = 0; ch < 2; ch++) {
     const d = buf.getChannelData(ch);
     let y = 0;
     for (let i = 0; i < len; i++) {
       const x = i / len;
       const k = 0.92 - darken * x;        // one-pole lowpass coefficient: bright → dark
-      y += k * ((Math.random() * 2 - 1) - y);
+      y += k * ((white() * 2 - 1) - y);
       const norm = Math.sqrt((2 - k) / k); // keep noise power constant as the filter closes
       // A real tail builds up over its first ~40 ms as reflections multiply;
       // starting at full density sounds like a burst of noise, not a space.
@@ -73,6 +76,7 @@ function buildRoom(ctx, rt60, er) {
   const sr  = ctx.sampleRate;
   const len = Math.floor(sr * rt60 * 1.3);
   const buf = ctx.createBuffer(4, len, sr);
+  const white = seeded(hashSeed('room', rt60, er, sr));
   for (let ch = 0; ch < 4; ch++) {
     const cross = ch === 1 || ch === 2;
     const d = buf.getChannelData(ch);
@@ -80,8 +84,8 @@ function buildRoom(ctx, rt60, er) {
     // Early reflections: sparse taps, quieter and duller the later they come.
     const taps = cross ? 10 : 14;
     for (let n = 0; n < taps; n++) {
-      const t   = (cross ? 9 : 4) * er / 70 + Math.random() * er * 0.95; // ms
-      const amp = (cross ? 0.55 : 0.8) * (1 - t / (er * 1.3)) * (Math.random() < 0.5 ? -1 : 1);
+      const t   = (cross ? 9 : 4) * er / 70 + white() * er * 0.95; // ms
+      const amp = (cross ? 0.55 : 0.8) * (1 - t / (er * 1.3)) * (white() < 0.5 ? -1 : 1);
       const at  = Math.floor(sr * t / 1000);
       const w   = 2 + Math.floor(t / 12);                 // wider tap = more HF lost
       for (let k = 0; k < w; k++) d[at + k] += amp * (1 - k / w) * 2 / w;
@@ -93,7 +97,7 @@ function buildRoom(ctx, rt60, er) {
     for (let i = start; i < len; i++) {
       const x = i / len;
       const k = 0.75 - 0.6 * x;
-      y += k * ((Math.random() * 2 - 1) - y);
+      y += k * ((white() * 2 - 1) - y);
       const norm  = Math.sqrt((2 - k) / k);
       const env   = Math.exp(-6.91 * (i / sr) / rt60) * Math.min(1, (i - start) / ramp);
       d[i] += y * norm * env * (cross ? 0.07 : 0.08);
@@ -337,8 +341,10 @@ export function getVoiceBus(name) {
       dry.connect(panner);
     }
     // Everything but the kit goes through the pump (see pump.js), as a real
-    // sidechain would: the drums are what it ducks for.
-    panner.connect(name.startsWith('kit:') ? audio.dry : audio.pumped);
+    // sidechain would: the drums are what it ducks for. A song's transitions
+    // (voices/fx.js) go around it too, and around the filter sweep: a riser
+    // muffled by the build's filter, or an impact ducked, would lose its point.
+    panner.connect(name.startsWith('kit:') || name === 'fx' ? audio.dry : audio.pumped);
     // The dry bus already feeds the room at gain 1; this adds the rest. Both
     // copies are the same signal, so they add in amplitude, not energy.
     const extra = dbToGain(VOICE_DISTANCE[name] ?? 0) - 1;
@@ -368,9 +374,11 @@ export function beginSession() {
   dry.connect(audio.masterGain);
 
   // Pump: the sidechain bus. Unity gain unless pump.js is ducking it on the beat.
-  // It reaches the dry bus through the filter sweep (see sweepStage).
+  // It reaches the dry bus through the gate, then the filter sweep (see sweepStage).
   const pumped = ctx.createGain();
-  const sweeps = [sweepStage(ctx, pumped, dry)];
+  const gate = ctx.createGain();
+  pumped.connect(gate);
+  const sweeps = [sweepStage(ctx, gate, dry)];
 
   // Room bus: the whole dry mix, stereo image and all (plus the extra sends
   // of voices further back). The high-pass keeps bass and kick fundamentals
@@ -405,12 +413,13 @@ export function beginSession() {
   const echoToVerb = ctx.createGain(); echoToVerb.gain.value = 0.25;
   echoOut.connect(echoToVerb); echoToVerb.connect(reverbSend);
 
-  session = { roomBus, hallBus, outputs: [dry, pumped, echoOut], echo: [left, right], spaces: [] };
+  session = { roomBus, hallBus, outputs: [dry, pumped, gate, echoOut], echo: [left, right], spaces: [] };
   session.space = makeSpace(ROOMS[state.room] ? state.room : 'room');
   session.space.open(0);
   session.spaces.push(session.space);
   audio.dry        = dry;
   audio.pumped     = pumped;
+  audio.gate       = gate;
   audio.sweeps     = sweeps;
   audio.reverbSend = reverbSend;
   audio.echoSend   = echoSend;
@@ -435,6 +444,17 @@ function sweepStage(ctx, from, into) {
   return { direct, lp, wet };
 }
 
+// A song's silent moment before a drop: everything but the drums (which stop
+// themselves) cuts out from `from` until `to`, audio times. The echo and
+// reverb sends are left open, so the tails ring on into the silence.
+export function gateGap(from, to) {
+  const g = audio.gate.gain;
+  g.setValueAtTime(1, from);
+  g.linearRampToValueAtTime(0, from + 0.012);
+  g.setValueAtTime(0, Math.max(from + 0.012, to - 0.006));
+  g.linearRampToValueAtTime(1, to);
+}
+
 // Echo time in seconds (a dotted eighth is the classic choice).
 export function setEchoTime(sec, at = audio.ctx.currentTime) {
   if (!session) return;
@@ -448,7 +468,7 @@ export function noise(t, dur) {
   const src = audio.ctx.createBufferSource();
   src.buffer = audio.noise;
   src.loop   = true;
-  src.start(t, Math.random() * NOISE_SECONDS);
+  src.start(t, random() * NOISE_SECONDS);
   src.stop(t + dur);
   return src;
 }
@@ -469,6 +489,14 @@ const SATURATION = (() => {
 // gain toward the target, within ±LEVEL_RANGE_DB so dynamics within a
 // section survive. Quiet stretches (rests, fades, stop) are ignored rather
 // than boosted.
+//
+// A song is meant to get louder and quieter, and a leveller riding each section
+// would fight that: it would lift a breakdown, and then pull the build after it
+// down as it grows. So in a song it only listens to the hook sections, which
+// set the song's level, and holds still through the rest:
+// audio.level.holdsAt(t), when set, says whether it holds at audio time t (a
+// function of time, as the export works out the leveller's moves after the
+// fact -- see src/render.js).
 const LEVEL_TARGET_DB = -24; // about the average meter level of the test arrangements
 const LEVEL_RANGE_DB  = 6;
 const LEVEL_TAU       = 4;   // seconds of history
@@ -490,10 +518,20 @@ export function rideLevel(now) {
   let e = 0;
   for (let i = 0; i < lv.data.length; i++) e += lv.data[i] * lv.data[i];
   e /= lv.data.length;
+  if (lv.holdsAt?.(now)) return;
   if (10 * Math.log10(e + 1e-12) < LEVEL_TARGET_DB - LEVEL_GATE_DB) return;
   lv.ms = lv.ms === null ? e : lv.ms + (e - lv.ms) * (1 - Math.exp(-dt / LEVEL_TAU));
   const gainDb = Math.max(-LEVEL_RANGE_DB, Math.min(LEVEL_RANGE_DB, LEVEL_TARGET_DB - 10 * Math.log10(lv.ms)));
   audio.leveler.gain.setTargetAtTime(dbToGain(gainDb), now, 1.0);
+}
+
+// Starts the leveller as if it had already been listening to a mix of mean
+// square `ms`: an export of a song starts at the level its hooks will set,
+// rather than finding it at the first chorus (see levelOfSong).
+export function presetLevel(ms) {
+  audio.level.ms = ms;
+  const gainDb = Math.max(-LEVEL_RANGE_DB, Math.min(LEVEL_RANGE_DB, LEVEL_TARGET_DB - 10 * Math.log10(ms)));
+  audio.leveler.gain.value = dbToGain(gainDb);
 }
 
 // ─── Making sure sound actually comes out ────────────────────────────────────
@@ -627,7 +665,8 @@ export function initAudio(ctx = null) {
   const sr = audio.ctx.sampleRate;
   audio.noise = audio.ctx.createBuffer(1, sr * NOISE_SECONDS, sr);
   const nd = audio.noise.getChannelData(0);
-  for (let i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
+  const white = seeded(hashSeed('noise', sr));
+  for (let i = 0; i < nd.length; i++) nd[i] = white() * 2 - 1;
 
   // ─── Master bus: gentle high-pass to clear sub-rumble + a soft compressor
   // for cohesion and to catch peaks when density/voice count stacks up.
@@ -668,7 +707,7 @@ export function initAudio(ctx = null) {
   highpass.connect(kHp); kHp.connect(kShelf); kShelf.connect(meter);
   audio.leveler = leveler;
   audio.meter   = meter;
-  audio.level   = { data: new Float32Array(meter.fftSize), ms: null, last: 0 };
+  audio.level   = { data: new Float32Array(meter.fftSize), ms: null, last: 0, holdsAt: null };
 
   // Saturation: a gentle tanh, unity gain for small signals and about −1 dB
   // at −6 dBFS, so loud moments round off instead of being clamped by the

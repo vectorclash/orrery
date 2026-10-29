@@ -1,5 +1,5 @@
 import { audio, getVoiceBus } from '../context.js';
-import { beat, rand, pick, register, midiToHz, currentScale } from '../../state.js';
+import { beat, rand, pick, register, midiToHz, currentScale, random } from '../../state.js';
 import { createVoice } from '../transport.js';
 import { logNote } from '../notes.js';
 import { harmony } from '../harmony.js';
@@ -70,7 +70,7 @@ function play(t, b) {
   const bar = Math.floor(b / 4 + 1e-9), pos = b - bar * 4;
   if (bar !== curBar) {
     curBar = bar;
-    if (bar % 2 === 0 && Math.random() < 0.5) comp = pick(COMPS);
+    if (bar % 2 === 0 && random() < 0.5) comp = pick(COMPS);
   }
   const hit = comp.find(([p]) => Math.abs(p - pos) < 1e-6);
   if (hit) strike(t, b, hit[1]);

@@ -1,6 +1,8 @@
 import { audio, getVoiceBus, noise } from '../context.js';
-import { state, beat, rand, pick, fold, midiToHz } from '../../state.js';
+import { state, beat, rand, pick, fold, midiToHz, random } from '../../state.js';
 import { createVoice } from '../transport.js';
+import { seeded, hashSeed } from '../../random.js';
+import { song } from '../song.js';
 import { logHit } from '../notes.js';
 import { osc, gain, filter, send, perc, shaper } from '../synth.js';
 
@@ -228,11 +230,13 @@ function gateImpulse(ctx) {
   const sr = ctx.sampleRate;
   if (!gateImpulses.has(sr)) {
     const len = Math.floor(sr * GATE_SECONDS), buf = ctx.createBuffer(2, len, sr);
+    // Seeded, as context.js's impulses are: the same room in every render.
+    const white = seeded(hashSeed('gate', sr));
     for (let ch = 0; ch < 2; ch++) {
       const d = buf.getChannelData(ch);
       let y = 0, e = 0;
       for (let i = 0; i < len; i++) {
-        y += 0.55 * ((Math.random() * 2 - 1) - y);
+        y += 0.55 * ((white() * 2 - 1) - y);
         const build = Math.min(1, i / (sr * 0.008));
         const hold  = 1 - 0.3 * i / len;                 // sags a little, but doesn't decay
         const cut   = Math.min(1, (len - i) / (sr * 0.01)); // the gate closing
@@ -521,21 +525,55 @@ const FILLS = {
 };
 const FILL_REPLACES = ['snare', 'gsnare', 'tomHi', 'tomLo', 'hat', 'ohat', 'ride', 'rim', 'clap'];
 
+// ─── In a song ────────────────────────────────────────────────────────────────
+// A section of a song (see song.js) sets how much of the kit plays:
+//   pulse -- the kick and the time (hats, ride, shaker): an intro's beat
+//   light -- the beat without its accents: no open hats, crashes or percussion
+//   full  -- everything
+// each a little harder than the last, and the transitions: a fill on a section's last bar and a crash after it, a
+// snare roll through a build's last bars, faster and louder as it goes, and
+// nothing at all in the silent beat before a drop.
+const PULSE   = new Set(['kick', 'k808', 'k909', 'taiko', 'hat', 'ride', 'shaker']);
+const PART_LEVEL = { pulse: 0.75, light: 0.85, full: 1 }; // played softer in a verse, opened up in a chorus
+const ACCENTS = new Set(['ohat', 'crash', 'tamb', 'swish', 'bell', 'congaLo', 'congaHi']);
+const ROLL_BARS = 8;
+const ROLLED  = ['snare', 'gsnare', 'clap', 'rim', 'tomHi', 'tomLo', 'simLo', 'simMid', 'simHi'];
+
+// The roll from beat `from` to `end`: how hard a snare lands on step `i` of
+// beat `b`, or 0 for none. Quarters, then eighths, then sixteenths, louder
+// all the way.
+function rollHit(b, from, end, i, steps) {
+  const x = (b - from) / (end - from);
+  const per = x < 0.5 ? 4 : x < 0.75 ? 8 : 16; // hits a bar
+  if (i % Math.max(1, Math.round(steps / per))) return 0;
+  return 0.35 + 0.8 * x;
+}
+
 // ─── Sequencer ────────────────────────────────────────────────────────────────
 let style = 'four_four';
 let curBar = -1, fill = null, fillFrom = 99, crashNext = false, rollSteps = new Set();
+let sec = null;      // the song section the current bar is in, or null
+let rollFrom = null; // beat at which this section's snare roll starts
 
 function startBar(bar, p, steps) {
   curBar = bar;
   fill = null; fillFrom = 99;
-  if (p.fill && bar % 4 === 3 && (bar % 8 === 7 || Math.random() < 0.55)) {
-    const beats = bar % 8 === 7 ? 2 : 1;
+  sec = song.sectionAt(bar * 4);
+  const end = sec ? sec.start + sec.beats : 0;
+  rollFrom = sec?.roll ? Math.max(sec.start, end - ROLL_BARS * 4) : null;
+  const lastBar = !!sec && bar * 4 + 4 >= end;
+  if (sec && bar * 4 === sec.start && sec.crash) crashNext = true;
+  const wanted = rollFrom !== null && bar * 4 >= rollFrom ? false
+    : lastBar ? sec.fill
+    : bar % 4 === 3 && (bar % 8 === 7 || random() < 0.55);
+  if (p.fill && wanted) {
+    const beats = bar % 8 === 7 || lastBar ? 2 : 1;
     const n = beats * steps / 4;
     fill = FILLS[steps][p.fill][n];
     fillFrom = steps - n;
   }
   rollSteps = new Set();
-  if (p.rolls) for (const s of [6, 7, 14, 15]) if (Math.random() < 0.3) rollSteps.add(s);
+  if (p.rolls) for (const s of [6, 7, 14, 15]) if (random() < 0.3) rollSteps.add(s);
 }
 
 function play(t, b) {
@@ -553,20 +591,34 @@ function play(t, b) {
   const density = 0.5 + state.density * 0.5;
   const bright  = 0.4 + state.brightness * 0.6;
 
+  const next = bar * 4 + (i + 1) * unit - b; // re-snap to the exact grid every step
+  const end = sec ? sec.start + sec.beats : Infinity;
+  if (b >= end - (sec?.gap ?? 0) - 1e-6) return next; // the silence before a drop
+  const part = sec?.drums ?? 'full';
+  const rolling = rollFrom !== null && b >= rollFrom - 1e-6;
+
   const hits = [];
   if (i === 0 && crashNext) { hits.push(['crash', 1]); crashNext = false; }
   for (const [track, line] of Object.entries(p.tracks)) {
     if (i >= fillFrom && FILL_REPLACES.includes(track)) continue;
+    if (part === 'pulse' && !PULSE.has(track)) continue;
+    if (part === 'light' && ACCENTS.has(track)) continue;
+    if (rolling && ROLLED.includes(track)) continue;
     hits.push([track, line[i]]);
   }
   if (fill) {
     for (const [track, line] of Object.entries(fill)) hits.push([track, line[i - fillFrom]]);
     if (i === steps - 1) crashNext = true;
   }
+  if (rolling) {
+    const v = rollHit(b, rollFrom, end - sec.gap, i, steps);
+    if (v) hits.push(['snare', v]);
+  }
 
   for (const [track, ch] of hits) {
-    let v = ch === '?' ? (Math.random() < 0.35 ? VEL.g : 0) : VEL[ch] || 0;
+    let v = typeof ch === 'number' ? ch : ch === '?' ? (random() < 0.35 ? VEL.g : 0) : VEL[ch] || 0;
     if (!v) continue;
+    if (track !== 'crash' && sec) v *= PART_LEVEL[part];
     const [fn, level] = KIT[track];
     const scale = ['hat', 'ohat', 'ride', 'shaker', 'crash', 'swish', 'tamb'].includes(track) ? bright : density;
     let at = st;
@@ -583,10 +635,10 @@ function play(t, b) {
     logHit(track, Math.max(t, at), Math.min(1, v));
   }
 
-  return bar * 4 + (i + 1) * unit - b; // re-snap to the exact grid every step
+  return next;
 }
 
-const voice = createVoice('drums', play, { entry: 4, onReset: () => { curBar = -1; crashNext = false; choke = null; } });
+const voice = createVoice('drums', play, { entry: 4, onReset: () => { curBar = -1; crashNext = false; choke = null; sec = null; rollFrom = null; } });
 
 export const DRUM_STYLES = Object.keys(STYLES);
 

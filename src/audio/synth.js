@@ -1,5 +1,5 @@
 import { audio } from './context.js';
-import { midiToHz, clamp } from '../state.js';
+import { midiToHz, clamp, random } from '../state.js';
 
 // ─── Small synthesis toolkit shared by the voices ─────────────────────────────
 
@@ -222,7 +222,7 @@ export function pluckBuffer(midi, { t60 = 1.5, bright = 0.5, pick = 0.25, stretc
   const k    = 0.05 + 0.95 * clamp(bright, 0, 1);
   let lp = 0, mean = 0;
   for (let i = 0; i < N; i++) {
-    lp += k * ((Math.random() * 2 - 1) - lp);
+    lp += k * ((random() * 2 - 1) - lp);
     line[i] = lp;
   }
   const p = Math.max(1, Math.round(clamp(pick, 0.02, 0.5) * N));

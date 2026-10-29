@@ -1,5 +1,5 @@
 import { audio, getVoiceBus } from '../context.js';
-import { state, beat, rand, register, fold, midiToHz } from '../../state.js';
+import { state, beat, rand, register, fold, midiToHz, random } from '../../state.js';
 import { createVoice } from '../transport.js';
 import { logNote } from '../notes.js';
 import { createPhraser } from '../phrase.js';
@@ -26,7 +26,7 @@ function play(t, b) {
   logNote('sitar', t, midi, dur, ev.vel);
 
   const src = playBuffer(pluckBuffer(midi, { t60: 2.8, bright: 0.85, pick: 0.07, stretch: 0.35, length: ring }), t, t + ring);
-  if (prev !== null && prev !== midi && Math.abs(prev - midi) <= 4 && Math.random() < 0.55) {
+  if (prev !== null && prev !== midi && Math.abs(prev - midi) <= 4 && random() < 0.55) {
     src.detune.setValueAtTime((prev - midi) * 100, t);
     src.detune.setValueAtTime((prev - midi) * 100, t + 0.04);
     src.detune.linearRampToValueAtTime(0, t + rand(0.12, 0.2));

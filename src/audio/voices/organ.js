@@ -1,5 +1,5 @@
 import { audio, getVoiceBus, noise } from '../context.js';
-import { beat, rand, pick, register, midiToHz } from '../../state.js';
+import { beat, rand, pick, register, midiToHz, random } from '../../state.js';
 import { createVoice } from '../transport.js';
 import { logNote } from '../notes.js';
 import { harmony } from '../harmony.js';
@@ -37,7 +37,7 @@ function play(t, b) {
   const peak = 0.045 * 3 / v.length;
 
   // One Leslie for the chord: fast (tremolo) or slow (chorale) this time.
-  const fast  = Math.random() < 0.3;
+  const fast  = random() < 0.3;
   const rate  = fast ? rand(6.2, 6.9) : rand(0.7, 0.9);
   const rotor = osc('sine', rate, t, end);
   const am = gain(fast ? 0.12 : 0.05), fm = gain(fast ? 7 : 3);

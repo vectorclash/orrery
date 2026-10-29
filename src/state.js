@@ -1,3 +1,5 @@
+import { random } from './random.js';
+
 // ─── Musical constants ────────────────────────────────────────────────────────
 export const SCALES = {
   aeolian:    [0, 2, 3, 5, 7, 8, 10],
@@ -42,8 +44,10 @@ export const START_DELAY = 0.04; // seconds
 export const TICK_MS   = 60;   // milliseconds
 
 // ─── Math helpers ─────────────────────────────────────────────────────────────
-export function rand(a, b)  { return a + Math.random() * (b - a); }
-export function pick(arr)   { return arr[Math.floor(Math.random() * arr.length)]; }
+// rand, pick and random draw from the current random stream (see random.js).
+export { random };
+export function rand(a, b)  { return a + random() * (b - a); }
+export function pick(arr)   { return arr[Math.floor(random() * arr.length)]; }
 export function lerp(a, b, t) { return a + (b - a) * t; }
 export function clamp(x, lo, hi) { return Math.max(lo, Math.min(hi, x)); }
 

@@ -1,5 +1,5 @@
 import { audio, getVoiceBus } from '../context.js';
-import { state, beat, rand, lerp, register, midiToHz } from '../../state.js';
+import { state, beat, rand, lerp, register, midiToHz, random } from '../../state.js';
 import { createVoice } from '../transport.js';
 import { logNote } from '../notes.js';
 import { createPhraser } from '../phrase.js';
@@ -51,7 +51,7 @@ function play(t, b) {
   if (ev.midi === null) return ev.gap;
   const dur = ev.dur * beat();
   horn(t, ev.midi, dur, ev.vel, 0.11);
-  if (ev.vel > 0.85 && Math.random() < 0.4) {
+  if (ev.vel > 0.85 && random() < 0.4) {
     for (let m = ev.midi - 3; m >= ev.midi - 4; m--) {
       if (harmony.isChordTone(m, b)) { horn(t, m, dur, ev.vel * 0.8, 0.08); break; }
     }

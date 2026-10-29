@@ -1,5 +1,5 @@
 import { getVoiceBus } from '../context.js';
-import { state, beat, lerp, register } from '../../state.js';
+import { state, beat, lerp, register, random } from '../../state.js';
 import { createVoice } from '../transport.js';
 import { logNote } from '../notes.js';
 import { createPhraser } from '../phrase.js';
@@ -31,7 +31,7 @@ function play(t, b) {
   if (ev.midi === null) return ev.gap;
   const gate = Math.min(ev.dur * beat() * 0.55, 0.28);
   strike(t, ev.midi, gate, ev.vel);
-  if (Math.random() < 0.25) {
+  if (random() < 0.25) {
     for (let m = ev.midi + 3; m <= ev.midi + 5; m++) {
       if (harmony.isChordTone(m, b)) { strike(t, m, gate, ev.vel * 0.85); break; }
     }

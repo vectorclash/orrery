@@ -1,5 +1,5 @@
 import { audio, getVoiceBus } from '../context.js';
-import { state, beat, rand, pick, lerp, register, midiToHz } from '../../state.js';
+import { state, beat, rand, pick, lerp, register, midiToHz, random } from '../../state.js';
 import { createVoice } from '../transport.js';
 import { logNote } from '../notes.js';
 import { harmony } from '../harmony.js';
@@ -31,7 +31,7 @@ function play(t, b) {
   const p = Math.floor(b / 16);
   if (p !== phrase) {
     phrase = p;
-    if (!pattern || Math.random() < 0.35) pattern = pick(PATTERNS);
+    if (!pattern || random() < 0.35) pattern = pick(PATTERNS);
   }
   const step = Math.round((b - Math.floor(b / 4) * 4) * 4) % 16;
   if (pattern[step] === '.') return 0.25;

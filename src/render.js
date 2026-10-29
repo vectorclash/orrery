@@ -3,8 +3,8 @@
 // context, harmony, transport, voices. Rendering an export there leaves the
 // live music untouched: it keeps playing while the file renders.
 import { TICK_MS, LOOKAHEAD } from './state.js';
-import { audio, initAudio, rideLevel } from './audio/context.js';
-import { applyPlan, startSession, tick } from './audio/scheduler.js';
+import { audio, initAudio, rideLevel, presetLevel } from './audio/context.js';
+import { applyPlan, startSession, tick, songFor } from './audio/scheduler.js';
 import { planFromShare } from './share.js';
 
 const QUANTUM = 128; // frames per render quantum
@@ -17,8 +17,9 @@ window.renderExport = async (plan, durationSec, sampleRate, onProgress) => {
   const ctx = new OfflineAudioContext(stepped ? 2 : 3, Math.round(durationSec * sampleRate), sampleRate);
   initAudio(ctx);
   applyPlan(plan);
-  const opts = { skipBass: !plan.bassStyle, skipEvolve: true };
+  const opts = { skipBass: !plan.bassStyle, skipEvolve: true, levelMs: plan.song?.levelMs };
   startSession(LOOKAHEAD);
+  if (opts.levelMs) presetLevel(opts.levelMs);
 
   // Fade to silence over the last stretch so long tails (bell, harp, pad)
   // die away instead of being chopped; no new notes start inside it.
@@ -36,6 +37,40 @@ window.renderExport = async (plan, durationSec, sampleRate, onProgress) => {
 
   const progress = t => onProgress(t / durationSec);
   return stepped ? renderStepped(ctx, times, opts, progress) : renderAhead(ctx, times, opts, progress);
+};
+
+// ─── A song's level ───────────────────────────────────────────────────────────
+// What a song's first hook section (its first chorus, drop or swell) reads on
+// the leveller's meter, as a mean square: the level the leveller settles at
+// there, and so the one an export of the song should start at (renderExport
+// takes it as plan.song.levelMs). Otherwise the leveller only finds it at the
+// first chorus, and everything before plays at whatever gain it had.
+// Each section of a song is seeded on its own, so the hook rendered alone is
+// the hook as it plays in the song. The meter listens before the leveller, so
+// its gain doesn't matter. The ticks run ahead of the render, as Firefox's
+// exports do, so it works in every browser. Null for a song with no hook.
+window.levelOfSong = async (plan, sampleRate) => {
+  const hook = songFor(plan).sections.find(x => x.hook && x.energy[0] >= 0.6);
+  if (!hook) return null;
+  const durationSec = LOOKAHEAD + hook.beats * 60 / plan.state.tempo;
+  const ctx = new OfflineAudioContext(1, Math.round(durationSec * sampleRate), sampleRate);
+  initAudio(ctx);
+  applyPlan(plan);
+  startSession(LOOKAHEAD, hook.start);
+  const opts = { skipBass: !plan.bassStyle, skipEvolve: true };
+  let now = 0;
+  Object.defineProperty(ctx, 'currentTime', { get: () => now, configurable: true });
+  for (let t = 0; t < durationSec; t += TICK_MS / 1000) { now = t; tick(opts); }
+  delete ctx.currentTime;
+
+  // Only the meter's signal, mono, as the analyser hears it.
+  audio.masterOut.disconnect();
+  audio.meter.connect(ctx.destination);
+  const d = (await ctx.startRendering()).getChannelData(0);
+  let e = 0;
+  const from = Math.round(LOOKAHEAD * sampleRate);
+  for (let i = from; i < d.length; i++) e += d[i] * d[i];
+  return e / Math.max(1, d.length - from);
 };
 
 // A share link (or its `#c=…` hash) as the plan renderExport takes, or null if
@@ -93,7 +128,10 @@ async function renderAhead(ctx, times, opts, onProgress) {
   // Pass 2: the mix in where masterGain and reverbGain meet, and the
   // leveller's moves from the meter readings each tick would have taken.
   const out = new OfflineAudioContext(2, mix.length, sr);
+  const { holdsAt } = audio.level; // where a song's leveller holds still (see rideLevel)
   initAudio(out);
+  audio.level.holdsAt = holdsAt;
+  if (opts.levelMs) presetLevel(opts.levelMs);
   const src = out.createBufferSource();
   const split2 = out.createChannelSplitter(3), merge2 = out.createChannelMerger(2);
   src.buffer = mix;

@@ -1,5 +1,5 @@
 import { audio, getVoiceBus } from '../context.js';
-import { state, beat, rand, pick, lerp, register, midiToHz } from '../../state.js';
+import { state, beat, rand, pick, lerp, register, midiToHz, random } from '../../state.js';
 import { createVoice, transport } from '../transport.js';
 import { logNote } from '../notes.js';
 import { osc, gain, filter, send, lfo, ahr } from '../synth.js';
@@ -47,6 +47,6 @@ export const droneVoice = createVoice('drone', play, {
       held.gain.setTargetAtTime(0, at, 0.8);
     }
     held = null;
-    wave = Math.random() < 0.5 ? 'sawtooth' : 'square';
+    wave = random() < 0.5 ? 'sawtooth' : 'square';
   },
 });

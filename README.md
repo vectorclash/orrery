@@ -14,7 +14,10 @@ Run `npm install && npm run dev` and open `http://localhost:8000/` (ES modules n
 
 ### Infinite Mode
 
-Click **PLAY** to start. The button toggles to **STOP**, allowing playback to be halted without switching modes. The system runs indefinitely, slowly evolving through eras of music. The composition auto-generates, shifts key and scale every 38 seconds, and continuously drifts in texture and density. A live status bar shows root note, scale, tempo, era number, and era progress.
+Click **PLAY** to start. The button toggles to **STOP**, allowing playback to be halted without switching modes. The switch under it chooses what plays (it's remembered between visits):
+
+- **ERAS** — the system runs indefinitely, slowly evolving through eras of music. The composition auto-generates, shifts key and scale every 38 seconds, and continuously drifts in texture and density. A live status bar shows root note, scale, tempo, era number, and era progress. **NEXT** moves on to a new era at the next bar line.
+- **SONGS** — one composed song after another, like a playlist. Each takes a genre (weighted as RANDOMIZE ALL weights them, never the same twice running), varies its feel and rolls its kit, then composes a song from it: an intro, sections that build and fall back — verses and choruses, or builds, drops and breakdowns — and an outro ending on the tonic (see [Songs](#songs-srcaudiosongjs)). When the last chord has rung out (4 s), the next song starts. The status bar shows the genre, key, tempo and room, the section and the time through the song, and who is playing in it. **NEXT** goes on to the outro at the next bar line; in the outro, to the last chord; on the last chord, to the next song. **EXPORT SONG** saves the whole song as a WAV — all of it, from its first bar, however much of it was skipped. Switching to EDIT while a song plays brings the song across: its genre, its feel, its instruments and its seed, with FORM set to SONG, so it can be played again, changed or exported.
 
 ### Manual Mode
 
@@ -26,7 +29,9 @@ Full control over every parameter. The panel is divided into three collapsible s
 
 **RANDOMIZE ALL** picks a genre — electronic ones twice as likely as classic, about two rolls in three — then varies its feel (any root, a tempo and scale from the genre's range, the sliders nudged) and rolls its kit. About one roll in ten is a wildcard: any feel and any 2–5 instruments, for the combinations no genre makes. Entering Manual mode with no instruments selected automatically randomises.
 
-**SHARE** encodes the full current configuration — key, scale, tempo, all five feel sliders, room, pump, sweep, and every enabled instrument — as a binary payload in the URL hash (`#c=…`, base64url). Clicking the button copies the URL to the clipboard. Loading that URL restores the exact configuration. Each instrument is one bit. The first 72 sit in a fixed 20-byte layout (27 characters); any after them go in a tail of a length byte plus their bits, which grows with the instrument list on its own. Fields have only ever been appended, so older 11-, 13-, 14-, 15-, 16- and 18-byte links still load (missing fields fall back to their defaults; a missing pump or sweep is none), and a page from before the tail reads a newer link's first 72 instruments. The link format lives in `src/share.js`, which the export renderer also exposes to pages embedding it. The instrument bitmask order is spelled out in `ALL_INST_KEYS` and must only ever be appended to; a new instrument must be added there too, or it plays but is left out of links (the console warns at startup).
+**FORM** is **LOOP** — the arrangement as it is, round and round, exporting for **LENGTH** — or **SONG**: a song composed from it, the same way Infinite mode's songs are, with the instruments coming in and out section by section and the feel following each section's energy around the FEEL settings. Its length is shown beside it. A song is its seed: it stays the same until **NEW SONG**, so PLAY plays what EXPORT saves, and SHARE carries it. A song stops itself when it ends. Moving a control while it plays changes the song (the FEEL sliders set its own feel, which the sections then vary; new instruments are given the same song's parts).
+
+**SHARE** encodes the full current configuration — key, scale, tempo, all five feel sliders, room, pump, sweep, every enabled instrument, and the song's seed when FORM is SONG — as a binary payload in the URL hash (`#c=…`, base64url). Clicking the button copies the URL to the clipboard. Loading that URL restores the exact configuration. Each instrument is one bit. The first 72 sit in a fixed 20-byte layout (27 characters); any after them go in a tail of a length byte plus their bits, which grows with the instrument list on its own. A song's link adds a form byte and its 32-bit seed after the tail (writing the tail's length byte even when there is no tail), where a page from before songs ignores them. Fields have only ever been appended, so older 11-, 13-, 14-, 15-, 16- and 18-byte links still load (missing fields fall back to their defaults; a missing pump or sweep is none), and a page from before the tail reads a newer link's first 72 instruments. The link format lives in `src/share.js`, which the export renderer also exposes to pages embedding it. The instrument bitmask order is spelled out in `ALL_INST_KEYS` and must only ever be appended to; a new instrument must be added there too, or it plays but is left out of links (the console warns at startup).
 
 **Controls:**
 | Control | Range | Effect |
@@ -41,7 +46,7 @@ Full control over every parameter. The panel is divided into three collapsible s
 | Pump | 0–1 | Sidechain: everything but the drums dips on every beat and swells back — the breathing of house and EDM. Up to about −14 dB at 1 |
 | Sweep | 0–1 | The French house filter: everything but the drums (and their echo and reverb) runs through a resonant lowpass that stays open for six bars, closes over two and opens back up over eight, landing fully open on the next sixteen-bar downbeat. The depth sets how far it closes — about 220 Hz at 1 (the bass line and little else), 2 kHz at 0.5. At 0 the filter is routed around entirely |
 
-**Export** records a WAV file of exactly the requested duration. A 3-2-1 countdown mutes any previously playing audio so the recording starts clean. Over the last moments of the recording window (up to 0.4 s) a fade on the audio clock lets decaying voices die away instead of being chopped, and no new notes start inside it. The raw MediaRecorder capture is decoded and trimmed to exactly `duration × sampleRate` samples before writing the WAV header, so a 10-second export is precisely 10 seconds.
+**Export** renders a WAV file offline, faster than real time, in a hidden iframe (`src/render.js`) with its own copy of the engine, so whatever is playing carries on undisturbed. The same scheduler drives an `OfflineAudioContext`, stepped every 60 ms of audio time as the live ticks are (Firefox, which can't pause an offline render, takes a two-pass route that works out the leveller's moves afterwards). A loop runs for exactly LENGTH; a song runs from its first downbeat to its last chord, plus 4 s to ring out. Over the last moments (up to 0.4 s) a fade lets decaying voices die away instead of being chopped, and no new notes start inside it. Because every musical choice is seeded (see [Seeded randomness](#seeded-randomness-srcrandomjs)), an exported song is note for note the one that played.
 
 ---
 
@@ -57,6 +62,10 @@ Every voice schedules in **beats**, not seconds. The transport converts beats to
 - A voice that joins mid-playback (toggled on, or picked by a new era) enters on the next grid line instead of replaying every note it "missed" in one burst.
 - Each playback run is a **session** with its own dry/reverb/echo buses. Stopping and restarting disconnects the old session, so nothing queued before the stop (a 16-beat drone, an echo tail) leaks into the new music.
 
+### Seeded randomness (`src/random.js`)
+
+Every musical choice — a note, a pattern, a fill — is drawn from a seeded random stream, one per voice (plus one for the leads' shared motifs), derived from the session's seed and the voice's name. One stream per voice rather than one for everything, because the scheduler runs each voice up to the horizon in turn, and where the horizons fall depends on when the ticks come: every 60 ms exactly in an export, a little early or late live. With one shared stream the order of draws, and so every note after the first difference, would follow the tick timing; with a stream each, a voice draws the same numbers however its notes fall across ticks. A song's session takes the song's seed, so it plays the same live and in the export; other sessions take a fresh one. The reverb impulses and noise buffers have fixed seeds, so every render has the same rooms.
+
 ### Harmony engine (`src/audio/harmony.js`)
 
 All pitched voices read the current chord from one place, so the pad, bass, melody and choir always agree.
@@ -65,7 +74,7 @@ All pitched voices read the current chord from one place, so the pad, bass, melo
 
 **Progressions are per mode.** Each mode has its own library that features its characteristic chord — Dorian IV (`i–IV`), Phrygian ♭II (`i–♭II`, the Andalusian descent), Lydian II (`I–II`), Mixolydian ♭VII (`I–♭VII–IV`), Aeolian `i–VI–III–VII` and friends — and avoids the mode's diminished triad (a single shared list gave Lydian `I–♯iv°–V–I`). Pentatonic scales stack into open quartal voicings and use gentle motion.
 
-**Form.** A progression (A) is played twice, a contrasting one (B) once, then A returns: AABA, 16 chords.
+**Form.** A progression (A) is played twice, a contrasting one (B) once, then A returns: AABA, 16 chords. In a song, each section plays its own progression from its first beat instead (see [Songs](#songs-srcaudiosongjs)), with the sevenths drawn once per progression, so a chorus is harmonised the same every time.
 
 **Harmonic rhythm.** A chord lasts `chordBeats` beats on the transport grid. Voices ask for the chord *at the beat they are scheduling*, so a note on a chord change gets the new chord, and sustained voices end exactly at the change instead of holding the old chord over the new one.
 
@@ -269,6 +278,30 @@ An era change waits for the next **chord change**. Every voice schedules up to t
 5. A new arrangement is built from roles; bass and drum styles are re-rolled (drums from styles that suit the new tempo)
 6. Every voice re-enters on the new era's first downbeat; a sounding drone fades out under the new one
 
+## Songs (`src/audio/song.js`)
+
+A song keeps what makes it itself — key, tempo, instruments, chord progressions, the hook — and changes its arrangement from section to section: who plays, how hard the drums hit, how bright and full it is. That is what an intro, a verse, a chorus or a drop *is*; an era change, which rerolls everything at once, sounds like a different record.
+
+**Composing.** A song is composed from a plan (the arrangement, as data) and a seed, so the export renderer composes the same song from the same plan. Its form depends on the drums:
+
+| Form | When | Sections |
+|---|---|---|
+| club | house, techno, trance, garage, D&B and the other dance drum styles | intro (kick and time) · groove · build · drop · breakdown · outro |
+| song | any other drums | intro · verse · pre-chorus · chorus · bridge · outro |
+| ambient | no drums, or soft drums at low density | intro · theme · swell · drift · outro |
+
+Each form has a few weighted sequences, varied now and then (a double chorus to finish, a second drop, no bridge), and every song ends on its tonic chord, held while everything else stops. The song has a progression for its verses, one for its choruses (or its drops), and contrasting ones for the bridge, pre-chorus or breakdown. Section lengths are phrase lengths — 4, 8, 16, 24 or 32 bars, whole progressions — fitted to a target length (about 2½–4 minutes, a little longer for club and ambient songs), with choruses and drops taking up the slack first. Now and then a song's last chorus goes up a whole step (or a half step) and stays there.
+
+**Arranging.** Each kind of section has a recipe — how many of the song's pads, rhythm parts, leads and air voices play, whether the bass does, and how much of the drum kit: *pulse* (kick and time), *light* (the beat without open hats, crashes and percussion) or *full*. The instruments are put in an order fixed for the song, so "the first rhythm part" is the same instrument all song. Changing instruments mid-song (in EDIT) rearranges the same song.
+
+**Playing.** The scheduler's conductor runs every voice up to each beat, then applies it — as an era change does, so nothing is scheduled with the last section's chords or players:
+
+- At a section's first beat: its progression, its instruments, every voice restarting there, and every random stream reseeded from the *kind* of section it is — so each chorus, drop or build replays the first one's parts (the club form's repeats match note for note; elsewhere a returning chorus, a little more energetic each time, varies slightly where voices thin out by density). The leads' motif is held for a whole hook section (chorus, drop, swell, breakdown) and drawn from one stream for all of them, so the breakdown teases the drop's hook.
+- Every beat: **density**, **brightness**, **space** and **pump** from the section's energy (rising through a build, falling through an outro) around the song's own settings.
+- The master leveller, which evens out eras, would fight a song's dynamics — lifting a breakdown, then pulling the build after it down as it grows — so in a song it only listens to the hook sections (choruses, drops, the top of a swell), which set the song's level, and holds still through the rest. An intro stays quieter than a drop, a build grows into it, and one song's choruses come out about as loud as the next one's.
+
+**Transitions.** A drum fill on a section's last bar and a crash after it; through a build's last eight bars, a snare roll in quarters, eighths, then sixteenths, louder all the way, with a white-noise riser sweeping up over the whole build (`src/audio/voices/fx.js`); often a beat or two of silence before the drop (everything but the reverb and echo tails, cut on a gate after the pump), then an impact on the drop's downbeat — a falling sub boom and a burst into the hall. A breakdown opens with noise sweeping down, and a reversed-cymbal swell leads into a chorus.
+
 ---
 
 ## Visual Engine
@@ -338,11 +371,14 @@ setInterval (60ms)
   └─ tick()
        ├─ transport.tick()       → re-anchor the beat grid on tempo change (+ echo time)
        ├─ harmony.tick()         → advance the chord pointer to the current beat
-       ├─ era due?               → schedule every voice up to the next chord change,
+       ├─ song loaded?           → conductor: every voice up to each beat, then the beat:
+       │                           a section's chords, players and seeds, the feel from its energy
+       ├─ era due? (eras)        → schedule every voice up to the next chord change,
        │                           switch key/scale/tempo/arrangement, continue
-       └─ voice.tick() × N       → schedule events in the lookahead window, in beats
+       └─ voice.tick() × N       → schedule events in the lookahead window, in beats,
+                                   each in its own seeded random stream
 
-voice ─► [per-voice panner] ─► session dry ─────────────► masterGain ─► mix ─► 30 Hz HP ─► compressor ─► … ─► limiter ─► out
+voice ─► [per-voice panner] ─► pump ─► gate ─► sweep ─► session dry ─► masterGain ─► mix ─► 30 Hz HP ─► compressor ─► … ─► limiter ─► out
       └─► session reverb send ─► pre-delay ─► 180 Hz HP ─► convolver ─► reverbGain ─┘
                                                             ▲   └─► (SHIMMER) band-limit ─► octave-up shifter ─┐
                                                             └───────────────────────────────────────────────────┘
@@ -366,11 +402,12 @@ requestAnimationFrame
        ├─ lerp camera orbit               ← energy, fade
        └─ renderer.render(scene, camera)
 
-Export path (manual mode)
-  └─ MediaRecorder ← compressor output
-       ├─ a fade on the audio clock over the last moments of the window
-       ├─ recorder.stop() fires ~200ms after duration
-       └─ onstop: decodeAudioData → trim to duration×sampleRate samples → WAV download
+Export path (EDIT's EXPORT, Infinite's EXPORT SONG)
+  └─ hidden iframe: src/render.js, its own copy of the engine
+       ├─ applyPlan(plan) → startSession → OfflineAudioContext
+       ├─ suspend every 60 ms of audio time → tick()   (Firefox: tick ahead, two passes)
+       ├─ a fade over the last moments
+       └─ AudioBuffer → 16-bit WAV download
 ```
 
 ---

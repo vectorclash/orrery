@@ -11,8 +11,11 @@ import {
   junoVoice, solinaVoice, synthbrassVoice, monoleadVoice,
   stabVoice, voxVoice, sawpluckVoice, guitarVoice,
   activeVoices, eraTimer, ERA_DURATION, requestEra, eraDue, eraBegan, changeLandsAt,
+  songFor, songOver, unloadSong, skipSong, setSongFeel, rearrangeSong,
 } from './audio/scheduler.js';
 import { transport } from './audio/transport.js';
+import { song, songSeconds } from './audio/song.js';
+import { newSeed } from './random.js';
 import { showPending, clearPending } from './pending.js';
 import { encodeConfig, decodeConfig, ALL_INST_KEYS } from './share.js';
 import { startAnimation } from './visuals/animate.js';
@@ -233,6 +236,12 @@ const feelSummary          = document.getElementById('feel-summary');
 const instrumentsSummary   = document.getElementById('instruments-summary');
 const manualShareBtn       = document.getElementById('manual-share-btn');
 const modeTabs             = document.querySelectorAll('.mode-tab');
+const kindBtns             = document.querySelectorAll('.kind-btn');
+const songExportBtn        = document.getElementById('song-export-btn');
+const formBtns             = document.querySelectorAll('.form-btn');
+const newSongBtn           = document.getElementById('new-song-btn');
+const formLength           = document.getElementById('form-length');
+const lengthRow            = document.getElementById('length-row');
 const panelHideBtn         = document.getElementById('panel-hide-btn');
 
 // ─── Enable state (all off by default) ───────────────────────────────────────
@@ -249,6 +258,15 @@ let manualPlaying     = false;
 let manualTicks       = null;
 let exporting         = false;
 let exportId          = 0;      // incremented on each new export or cancellation
+let exportBtn         = null;   // the button whose export is running
+let infiniteKind      = localStorage.getItem('orrery.infinite') === 'songs' ? 'songs' : 'eras';
+let songPlan          = null;   // the song Infinite mode is playing (or last played)
+let manualForm        = 'loop'; // Edit mode: a LOOP of the arrangement, or a SONG made from it
+let manualSongSeed    = newSeed();
+
+// A song's last chord rings out for this long (seconds) before the next song
+// starts, or before an export of it ends.
+const SONG_TAIL = 4;
 
 // ─── Populate selects ─────────────────────────────────────────────────────────
 ROOT_NAMES.forEach((name, i) => {
@@ -304,6 +322,7 @@ function applyFeel(fields) {
   Object.assign(state, fields);
   if ('room' in fields && audio.started && !exporting) setRoom(state.room);
   showFeel();
+  syncSongFeel();
 }
 
 // ─── Section summaries ────────────────────────────────────────────────────────
@@ -326,6 +345,7 @@ function refreshSummaries() {
     ...(state.sweep > 0 ? [`SWEEP ${Math.round(state.sweep * 100)}%`] : []),
   ].join(' · ');
   instrumentsSummary.textContent = enabledInstrumentLabels().join(' · ') || 'NONE';
+  showSongLength();
 }
 
 // Briefly lights up a section's summary, so a RANDOM on a collapsed section
@@ -616,7 +636,8 @@ function instrumentsChanged() {
 function updatePlayEnabled() {
   const any = Object.values(manualEnabled).some(v => v);
   manualPlayBtn.disabled = !any;
-  if (!exporting) manualExportBtn.disabled = !any;
+  manualExportBtn.disabled = exporting ? exportBtn !== manualExportBtn : !any;
+  songExportBtn.disabled = exporting && exportBtn !== songExportBtn;
 }
 updatePlayEnabled();
 
@@ -685,6 +706,20 @@ roomSelect.addEventListener('change', () => { applyFeel({ room: roomSelect.value
 // playback, since infinite's own era evolution must not keep mutating them
 // once we're in edit mode.
 function syncManualFromInfinite() {
+  // A song comes across whole -- its genre, its own feel (not a section's) and
+  // its seed -- so it can be played again, changed, or exported.
+  if (infiniteKind === 'songs' && songPlan) {
+    applyFeel({ ...songPlan.state });
+    setInstruments(new Set([
+      ...(songPlan.bassStyle ? [`bass:${songPlan.bassStyle}`] : []),
+      ...(songPlan.drumStyle ? [`drums:${songPlan.drumStyle}`] : []),
+      ...songPlan.voices.filter(n => n !== 'drums'),
+    ].filter(k => k in manualEnabled)));
+    setGenreHighlight(genreButtons.get(GENRES.find(g => g.name === songPlan.genre)) ?? null);
+    manualSongSeed = songPlan.song.seed;
+    setForm('song');
+    return;
+  }
   clearGenreHighlight();
   showFeel();
   setInstruments(new Set([
@@ -732,6 +767,11 @@ window.addEventListener('keydown', e => {
 });
 
 // ─── Infinite mode ────────────────────────────────────────────────────────────
+// Two ways to go on forever: ERAS, where everything -- key, tempo, instruments --
+// changes every 38 seconds, and SONGS, one composed song after another, each
+// from a genre's kit, with an intro, an outro and its sections in between
+// (see src/audio/song.js).
+
 // The line describes what's heard: a new era's key and voices wait until the
 // era reaches the speakers, and until then the old one reads 100%.
 let shownEra = 0;
@@ -745,6 +785,31 @@ function updateInfiniteDisplay() {
   ].join(' · ');
   const oct = state.octaveShift;
   stateEl.textContent = `${rootName()} ${scaleName()}  ·  ${Math.round(state.tempo)} bpm  ·  oct ${oct >= 0 ? '+' : ''}${oct}  ·  ${ROOMS[state.room].label.toLowerCase()}  ·  era ${state.era}  [${prog}%]\n${voiceNames}`;
+}
+
+const clock = sec => `${Math.floor(sec / 60)}:${String(Math.floor(sec % 60)).padStart(2, '0')}`;
+
+// Where the song being heard is: its section, how far in, and who's playing.
+function songPosition() {
+  const s = song.current;
+  if (!s) return null;
+  const b   = Math.min(s.end - 1e-6, Math.max(0, transport.beatAt(heardTime())));
+  const sec = song.sectionAt(b);
+  const label = sec.n > 1 ? `${sec.label} ${sec.n}` : sec.label;
+  return { sec, label, at: clock(b * 60 / s.tempo), of: clock(songSeconds(s)) };
+}
+
+function updateSongDisplay() {
+  const p = songPosition();
+  if (!p) return;
+  const { sec } = p;
+  const voiceNames = [
+    ...(sec.bass ? [`bass(${bassVoice.style})`] : []),
+    ...sec.voices.map(n => n === 'drums' ? `drums(${drumsVoice.style}${sec.drums === 'full' ? '' : ', ' + sec.drums})` : n),
+  ].join(' · ');
+  const key = ROOT_NAMES[(song.base.rootMidi - ROOT_BASE_MIDI + sec.shift) % 12];
+  stateEl.textContent = `${songPlan.genre.toLowerCase()}  ·  ${key} ${scaleName()}  ·  ${Math.round(state.tempo)} bpm  ·  ${ROOMS[state.room].label.toLowerCase()}\n` +
+    `${p.label.toLowerCase()}  ·  ${p.at} / ${p.of}\n${voiceNames}`;
 }
 
 function showNext(shown) {
@@ -765,18 +830,11 @@ function stopInfinite() {
   infoEl.classList.remove('active');
   stateEl.classList.remove('active');
   stateEl.textContent = '';
+  updateKindUI();
 }
 
-startBtn.addEventListener('click', async () => {
-  if (infiniteRunning) { stopInfinite(); return; }
-  if (!await startAudio()) return;
-
-  startBtn.textContent = 'STOP';
-  startBtn.classList.add('playing');
-  showNext(true);
-  infoEl.classList.add('active');
-  stateEl.classList.add('active');
-
+function startEras() {
+  unloadSong();
   state.scaleIdx    = 0;
   state.rootMidi    = ROOT_BASE_MIDI;
   state.tempo       = Math.floor(Math.random() * 79) + 52; // 52–130
@@ -795,25 +853,109 @@ startBtn.addEventListener('click', async () => {
   tick();
   shownEra = state.era;
   updateInfiniteDisplay();
+}
 
-  infiniteRunning  = true;
-  infiniteTicks    = everyTick(() => {
-    tick();
+// A new song from a genre's kit and a varied feel: never the same genre twice
+// running.
+function composeInfiniteSong() {
+  const last = GENRES.find(g => g.name === songPlan?.genre) ?? null;
+  const g = weightedGenre(last);
+  const plan = planFromKeys({ octaveShift: 0, ...genreFeel(g, true) }, rollKit(g), newSeed());
+  plan.genre = g.name;
+  return plan;
+}
+
+function startSong(plan) {
+  songPlan = plan;
+  applyPlan(plan);
+  startSession(audio.ctx.currentTime + START_DELAY);
+  tick();
+  updateSongDisplay();
+  updateKindUI();
+}
+
+// Straight on to a new song, with a quick fade instead of a cut.
+let switching = false;
+function nextSongNow() {
+  if (switching) return;
+  switching = true;
+  muteAudio(0.15);
+  setTimeout(() => {
+    switching = false;
+    if (!infiniteRunning) return;
+    unmuteAudio(); // switched to ERAS meanwhile: they're already playing
+    if (infiniteKind === 'songs') startSong(composeInfiniteSong());
+  }, 170);
+}
+
+function infiniteTick() {
+  tick();
+  if (infiniteKind === 'songs') {
+    // The last chord has rung out: the next song.
+    if (songOver() && audio.ctx.currentTime > transport.timeAt(song.current.end) + SONG_TAIL) nextSongNow();
+    updateSongDisplay();
+  } else {
     updateInfiniteDisplay();
     // An era that has run its time waits for the next chord change; NEXT
     // counts down to it just as if it had been pressed.
     const due = eraDue();
     if (due !== null) showPending(nextBtn, due);
-    stopIfSilenced();
-  });
+  }
+  stopIfSilenced();
+}
+
+startBtn.addEventListener('click', async () => {
+  if (infiniteRunning) { stopInfinite(); return; }
+  if (!await startAudio()) return;
+
+  startBtn.textContent = 'STOP';
+  startBtn.classList.add('playing');
+  showNext(true);
+  infoEl.classList.add('active');
+  stateEl.classList.add('active');
+
+  if (infiniteKind === 'songs') startSong(composeInfiniteSong());
+  else startEras();
+  infiniteRunning = true;
+  infiniteTicks   = everyTick(infiniteTick);
+  updateKindUI();
 });
 
-// Moves on to a new era at the next bar line, without stopping.
+// Eras: a new era at the next bar line, without stopping. Songs: on to the
+// outro, then the last chord, then the next song.
 nextBtn.addEventListener('click', () => {
   if (!infiniteRunning) return;
+  if (infiniteKind === 'songs') {
+    const at = songOver() ? null : skipSong();
+    if (at === null) { nextSongNow(); showPending(nextBtn); }
+    else showPending(nextBtn, at);
+    return;
+  }
   requestEra();
   showPending(nextBtn, eraDue());
 });
+
+// ERAS / SONGS. A switch while playing starts the other straight away.
+function updateKindUI() {
+  kindBtns.forEach(b => {
+    const on = b.dataset.kind === infiniteKind;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-pressed', String(on));
+  });
+  nextBtn.title = infiniteKind === 'songs' ? 'Move on: to the outro, then the next song' : 'Move on to the next era';
+  songExportBtn.hidden = infiniteKind !== 'songs' || !songPlan;
+}
+kindBtns.forEach(b => b.addEventListener('click', () => {
+  if (b.dataset.kind === infiniteKind) return;
+  infiniteKind = b.dataset.kind;
+  localStorage.setItem('orrery.infinite', infiniteKind);
+  updateKindUI();
+  if (!infiniteRunning) return;
+  clearPending();
+  if (infiniteKind === 'songs') startSong(composeInfiniteSong());
+  else startEras();
+}));
+updateKindUI();
 
 // ─── Manual helpers ───────────────────────────────────────────────────────────
 function enabledBassSubtypes()  { return BASS_SUBTYPES.filter(s  => manualEnabled[`bass:${s}`]);  }
@@ -823,14 +965,35 @@ function soundingVoices() { return enabledBassSubtypes().length ? [bassVoice, ..
 function manualTick() { tick({ skipBass: enabledBassSubtypes().length === 0, skipEvolve: true }); }
 
 // Live instrument changes: swap the voices and styles, leave the rest alone.
+// In a song, the same song arranged for the new instruments.
 function applyManualVoices() {
-  const { bassStyle, drumStyle, voices } = manualPlan();
-  applyPlan({ state: {}, bassStyle, drumStyle, voices });
+  const plan = manualPlan();
+  if (song.current) rearrangeSong(plan);
+  else applyPlan({ state: {}, bassStyle: plan.bassStyle, drumStyle: plan.drumStyle, voices: plan.voices });
 }
 
-// The arrangement the manual controls describe, as plain data (see applyPlan).
+// A plan from a feel and a set of instrument keys: a genre's kit, for
+// Infinite mode's songs. One bass and one drum style, the first enabled.
+function planFromKeys(feel, keys, seed) {
+  const bass  = BASS_SUBTYPES.filter(s => keys.has(`bass:${s}`));
+  const drums = DRUMS_SUBTYPES.filter(s => keys.has(`drums:${s}`));
+  return {
+    state: { era: 0, ...feel },
+    bassStyle: bass[0] ?? null,
+    drumStyle: drums[0] ?? null,
+    voices: [
+      ...(drums.length ? ['drums'] : []),
+      ...SIMPLE_VOICES.filter(({ key }) => keys.has(key)).map(({ voice }) => voice.name),
+    ],
+    song: { seed },
+  };
+}
+
+// The arrangement the manual controls describe, as plain data (see applyPlan):
+// with FORM set to SONG, the song made from it.
 function manualPlan() {
   const bassSubs = enabledBassSubtypes(), drumSubs = enabledDrumsSubtypes();
+  const asSong = manualForm === 'song';
   return {
     state: {
       tempo:        parseInt(bpmSlider.value, 10),
@@ -847,12 +1010,15 @@ function manualPlan() {
       sweep:        parseFloat(sweepSlider.value),
       room:         roomSelect.value,
     },
-    bassStyle: bassSubs.length ? pick(bassSubs) : null,
-    drumStyle: drumSubs.length ? pick(drumSubs) : null,
+    // A song picks from several the same way every time, so it plays as it
+    // will export.
+    bassStyle: !bassSubs.length ? null : asSong ? bassSubs[manualSongSeed % bassSubs.length] : pick(bassSubs),
+    drumStyle: !drumSubs.length ? null : asSong ? drumSubs[manualSongSeed % drumSubs.length] : pick(drumSubs),
     voices: [
       ...(drumSubs.length ? ['drums'] : []),
       ...SIMPLE_VOICES.filter(({ key }) => manualEnabled[key]).map(({ voice }) => voice.name),
     ],
+    ...(asSong ? { song: { seed: manualSongSeed } } : {}),
   };
 }
 
@@ -863,13 +1029,13 @@ async function manualInit() {
   return true;
 }
 
-function buildExportName(ext) {
-  const root     = ROOT_NAMES[parseInt(rootSelect.value, 10)].replace('#', 's');
-  const scale    = SCALE_LABELS[parseInt(scaleSelect.value, 10)].toLowerCase().replace(/\s+/g, '-');
-  const bpm      = bpmSlider.value;
-  const genreBtn = document.querySelector('.genre-btn.active');
-  const prefix   = genreBtn ? genreBtn.textContent.toLowerCase().replace(/[^a-z0-9]+/g, '-') + '_' : '';
-  return `${prefix}${root}_${scale}_${bpm}bpm.${ext}`;
+// genre_key_scale_bpm.wav, and a song's seed: each song its own file.
+function exportName(plan, genre) {
+  const root   = ROOT_NAMES[plan.state.rootMidi - ROOT_BASE_MIDI].replace('#', 's');
+  const scale  = SCALE_LABELS[plan.state.scaleIdx].toLowerCase().replace(/\s+/g, '-');
+  const prefix = genre ? genre.toLowerCase().replace(/[^a-z0-9]+/g, '-') + '_' : '';
+  const kind   = plan.song ? `_song-${plan.song.seed.toString(36)}` : '';
+  return `${prefix}${root}_${scale}_${plan.state.tempo}bpm${kind}.wav`;
 }
 
 function resetExportUI() {
@@ -941,11 +1107,24 @@ manualPlayBtn.addEventListener('click', async () => {
   manualStatus.textContent = 'PLAYING';
 
   manualTick();
+  showManualSong();
   manualTicks = everyTick(() => {
     manualTick();
+    showManualSong();
+    // A song stops when its last chord has rung out.
+    if (songOver() && audio.ctx.currentTime > transport.timeAt(song.current.end) + SONG_TAIL) {
+      stopManualPlayback();
+      return;
+    }
     stopIfSilenced();
   });
 });
+
+// The section a song is in, while it plays.
+function showManualSong() {
+  const p = songPosition();
+  if (p && !exporting) manualStatus.textContent = `${p.label} · ${p.at} / ${p.of}`;
+}
 
 // ─── Manual export ────────────────────────────────────────────────────────────
 function encodeWav(decoded, numSamples) {
@@ -984,7 +1163,8 @@ function cancelExport() {
   exportFrame = null;
 }
 
-async function renderInFrame(plan, durationSec, onProgress) {
+// A fresh renderer each time: module state from one render can't reach the next.
+async function loadRenderer() {
   const frame = document.createElement('iframe');
   frame.style.display = 'none';
   frame.srcdoc = `<script type="module" src="${RENDER_URL}"></script>`;
@@ -992,30 +1172,89 @@ async function renderInFrame(plan, durationSec, onProgress) {
   document.body.appendChild(frame);
   exportFrame = frame;
   await loaded;
-  const sampleRate = audio.ctx?.sampleRate ?? 48000;
-  return frame.contentWindow.renderExport(plan, durationSec, sampleRate, onProgress);
+  return frame.contentWindow;
 }
 
-function resetExportButton() {
+// A song is first measured -- its hook alone, a fraction of the work (the
+// first tenth of the progress) -- so the leveller starts at the song's level
+// (see levelOfSong in src/render.js). Null if cancelled meanwhile.
+async function renderInFrame(plan, durationSec, onProgress) {
+  const sampleRate = audio.ctx?.sampleRate ?? 48000;
+  const id = exportId;
+  let share = 1;
+  if (plan.song && plan.song.levelMs === undefined) {
+    const levelMs = await (await loadRenderer()).levelOfSong(plan, sampleRate);
+    exportFrame?.remove();
+    if (exportId !== id) return null;
+    plan = { ...plan, song: { ...plan.song, levelMs } };
+    onProgress(0.1);
+    share = 0.9;
+  }
+  const render = await loadRenderer();
+  return render.renderExport(plan, durationSec, sampleRate, f => onProgress(1 - share + share * f));
+}
+
+// Renders `plan` for `durationSec` and downloads it as `filename`; `progress`
+// hears how far it has got (0…1). One export at a time: `button` started it,
+// and is the one that can cancel it. Resolves 'saved', 'failed' or 'cancelled'.
+async function renderAndSave(plan, durationSec, filename, button, progress) {
+  const myId = ++exportId;
+  exporting = true;
+  exportBtn = button;
+  updatePlayEnabled();
+  let rendered = null;
+  try {
+    rendered = await renderInFrame(plan, durationSec, f => { if (exportId === myId) progress(f); });
+  } catch (err) {
+    console.error(err);
+  }
+  if (exportId !== myId) return 'cancelled';
+  exportFrame?.remove();
+  exportFrame = null;
   exporting = false;
-  manualExportBtn.textContent = 'EXPORT';
-  manualExportBtn.classList.remove('recording');
-  resetExportUI();
+  exportBtn = null;
+  updatePlayEnabled();
+  if (!rendered) return 'failed';
+  const url = URL.createObjectURL(encodeWav(rendered, rendered.length));
+  const a   = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  return 'saved';
+}
+
+function stopExport() {
+  cancelExport();
+  exporting = false;
+  exportBtn = null;
   updatePlayEnabled();
 }
 
+// How long an export of `plan` runs: a loop for its LENGTH; a song from its
+// first downbeat to its last chord, rung out.
+function exportSeconds(plan) {
+  if (plan.song) return LOOKAHEAD + songSeconds(songFor(plan)) + SONG_TAIL;
+  return Math.max(5, parseInt(lengthInput.value, 10) || 10);
+}
+
+function resetExportButton() {
+  manualExportBtn.textContent = 'EXPORT';
+  manualExportBtn.classList.remove('recording');
+  resetExportUI();
+}
+
 manualExportBtn.addEventListener('click', async () => {
-  if (exporting) { cancelExport(); resetExportButton(); manualStatus.textContent = 'CANCELLED'; return; }
+  if (exporting) {
+    if (exportBtn !== manualExportBtn) return;
+    stopExport(); resetExportButton(); manualStatus.textContent = 'CANCELLED';
+    return;
+  }
   if (!window.OfflineAudioContext) {
     manualStatus.textContent = 'EXPORT NOT SUPPORTED IN THIS BROWSER';
     manualStatus.classList.add('active');
     return;
   }
 
-  const myId        = ++exportId;
-  const durationSec = Math.max(5, parseInt(lengthInput.value, 10) || 10);
-
-  exporting = true;
   manualExportBtn.textContent = 'CANCEL 0%';
   manualExportBtn.classList.add('recording');
   manualStatus.classList.add('active');
@@ -1024,31 +1263,97 @@ manualExportBtn.addEventListener('click', async () => {
   exportProgressBar.style.transition = 'none';
   exportProgressBar.style.width = '0%';
 
-  let rendered = null;
-  try {
-    rendered = await renderInFrame(manualPlan(), durationSec, f => {
-      if (exportId !== myId) return;
-      const pct = Math.round(f * 100);
-      exportProgressBar.style.width = `${pct}%`;
-      manualExportBtn.textContent = `CANCEL ${pct}%`;
-    });
-  } catch (err) {
-    console.error(err);
-  }
-  if (exportId !== myId) return; // cancelled
-  exportFrame?.remove();
-  exportFrame = null;
-
-  if (rendered) {
-    const url = URL.createObjectURL(encodeWav(rendered, rendered.length));
-    const a   = document.createElement('a');
-    a.href = url; a.download = buildExportName('wav');
-    document.body.appendChild(a); a.click(); document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  }
+  const plan = manualPlan();
+  const genre = document.querySelector('.genre-btn.active')?.textContent;
+  const done = await renderAndSave(plan, exportSeconds(plan), exportName(plan, genre), manualExportBtn, f => {
+    const pct = Math.round(f * 100);
+    exportProgressBar.style.width = `${pct}%`;
+    manualExportBtn.textContent = `CANCEL ${pct}%`;
+  });
+  if (done === 'cancelled') return;
   resetExportButton();
-  manualStatus.textContent = rendered ? 'SAVED' : 'EXPORT FAILED';
+  manualStatus.textContent = done === 'saved' ? 'SAVED' : 'EXPORT FAILED';
 });
+
+// Infinite mode's songs: the whole of the song playing (or last played),
+// however much of it was skipped.
+songExportBtn.addEventListener('click', async () => {
+  if (exporting) {
+    if (exportBtn !== songExportBtn) return;
+    stopExport(); songExportBtn.textContent = 'EXPORT SONG';
+    return;
+  }
+  if (!songPlan || !window.OfflineAudioContext) return;
+  const plan = songPlan;
+  songExportBtn.textContent = 'CANCEL 0%';
+  songExportBtn.classList.add('recording');
+  const done = await renderAndSave(plan, exportSeconds(plan), exportName(plan, plan.genre), songExportBtn, f => {
+    songExportBtn.textContent = `CANCEL ${Math.round(f * 100)}%`;
+  });
+  if (done === 'cancelled') return;
+  songExportBtn.classList.remove('recording');
+  songExportBtn.textContent = done === 'saved' ? 'SAVED' : 'FAILED';
+  setTimeout(() => { if (!exporting) songExportBtn.textContent = 'EXPORT SONG'; }, 1600);
+});
+
+// ─── Form: a loop, or a song ──────────────────────────────────────────────────
+// LOOP plays the arrangement as it is, for as long as it plays (and exports
+// for LENGTH). SONG composes a song from it (see src/audio/song.js): the
+// instruments come and go section by section and the feel follows each
+// section's energy, around the controls' settings. The song is its seed: the
+// same until NEW SONG, so what plays is what exports, and a share link
+// carries it.
+function setForm(form) {
+  manualForm = form;
+  formBtns.forEach(b => {
+    const on = b.dataset.form === form;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-pressed', String(on));
+  });
+  lengthRow.hidden = form === 'song';
+  newSongBtn.hidden = form !== 'song';
+  showSongLength();
+}
+
+function showSongLength() {
+  const any = Object.values(manualEnabled).some(v => v);
+  formLength.textContent = manualForm === 'song' && any ? clock(songSeconds(songFor(manualPlan()))) : '';
+}
+
+// From the top, in the new form or with the new song.
+function replayManual() {
+  if (!manualPlaying) return;
+  stopManualPlayback();
+  manualPlayBtn.click();
+}
+
+formBtns.forEach(b => b.addEventListener('click', () => {
+  if (b.dataset.form === manualForm) return;
+  setForm(b.dataset.form);
+  replayManual();
+}));
+newSongBtn.addEventListener('click', () => {
+  manualSongSeed = newSeed();
+  showSongLength();
+  showPending(newSongBtn);
+  replayManual();
+});
+
+// While a song plays, the FEEL controls set the song's own feel, which each
+// section then varies; set straight onto the state, a section would undo them
+// at its next beat.
+function syncSongFeel() {
+  if (!song.current || !manualPlaying) return;
+  setSongFeel({
+    density:      parseFloat(densitySlider.value),
+    brightness:   parseFloat(brightSlider.value),
+    spaciousness: parseFloat(spaceSlider.value),
+    pump:         parseFloat(pumpSlider.value),
+    rootMidi:     ROOT_BASE_MIDI + parseInt(rootSelect.value, 10),
+  });
+}
+manualUiBody.addEventListener('input', syncSongFeel);
+manualUiBody.addEventListener('change', syncSongFeel);
 
 // ─── Clear instruments ────────────────────────────────────────────────────────
 clearInstrumentsBtn.addEventListener('click', () => setInstruments(new Set()));
@@ -1084,10 +1389,12 @@ function applyConfig(cfg) {
   state.room         = cfg.rm ?? state.room;
   showFeel();
   setInstruments(new Set(cfg.m || []));
+  if (cfg.song) manualSongSeed = cfg.song.seed;
+  setForm(cfg.song ? 'song' : 'loop');
 }
 
 manualShareBtn.addEventListener('click', () => {
-  const hash = `c=${encodeConfig(manualEnabled)}`;
+  const hash = `c=${encodeConfig(manualEnabled, manualForm === 'song' ? manualSongSeed : null)}`;
   history.replaceState(null, '', `#${hash}`);
   navigator.clipboard.writeText(window.location.href).then(() => {
     manualShareBtn.textContent = 'COPIED!';
@@ -1099,6 +1406,7 @@ manualShareBtn.addEventListener('click', () => {
 
 // ─── Boot ─────────────────────────────────────────────────────────────────────
 startAnimation();
+setForm(manualForm);
 showFeel();
 
 // Restore config from URL hash (after all UI is wired)

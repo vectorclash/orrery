@@ -1,5 +1,5 @@
 import { audio, getVoiceBus, noise } from '../context.js';
-import { state, beat, rand, pick, lerp, register, midiToHz } from '../../state.js';
+import { state, beat, rand, pick, lerp, register, midiToHz, random } from '../../state.js';
 import { createVoice } from '../transport.js';
 import { logNote } from '../notes.js';
 import { harmony } from '../harmony.js';
@@ -32,7 +32,7 @@ function makeHook() {
   let s = pick([0, 2, 3]);
   while (s < 32) {
     const len = pick([1, 2, 2, 3, 4]);
-    out.push({ step: s, len, tone: pick([0, 1, 2, 2, 3, 4]), vowel: pick(VOWEL_NAMES), fall: Math.random() < 0.25 });
+    out.push({ step: s, len, tone: pick([0, 1, 2, 2, 3, 4]), vowel: pick(VOWEL_NAMES), fall: random() < 0.25 });
     s += len + pick([1, 1, 2, 3, 4]);
   }
   return out;
@@ -81,7 +81,7 @@ function play(t, b) {
   const p = Math.floor(b / 16);
   if (p !== phrase) {
     phrase = p;
-    if (!hook.length || Math.random() < 0.3) hook = makeHook();
+    if (!hook.length || random() < 0.3) hook = makeHook();
   }
   const step = Math.round((b - Math.floor(b / 8) * 8) * 4) % 32;
   const c = hook.find(h => h.step === step);

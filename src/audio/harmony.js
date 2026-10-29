@@ -1,4 +1,4 @@
-import { state, SCALE_NAMES, pick, fold, register, currentScale } from '../state.js';
+import { state, SCALE_NAMES, pick, fold, register, currentScale, random } from '../state.js';
 import { transport } from './transport.js';
 
 // ─── Shared harmonic context ────────────────────────────────────────────────
@@ -88,6 +88,9 @@ function buildForm(scaleName) {
   return [...a, ...a, ...b, ...a];
 }
 
+// The progressions a scale offers (degree lists), for a song to choose from.
+export const progressionsFor = scaleName => PROGRESSIONS[scaleName];
+
 const mod = (n, m) => ((n % m) + m) % m;
 
 let form      = [0, 5, 2, 6];
@@ -100,7 +103,7 @@ let formScale = null;
 function reroll(atBeat = segStart) {
   formScale = SCALE_NAMES[state.scaleIdx];
   form      = buildForm(formScale);
-  colour    = form.map(() => Math.random());
+  colour    = form.map(() => random());
   idx       = 0;
   segStart  = atBeat;
   lastLen   = chordLen();
@@ -110,6 +113,18 @@ function chordLen() { return state.chordBeats || 4; }
 
 export const harmony = {
   reroll,
+
+  // A song's section: `prog` round and round from beat `atBeat`, with
+  // `colours` (a draw per chord) deciding which chords take a 7th, so a
+  // section played again is harmonised the same.
+  setForm(prog, colours, atBeat) {
+    formScale = SCALE_NAMES[state.scaleIdx];
+    form      = prog;
+    colour    = colours;
+    idx       = 0;
+    segStart  = atBeat;
+    lastLen   = chordLen();
+  },
 
   // Called once per scheduler tick. Advances the chord pointer to wherever
   // the clock is now.
@@ -193,7 +208,7 @@ export const harmony = {
   // `chance` (the Harmony control by default) the result is a chord tone;
   // otherwise any scale note is allowed as passing colour.
   pickChordTone(notes, beat, chance = state.harmonyLock) {
-    if (Math.random() < chance) {
+    if (random() < chance) {
       const pcs   = this.chordPcs(beat);
       const tones = notes.filter(m => pcs.includes(m % 12));
       if (tones.length) return pick(tones);

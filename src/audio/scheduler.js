@@ -1,8 +1,11 @@
-import { audio, beginSession, setEchoTime, setRoom, updateLowCuts, updateLevel, noteClock } from './context.js';
-import { state, SCALE_NAMES, TICK_MS, LOOKAHEAD, ROOT_BASE_MIDI, rand, pick, beat } from '../state.js';
+import { audio, beginSession, setEchoTime, setRoom, updateLowCuts, updateLevel, noteClock, gateGap } from './context.js';
+import { state, SCALE_NAMES, TICK_MS, LOOKAHEAD, ROOT_BASE_MIDI, rand, pick, beat, random, clamp } from '../state.js';
+import { seedStreams, reseedStreams, restream, newSeed } from '../random.js';
 import { harmony } from './harmony.js';
 import { transport } from './transport.js';
 import { ensemble } from './phrase.js';
+import { song, composeSong, arrange } from './song.js';
+import { fxVoice } from './voices/fx.js';
 
 import { bassVoice }     from './voices/bass.js';
 import { padVoice }      from './voices/pad.js';
@@ -67,28 +70,44 @@ const ALL_VOICES = [bassVoice, drumsVoice, ...Object.values(ROLES).flat(), ...DA
 export let activeVoices = [];
 
 function draw(list, n) {
-  return list.slice().sort(() => Math.random() - 0.5).slice(0, n);
+  return list.slice().sort(() => random() - 0.5).slice(0, n);
 }
 
 export function pickVoices() {
-  const v = draw(ROLES.bed, Math.random() < 0.25 ? 2 : 1);
-  if (Math.random() < 0.8)  v.push(...draw(ROLES.lead, 1));
-  if (Math.random() < 0.85) v.push(...draw(ROLES.motion, Math.random() < 0.25 ? 2 : 1));
-  if (Math.random() < 0.45) v.push(...draw(ROLES.air, 1));
+  const v = draw(ROLES.bed, random() < 0.25 ? 2 : 1);
+  if (random() < 0.8)  v.push(...draw(ROLES.lead, 1));
+  if (random() < 0.85) v.push(...draw(ROLES.motion, random() < 0.25 ? 2 : 1));
+  if (random() < 0.45) v.push(...draw(ROLES.air, 1));
   while (v.length < 3) v.push(...draw([...ROLES.motion, ...ROLES.air].filter(x => !v.includes(x)), 1));
-  if (Math.random() < 0.35) v.push(drumsVoice);
+  if (random() < 0.35) v.push(drumsVoice);
   setActiveVoices(v);
 }
 
 // A manual-mode arrangement as plain data, so the export renderer (its own
 // copy of the engine, in an iframe) can play exactly what the controls say.
-// { state: {...fields}, bassStyle, drumStyle, voices: [names] }
+// { state: {...fields}, bassStyle, drumStyle, voices: [names], song?: { seed } }
+// With `song`, the plan is a song's: it's composed from the plan and the seed
+// (see song.js), and the voices are its instruments, which the conductor
+// brings in and out section by section.
 export function applyPlan(plan) {
   Object.assign(state, plan.state);
   if (plan.bassStyle) bassVoice.setStyle(plan.bassStyle);
   if (plan.drumStyle) drumsVoice.setStyle(plan.drumStyle);
-  setActiveVoices(plan.voices.map(n => ALL_VOICES.find(v => v.name === n)).filter(Boolean));
+  if (plan.song) {
+    song.current = composeSong(plan, roleOf);
+    song.base = { ...state };
+    setActiveVoices([]);
+  } else {
+    song.current = null;
+    setActiveVoices(voicesNamed(plan.voices));
+  }
 }
+
+const voicesNamed = names => names.map(n => ALL_VOICES.find(v => v.name === n)).filter(Boolean);
+const roleOf = name => ALL_VOICES.find(v => v.name === name)?.role ?? null;
+
+// The song a plan describes, without playing it: for its length and sections.
+export const songFor = plan => composeSong(plan, roleOf);
 
 export function setActiveVoices(voices) {
   activeVoices = voices;
@@ -96,22 +115,30 @@ export function setActiveVoices(voices) {
 }
 
 // ─── Session ──────────────────────────────────────────────────────────────────
-// Beat 0 falls at audio time `t`. Fresh buses, a fresh chord progression, and
-// every voice re-enters on the grid.
-export function startSession(t) {
+// Beat `from` (0, the start) falls at audio time `t`. Fresh buses, a fresh
+// chord progression, and every voice re-enters on the grid. A song's session
+// takes the song's seed, so it plays the same every time; any other, a fresh
+// one. A song can start partway, at a section's first beat: each section is
+// seeded on its own, so it plays as it would have (see levelOfSong in render.js).
+export function startSession(t, from = 0) {
+  seedStreams(song.current ? song.current.seed : newSeed());
   beginSession();
-  transport.start(t);
+  transport.start(t, from);
   setEchoTime(beat() * 0.75, t);
   harmony.reroll(0);
-  ensemble.motif = null;
-  ensemble.motifPhrase = -1;
+  ensemble.reset();
+  ensemble.hold = false;
   for (const v of ALL_VOICES) v.reset();
   pumpVoice.reset();
   sweepVoice.reset();
+  fxVoice.reset();
   lastTickTime = 0;
   eraTimer = 0;
   eraAt = null;
   eraBegan = 0;
+  songBeat = from;
+  songBass = false;
+  audio.level.holdsAt = song.current ? levelHoldsAt : null;
 }
 
 // ─── Space ────────────────────────────────────────────────────────────────────
@@ -170,8 +197,8 @@ function advanceEra(at) {
   // one octave — register comes from octaveShift, not from the root drifting.
   const shifts = [-7, -5, -2, 0, 0, 2, 5, 7];
   state.rootMidi     = ROOT_BASE_MIDI + ((state.rootMidi - ROOT_BASE_MIDI + pick(shifts)) % 12 + 12) % 12;
-  state.scaleIdx     = Math.floor(Math.random() * SCALE_NAMES.length);
-  const tempoShift   = Math.random() < 0.3 ? rand(-35, 35) : rand(-15, 15);
+  state.scaleIdx     = Math.floor(random() * SCALE_NAMES.length);
+  const tempoShift   = random() < 0.3 ? rand(-35, 35) : rand(-15, 15);
   state.tempo        = Math.max(52, Math.min(130, state.tempo + tempoShift));
   state.brightness   = rand(0.1, 0.9);
   state.spaciousness = rand(0.2, 0.85);
@@ -192,9 +219,137 @@ function advanceEra(at) {
 }
 
 function drift() {
-  state.brightness   = Math.max(0.05, Math.min(0.95, state.brightness   + (Math.random() - 0.5) * 0.002));
-  state.density      = Math.max(0.10, Math.min(1.00, state.density      + (Math.random() - 0.5) * 0.001));
-  state.spaciousness = Math.max(0.10, Math.min(0.90, state.spaciousness + (Math.random() - 0.5) * 0.001));
+  state.brightness   = Math.max(0.05, Math.min(0.95, state.brightness   + (random() - 0.5) * 0.002));
+  state.density      = Math.max(0.10, Math.min(1.00, state.density      + (random() - 0.5) * 0.001));
+  state.spaciousness = Math.max(0.10, Math.min(0.90, state.spaciousness + (random() - 0.5) * 0.001));
+}
+
+// ─── Song ─────────────────────────────────────────────────────────────────────
+// The conductor: plays the loaded song (song.current) beat by beat. Like an
+// era change, every voice is run up to the beat first, then the beat is
+// applied, so nothing is scheduled with the last section's chords or players.
+// At a section's first beat: its chords and instruments, every voice
+// restarting there, and every random stream reseeded from the kind of section
+// it is, so each verse, chorus or drop plays what the first one did. Every
+// beat: the feel, from the section's energy and the song's own (song.base).
+let songBeat = 0;     // the next beat the conductor acts on
+let songBass = false; // whether the bass plays in this section
+
+function conduct(now, skipBass) {
+  const end = song.current.end;
+  while (songBeat <= end && transport.timeAt(songBeat) < now + LOOKAHEAD) {
+    runVoices(now, transport.timeAt(songBeat), skipBass || !songBass);
+    onBeat(songBeat);
+    songBeat++;
+  }
+  runVoices(now, now + LOOKAHEAD, skipBass || !songBass);
+}
+
+function onBeat(b) {
+  if (b === song.current.end) {
+    // Over: nobody starts another note, and long notes (the drone) let go.
+    setActiveVoices([]);
+    songBass = false;
+    ensemble.hold = false;
+    for (const v of ALL_VOICES) v.reset(b);
+    return;
+  }
+  const sec = song.sectionAt(b);
+  if (b === sec.start) enterSection(sec, b);
+  setFeel(song.energyAt(sec, b));
+  const end = sec.start + sec.beats;
+  if (sec.gap && b === end - sec.gap) gateGap(transport.timeAt(b), transport.timeAt(end));
+}
+
+function enterSection(sec, b) {
+  reseedStreams(sec.kind);
+  restream('ensemble', sec.hook ? 'hook' : sec.kind);
+  state.rootMidi = ROOT_BASE_MIDI + ((song.base.rootMidi - ROOT_BASE_MIDI + sec.shift) % 12 + 12) % 12;
+  harmony.setForm(sec.prog, sec.colours, b);
+  ensemble.reset();
+  ensemble.hold = sec.hook;
+  setActiveVoices(voicesNamed(sec.voices));
+  songBass = sec.bass;
+  for (const v of ALL_VOICES) v.reset(b);
+  bassVoice.newSection();
+  fxVoice.reset(b);
+}
+
+// Fuller, brighter, drier and pumping harder the higher the energy.
+function setFeel(e) {
+  const f = song.base;
+  state.density      = clamp(f.density * (0.4 + 0.7 * e), 0.05, 1);
+  state.brightness   = clamp(f.brightness + (e - 0.7) * 0.5, 0.05, 0.95);
+  state.spaciousness = clamp(f.spaciousness + (0.6 - e) * 0.25, 0.05, 0.95);
+  state.pump         = f.pump * clamp((e - 0.3) / 0.5, 0, 1);
+}
+
+// The leveller sets a song's level from its hook sections -- choruses, drops,
+// the top of a swell -- and holds still through the rest (see rideLevel), so
+// an intro stays quieter than a drop, a build grows into it, and one song's
+// choruses are about as loud as the next one's.
+function levelHoldsAt(t) {
+  const b = transport.beatAt(t), sec = song.sectionAt(b);
+  return !sec || !sec.hook || song.energyAt(sec, b) < 0.6;
+}
+
+// Whether the loaded song has played its last chord.
+export const songOver = () => !!song.current && songBeat > song.current.end;
+
+// Back to eras or a loop: no song.
+export function unloadSong() {
+  song.current = null;
+  if (audio.level) audio.level.holdsAt = null;
+}
+
+// Infinite mode's NEXT in a song: on to the outro at the next bar line, or
+// from the outro to the last chord. Returns the beat it lands on, or null
+// when there's nothing left to skip to (the last chord is already playing).
+// Nothing from that beat on has been scheduled yet: the conductor only runs
+// the voices up to the next beat it acts on.
+export function skipSong() {
+  const s = song.current;
+  const sec = song.sectionAt(songBeat - 1);
+  if (!s || !sec) return null;
+  const i = s.sections.indexOf(sec);
+  const outro = s.sections.findIndex(x => x.kind === 'outro' || x.kind === 'close' || x.kind === 'dusk');
+  const to = i < outro ? outro : i < s.sections.length - 1 ? s.sections.length - 1 : -1;
+  if (to < 0) return null;
+  const at = Math.ceil(songBeat / 4) * 4;
+  const kept = s.sections.slice(0, i + 1);
+  const cut = kept[i] = { ...sec, beats: at - sec.start, gap: 0, roll: false, riser: false };
+  if (cut.beats <= 0) kept.pop();
+  let start = at;
+  const rest = s.sections.slice(to).map(x => {
+    const moved = { ...x, start };
+    start += x.beats;
+    return moved;
+  });
+  s.sections = [...kept, ...rest];
+  s.end = start;
+  return at;
+}
+
+// The song's own feel and key, which the sections vary from: Edit mode's
+// controls, moved while it plays.
+export function setSongFeel(fields) {
+  if (!song.current) return;
+  Object.assign(song.base, fields);
+  if ('rootMidi' in fields) {
+    const sec = song.sectionAt(songBeat - 1);
+    state.rootMidi = ROOT_BASE_MIDI + ((fields.rootMidi - ROOT_BASE_MIDI + (sec?.shift ?? 0)) % 12 + 12) % 12;
+  }
+}
+
+// New instruments for the song playing: the same song, arranged for them.
+export function rearrangeSong(plan) {
+  if (plan.bassStyle) bassVoice.setStyle(plan.bassStyle);
+  if (plan.drumStyle) drumsVoice.setStyle(plan.drumStyle);
+  arrange(song.current, plan, roleOf);
+  const sec = song.sectionAt(songBeat - 1);
+  if (!sec) return;
+  setActiveVoices(voicesNamed(sec.voices));
+  songBass = sec.bass;
 }
 
 // ─── Tick ─────────────────────────────────────────────────────────────────────
@@ -203,6 +358,7 @@ let lastTickTime = 0;
 function runVoices(now, horizon, skipBass) {
   pumpVoice.tick(now, horizon);
   sweepVoice.tick(now, horizon);
+  if (song.current) fxVoice.tick(now, horizon);
   if (!skipBass) bassVoice.tick(now, horizon);
   for (const v of activeVoices) v.tick(now, horizon);
 }
@@ -211,7 +367,7 @@ export function tick({ skipBass = false, skipEvolve = false } = {}) {
   if (!audio.started) return;
   const now = audio.ctx.currentTime;
   const dt  = now - (lastTickTime || now);
-  updateLowCuts(!skipBass);
+  updateLowCuts(!skipBass && (!song.current || songBass));
   updateLevel();
   noteClock();
   lastTickTime = now;
@@ -219,6 +375,7 @@ export function tick({ skipBass = false, skipEvolve = false } = {}) {
   if (transport.tick(now)) setEchoTime(beat() * 0.75, now);
   harmony.tick(now);
 
+  if (song.current) { conduct(now, skipBass); return; }
   if (!skipEvolve) {
     eraTimer += dt;
     drift();
