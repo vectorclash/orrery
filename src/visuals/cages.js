@@ -1,6 +1,5 @@
 import * as THREE from 'three';
 import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
-import { scene } from './scene.js';
 import { music, pcAngle, pcHue } from './music.js';
 import { spectrum, BANDS } from './spectrum.js';
 
@@ -27,6 +26,8 @@ const LAYERS = [
 ];
 const RIPPLE_GAIN = { bass: 0.22, motion: 0.13, lead: 0.2, air: 0.16 };
 
+const group = new THREE.Group();
+
 const layers = LAYERS.map((cfg, i) => {
   let geo = new THREE.IcosahedronGeometry(cfg.radius, 5);
   geo.deleteAttribute('normal');
@@ -48,13 +49,15 @@ const layers = LAYERS.map((cfg, i) => {
   });
   const mesh = new THREE.Mesh(geo, mat);
   mesh.rotation.set(i * 0.38, i * 0.65, i * 0.22);
-  scene.add(mesh);
-  return { ...cfg, mesh, mat, pos, unit, jitter };
+  group.add(mesh);
+  // This frame's ripples in world directions, and the punch, for surfaceBetween().
+  const world = { rip: new Float32Array(24 * 7), nr: 0, punch: 1 };
+  return { ...cfg, mesh, mat, pos, unit, jitter, world };
 });
 
 const glowMat  = new THREE.MeshBasicMaterial({ color: 0x112244, transparent: true, opacity: 0.35, blending: THREE.AdditiveBlending, depthWrite: false });
 const glowMesh = new THREE.Mesh(new THREE.SphereGeometry(1.0, 32, 32), glowMat);
-scene.add(glowMesh);
+group.add(glowMesh);
 
 // Chord modes, keyed by pitch class × lobe count, so a tone that changes role
 // between chords fades out of one mode and into the other.
@@ -67,8 +70,10 @@ const _target = new THREE.Color();
 const _q = new THREE.Quaternion(), _v = new THREE.Vector3();
 const _ex = new THREE.Vector3(), _ez = new THREE.Vector3();
 const modeBuf = new Float32Array(12 * 4 * 4), ripBuf = new Float32Array(24 * 6);
+let nm = 0; // modeBuf entries in use this frame
 
-export function updateCages({ energy, hue, dt, fade, t }) {
+// `alpha` scales their light (see core/index.js).
+function updateCages({ energy, hue, dt, fade, t, alpha }) {
   const chord  = music.chord;
   const hits   = music.hits;
   const roles  = music.roleLevel;
@@ -77,7 +82,7 @@ export function updateCages({ energy, hue, dt, fade, t }) {
   // ── Chord modes ──
   // Active modes as [cos φ₀, sin φ₀, m, amplitude] for the vertex loop.
   const quick = 1 - Math.exp(-dt / 0.12);
-  let nm = 0;
+  nm = 0;
   for (let pc = 0; pc < 12; pc++) {
     const interval = chord.length ? (pc - chord[0] + 12) % 12 : 0;
     const role = chord.includes(pc) ? roleOf(interval) : -1;
@@ -103,16 +108,22 @@ export function updateCages({ energy, hue, dt, fade, t }) {
     // World x and z axes in local coordinates, to read each vertex's world direction.
     _ex.set(1, 0, 0).applyQuaternion(_q); _ez.set(0, 0, 1).applyQuaternion(_q);
 
-    let nr = 0;
+    let nr = 0, nw = 0;
     for (const r of music.ripples) {
       if (!L.roles.includes(r.role) || nr >= ripBuf.length) continue;
       _v.set(r.x, r.y, r.z).applyQuaternion(_q);
       const amp = r.vel * RIPPLE_GAIN[r.role] * Math.exp(-r.age / 0.55);
       ripBuf[nr++] = _v.x; ripBuf[nr++] = _v.y; ripBuf[nr++] = _v.z;
       ripBuf[nr++] = amp; ripBuf[nr++] = r.age * 1.8; ripBuf[nr++] = 0;
+      // With the band of cosines its wavefront reaches (±0.6 rad, past which
+      // its pull is under 0.3%), so surfaceBetween() can skip it cheaply elsewhere.
+      const front = r.age * 1.8;
+      L.world.rip.set([r.x, r.y, r.z, amp, front, Math.cos(Math.min(Math.PI, front + 0.6)), Math.cos(Math.max(0, front - 0.6))], nw); nw += 7;
     }
+    L.world.nr = nw;
 
     const punch = 1 + (L.hit === 'kick' ? 0.2 * hits.kick : L.hit === 'snare' ? 0.08 * hits.snare : 0) + 0.05 * hits.crash;
+    L.world.punch = punch;
     const u = L.unit, p = L.pos.array, jit = L.jitter;
     for (let v = 0, n = L.pos.count; v < n; v++) {
       const x = u[3 * v], y = u[3 * v + 1], z = u[3 * v + 2];
@@ -146,12 +157,48 @@ export function updateCages({ energy, hue, dt, fade, t }) {
     L.mat.color.lerp(_target, ease);
     const presence = Math.max(...L.roles.map(r => roles[r]));
     const flash = (L.hit ? hits[L.hit] * 0.8 : 0) + (L.radius > 1.4 ? hits.hat * 0.3 : 0);
-    L.mat.opacity = L.opacity * (1 + 0.4 * presence + 0.6 * flash);
+    L.mat.opacity = L.opacity * (1 + 0.4 * presence + 0.6 * flash) * alpha;
   }
 
   // ── Glow: the chord root's colour, breathing with the bass and the kick ──
   _target.setHSL((chord.length ? pcHue(chord[0], hue) : hue) / 360, 0.85, 0.25);
   glowMat.color.lerp(_target, ease);
-  glowMat.opacity = 0.04 + 0.18 * hits.kick + 0.12 * roles.bass;
+  glowMat.opacity = (0.04 + 0.18 * hits.kick + 0.12 * roles.bass) * alpha;
   glowMesh.scale.setScalar(1 + 0.35 * hits.kick + 0.3 * roles.bass);
 }
+
+// ─── The cages' surface, for other parts to follow ────────────────────────────
+// How far the layers reach in the world direction (x, y, z), a unit vector,
+// as a multiple of their radius: the chord modes, the ripples and the punch of
+// this frame, as their vertices take them. Only the faint spectral shimmer is
+// left out -- it's jittered per vertex. The attractor, inside the cages,
+// follows the inner layers with it (see core/attractor.js).
+function modesAt(x, z) {
+  let d = 0;
+  for (let j = 0; j < nm; j += 4) {
+    const a = x * modeBuf[j] + z * modeBuf[j + 1], b = z * modeBuf[j] - x * modeBuf[j + 1];
+    let re = a, im = b;
+    for (let k = 1; k < modeBuf[j + 2]; k++) { const r2 = re * a - im * b; im = re * b + im * a; re = r2; }
+    d += modeBuf[j + 3] * re;
+  }
+  return d;
+}
+function layerAt(i, x, y, z) {
+  const W = layers[i].world;
+  let d = W.punch;
+  for (let j = 0; j < W.nr; j += 7) {
+    const c = x * W.rip[j] + y * W.rip[j + 1] + z * W.rip[j + 2];
+    if (c < W.rip[j + 5] || c > W.rip[j + 6]) continue;
+    const off = Math.acos(c > 1 ? 1 : c < -1 ? -1 : c) - W.rip[j + 4];
+    d += W.rip[j + 3] * Math.exp(-off * off * 16);
+  }
+  return d;
+}
+// Layer `i` blended into layer i + 1 by `t` (0…1). The modes are the same
+// for every layer, so they're worked out once.
+export const surfaceBetween = (i, t, x, y, z) =>
+  modesAt(x, z) + (t <= 0 ? layerAt(i, x, y, z) : t >= 1 ? layerAt(i + 1, x, y, z)
+    : layerAt(i, x, y, z) * (1 - t) + layerAt(i + 1, x, y, z) * t);
+export const LAYER_RADII = LAYERS.map(L => L.radius);
+
+export const cages = { group, update: updateCages };

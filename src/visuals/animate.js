@@ -1,5 +1,5 @@
 import { camera, clock } from './scene.js';
-import { updateCages } from './cages.js';
+import { updateCore } from './core/index.js';
 import { updateSpectrum } from './spectrum.js';
 import { updateMusic } from './music.js';
 import { updateRing } from './ring/scope.js';
@@ -50,13 +50,13 @@ function animate(timestamp) {
     bass   = rawBass * fade;
   }
 
-  // Always update the cages and stars — idle energy=0 keeps everything at rest
-  // but still visible and gently moving. The ring and cages follow the notes
+  // Always update the centre and stars — idle energy=0 keeps everything at rest
+  // but still visible and gently moving. The ring and centre follow the notes
   // themselves; the space scene keeps its spectrum-driven energy/bass.
   updateMusic(dt);
   updateWaveform();
   updateSpectrum(freqData);
-  updateCages({ energy, hue, dt, fade, t });
+  updateCore({ energy, hue, dt, fade, t });
   updateChord({ hue, dt, t }); // before the ring, which it lights
   updateRing({ hue, dt, t });
   updateStars(energy, bass, hue, t);

@@ -331,6 +331,8 @@ The dust orbits with Keplerian shear (inner ringlets faster), so it streams thro
 
 **Inner glow sphere** — `AdditiveBlending`, coloured by the chord root, swells with the bass line and the kick.
 
+**Attractor core** (`src/visuals/core/`) — inside the cages, thousands of particles ride the Aizawa strange attractor: a chaotic flow that spirals up round a sphere and plunges back down a vortex through its axis, no particle ever retracing its path. It runs faster as the music gets louder; the bass swells it, the kick twists it and the lead tightens its spiral, all within the narrow range of the equations' parameters that stays chaotic (outside it every path collapses onto the axis; a particle that falls there anyway is dropped back onto the flow). It takes the chord's colours by height, root at the bottom, and onsets send bright waves through it. At about 60% size and a third of its brightness — additive light stacked on the cages at full strength burns out to white — it's a core to the cages, and it takes their shape: each particle is pushed in or out by as much as the cage beside it (the innermost layer near the middle, blending into the next at the flow's edge), so it bulges into the chord's lobes, ripples with the notes and punches with the kick along with them. The cages share their surface for this (`surfaceBetween()` in `src/visuals/cages.js`: the chord modes, ripples and punch their vertices take). The particles move on the CPU, so phones (coarse pointers) get 60% of them.
+
 **Star field** (`src/visuals/stars.js`) — 7,500 small point stars and 80 large stars, placed using 3D value noise rejection sampling for organic clustering. Each star stores cylindrical coordinates and drifts in a three-component aperiodic flow field using irrational-ratio frequencies (φ, √2, √3), so the motion never visibly repeats. The drift, the colours and the response to the music are all computed per star in the vertex shader; each frame the CPU only sets uniforms. The small stars are one `Points` object and the large ones one instanced mesh of camera-facing quads, drawn exactly as `PointsMaterial` and `SpriteMaterial` would draw them.
 
 The stars hear the music three ways, on top of the loudness swell (drift amplitude and size, from the spectrum):
@@ -397,6 +399,7 @@ requestAnimationFrame
        ├─ chord constellation             ← chord tones, their note levels
        ├─ sphere: chord lobes + ripples   ← chord, note onsets, kick/snare, log spectrum
        ├─ inner glow                      ← chord root, bass line, kick
+       ├─ attractor core (CPU particles)  ← loudness, bass, kick, lead, chord, onsets, the cages' shape
        ├─ star field (shader uniforms)    ← t, energy, bass, hue, sounding notes, kicks, hats
        ├─ update 22 nebula sprites        ← hue, energy, bass, t
        ├─ lerp camera orbit               ← energy, fade
