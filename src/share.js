@@ -36,7 +36,8 @@ export const ALL_INST_KEYS = [
 //  room index(1), instBitmask bits 48–55 (1 byte), instBitmask bits 56–63 (1 byte),
 //  pump×100(1), sweep×100(1), instBitmask bits 64–71 (1 byte),
 //  tail length n(1), instBitmask bits 72 and up (n bytes),
-//  form(1): 1 = a song, seed(4, little-endian): the song's]
+//  form(1): 1 = a song, seed(4, little-endian): the song's,
+//  length(2, little-endian): the song's, in seconds]
 // The first 72 instruments were fitted into spare bytes as they came. Everything
 // after them goes in the tail, which grows with ALL_INST_KEYS, so appending a key
 // needs no change here. While there are no more than 72 keys the tail is left
@@ -47,24 +48,27 @@ export const ALL_INST_KEYS = [
 // pump or sweep is none). A page from before the tail reads a link's first 72
 // instruments and ignores the rest. The octave is not in the link.
 // A song's link carries the tail's length byte even with no tail (n = 0), so
-// its form and seed sit at 21 + n; a loop's link stops before them, and a
-// page from before songs ignores them and plays the loop.
+// its form, seed and length sit at 21 + n; a loop's link stops before them,
+// and a page from before songs ignores them and plays the loop. A song's link
+// from before lengths stops after the seed, and its song draws its own.
 const FIXED_INST_BITS = 72;
 const TAIL_LEN = 20; // the tail's length byte; its bits start at TAIL_LEN + 1
 const instByte = i => (i < 40 ? 6 + (i >> 3) : i < 48 ? 13 : i < 56 ? 15 : i < 64 ? 16
   : i < FIXED_INST_BITS ? 19 : TAIL_LEN + 1 + ((i - FIXED_INST_BITS) >> 3));
 
 // `enabled` maps an ALL_INST_KEYS key to whether that instrument is on; the
-// rest comes from the live state. `songSeed`, if given, makes it a song's link.
-export function encodeConfig(enabled, songSeed = null) {
+// rest comes from the live state. `song`, { seed, length } if given, makes it
+// a song's link.
+export function encodeConfig(enabled, song = null) {
   const tail = Math.ceil(Math.max(0, ALL_INST_KEYS.length - FIXED_INST_BITS) / 8);
-  const song = songSeed !== null;
-  const b = new Uint8Array(tail || song ? TAIL_LEN + 1 + tail + (song ? 5 : 0) : TAIL_LEN);
+  const b = new Uint8Array(tail || song ? TAIL_LEN + 1 + tail + (song ? 7 : 0) : TAIL_LEN);
   if (tail || song) b[TAIL_LEN] = tail;
   if (song) {
     const at = TAIL_LEN + 1 + tail;
+    const view = new DataView(b.buffer);
     b[at] = 1;
-    new DataView(b.buffer).setUint32(at + 1, songSeed >>> 0, true);
+    view.setUint32(at + 1, song.seed >>> 0, true);
+    view.setUint16(at + 5, song.length, true);
   }
   b[0] = state.rootMidi - ROOT_BASE_MIDI;
   b[1] = state.scaleIdx;
@@ -91,8 +95,11 @@ export function decodeConfig(str) {
     const tail = b[TAIL_LEN] ?? 0;
     const inLink = i => i < FIXED_INST_BITS || (i - FIXED_INST_BITS) >> 3 < tail;
     const at = TAIL_LEN + 1 + tail;
-    const song = b[at] === 1 && b.length >= at + 5
-      ? { seed: new DataView(b.buffer).getUint32(at + 1, true) } : undefined;
+    const view = new DataView(b.buffer);
+    const song = b[at] === 1 && b.length >= at + 5 ? {
+      seed:   view.getUint32(at + 1, true),
+      length: b.length >= at + 7 ? view.getUint16(at + 5, true) : undefined,
+    } : undefined;
     return {
       r: ROOT_BASE_MIDI + (b[0] % 12), s: b[1], t: b[2],
       d: b[3] / 100, b: b[4] / 100, p: b[5] / 100,
@@ -139,7 +146,7 @@ export function planFromConfig(cfg) {
       ...(drumSubs.length ? ['drums'] : []),
       ...cfg.m.filter(k => !k.includes(':')),
     ],
-    ...(cfg.song ? { song: { seed: cfg.song.seed } } : {}),
+    ...(cfg.song ? { song: { seed: cfg.song.seed, length: cfg.song.length } } : {}),
   };
 }
 

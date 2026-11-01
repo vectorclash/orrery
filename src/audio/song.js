@@ -1,4 +1,4 @@
-import { SCALE_NAMES } from '../state.js';
+import { SCALE_NAMES, LOOKAHEAD } from '../state.js';
 import { seeded, hashSeed } from '../random.js';
 import { progressionsFor } from './harmony.js';
 
@@ -25,7 +25,8 @@ import { progressionsFor } from './harmony.js';
 // What each kind of section is for. `energy` is where it starts and ends
 // (0 the barest, 1 everything at full tilt); the conductor sets density,
 // brightness, space and pump from it. `bars` is a length at a moderate tempo,
-// scaled to the song's tempo and target length.
+// scaled to the song's tempo and length; an intro's or outro's is set in
+// seconds instead (see EDGES).
 //   roles  -- how many voices of each role play (9: all of them), then
 //             whether the bass plays and the drums' level: 'pulse' (kick and
 //             time), 'light' (the beat without its accents), 'full', or null
@@ -33,25 +34,25 @@ import { progressionsFor } from './harmony.js';
 //   prog   -- which of the song's progressions it plays
 const KINDS = {
   // song
-  intro:     { label: 'INTRO',      bars: 8,  energy: [0.22, 0.36], prog: 'verse' },
+  intro:     { label: 'INTRO',                energy: [0.22, 0.36], prog: 'verse' },
   verse:     { label: 'VERSE',      bars: 16, energy: [0.48, 0.52], prog: 'verse' },
   pre:       { label: 'PRE-CHORUS', bars: 8,  energy: [0.56, 0.74], prog: 'pre' },
   chorus:    { label: 'CHORUS',     bars: 16, energy: [0.88, 0.92], prog: 'chorus', hook: true },
   bridge:    { label: 'BRIDGE',     bars: 8,  energy: [0.42, 0.62], prog: 'bridge' },
-  outro:     { label: 'OUTRO',      bars: 8,  energy: [0.4, 0.16],  prog: 'chorus' },
+  outro:     { label: 'OUTRO',                energy: [0.4, 0.16],  prog: 'chorus' },
   // club
-  open:      { label: 'INTRO',      bars: 16, energy: [0.3, 0.45],  prog: 'main' },
+  open:      { label: 'INTRO',                energy: [0.3, 0.45],  prog: 'main' },
   groove:    { label: 'GROOVE',     bars: 16, energy: [0.58, 0.64], prog: 'main' },
   build:     { label: 'BUILD',      bars: 8,  energy: [0.5, 0.86],  prog: 'main' },
   drop:      { label: 'DROP',       bars: 16, energy: [0.98, 1],    prog: 'main', hook: true },
   breakdown: { label: 'BREAKDOWN',  bars: 16, energy: [0.26, 0.34], prog: 'break', hook: true },
-  close:     { label: 'OUTRO',      bars: 16, energy: [0.5, 0.2],   prog: 'main' },
+  close:     { label: 'OUTRO',                energy: [0.5, 0.2],   prog: 'main' },
   // ambient
-  dawn:      { label: 'INTRO',      bars: 8,  energy: [0.15, 0.3],  prog: 'theme' },
+  dawn:      { label: 'INTRO',                energy: [0.15, 0.3],  prog: 'theme' },
   theme:     { label: 'THEME',      bars: 16, energy: [0.42, 0.5],  prog: 'theme' },
   swell:     { label: 'SWELL',      bars: 16, energy: [0.62, 0.8],  prog: 'theme', hook: true },
   drift:     { label: 'DRIFT',      bars: 16, energy: [0.34, 0.3],  prog: 'drift' },
-  dusk:      { label: 'OUTRO',      bars: 8,  energy: [0.32, 0.12], prog: 'theme' },
+  dusk:      { label: 'OUTRO',                energy: [0.32, 0.12], prog: 'theme' },
   // the last chord, held while everything else has stopped
   end:       { label: 'END',        bars: 0,  energy: [0.12, 0.08] },
 };
@@ -100,15 +101,43 @@ const FORMS = {
   ],
 };
 
-// Target lengths in seconds.
+// Lengths in seconds, for a song not given one (Infinite mode's).
 const LENGTH = { song: [150, 230], club: [190, 280], ambient: [170, 260] };
+
+// The last chord is held for at least HOLD beats (or a chord's length, if
+// that's longer), then rings out for at least RING seconds.
+const HOLD = 4;
+const RING = 4;
+
+// Intros and outros don't grow with the song: a few bars to set it up and a
+// few to wind it down, however long it is. Their length in seconds is a share
+// of the song's, at least EDGE_LEAST and at most `most`, then the nearest
+// whole number of bars from EDGE_BARS that is no longer than `most`. Now and
+// then (one in LONG_EDGE) one takes its time: twice the share, twice the most.
+const EDGES = {
+  intro: { share: 0.05, most: 12 }, outro: { share: 0.06, most: 16 },
+  open:  { share: 0.06, most: 16 }, close: { share: 0.07, most: 18 },
+  dawn:  { share: 0.06, most: 16 }, dusk:  { share: 0.07, most: 20 },
+};
+const EDGE_LEAST = 5;
+const LONG_EDGE  = 7;
+const EDGE_BARS = [1, 2, 4, 8, 16];
+
+// What a song too short for its form does without, in order: a run of kinds
+// of section, cut while there are more than `keep` of its first. The earliest
+// goes first, so a song keeps its last chorus or drop, the one it builds to.
+const CUTS = {
+  song:    [[['bridge'], 0], [['pre'], 0], [['chorus'], 2], [['verse'], 1], [['chorus'], 1]],
+  club:    [[['groove'], 0], [['breakdown'], 0], [['build', 'drop'], 1], [['drop'], 1]],
+  ambient: [[['drift'], 0], [['swell'], 1], [['theme'], 1], [['theme'], 0]],
+};
 
 // Section lengths in bars: phrases of four and eight, as songs are written.
 const NICE_BARS = [4, 8, 16, 24, 32, 48, 64];
 // Which kinds of section take up the slack first when a song is short of its
 // length: the ones it's about.
 const GROW = ['chorus', 'drop', 'verse', 'swell', 'theme', 'groove', 'breakdown', 'drift',
-  'intro', 'open', 'dawn', 'outro', 'close', 'dusk', 'bridge', 'pre', 'build'];
+  'bridge', 'pre', 'build'];
 
 // Drum styles whose music is built in builds and drops.
 const CLUB_DRUMS = new Set([
@@ -129,7 +158,9 @@ const gcd = (a, b) => (b ? gcd(b, a % b) : a);
 const lcm = (a, b) => a * b / gcd(a, b);
 
 // Composes the song a plan describes: its form, every section's length,
-// energy, chords and instruments. `roleOf` names a voice's role.
+// energy, chords and instruments. `roleOf` names a voice's role. The plan's
+// song.length is how long it should be, in seconds; without one, the song
+// draws its own.
 export function composeSong(plan, roleOf) {
   const seed = plan.song.seed >>> 0;
   const r    = seeded(hashSeed(seed, 'form'));
@@ -163,51 +194,133 @@ export function composeSong(plan, roleOf) {
   progs.drift  = other(progs.theme);
   const colours = new Map(Object.values(progs).map(p => [p, p.map(() => r())]));
 
-  // Lengths: the kinds' bars scaled to a target length at this tempo, then to
-  // the nearest phrase length that is a whole number of units: four bars, or
-  // the progression if it runs longer (eight bars of two-bar chords), so a
-  // section starts its chords from the top.
+  // Who plays in each kind of section, and the silence before a drop: drawn
+  // for the whole form before any of it is cut, so a song keeps them at any
+  // length. The same for every section of a kind: they're the same section.
+  const recipes = {};
+  for (const kind of kinds) recipes[kind] ??= RECIPES[kind](r);
+  const gap = r() < 0.6 ? pick([1, 1, 2]) : 0;
+  const drawn = Math.round(LENGTH[form][0] + r() * (LENGTH[form][1] - LENGTH[form][0]));
+  const target = plan.song.length ?? drawn;
+  const long = {};
+  for (const kind of kinds) if (EDGES[kind]) long[kind] = r() * LONG_EDGE < 1;
+
+  // Lengths, in bars. A song is exactly its length, as an export has it: the
+  // lead-in before its first downbeat (see render.js), the sections, and the
+  // last chord, held and rung out. The intro and outro first (see EDGES).
+  // Then the rest: the kinds' bars scaled to fill the song at this tempo, each
+  // snapped to the nearest phrase length that is a whole number of units:
+  // four bars, or the progression if it runs longer (eight bars of two-bar
+  // chords), so a section starts its chords from the top.
   const cb   = plan.state.chordBeats || 4;
   const unit = lcm(4 * cb, 16) <= 32 ? lcm(4 * cb, 16) : 16;
-  const [lo, hi] = LENGTH[form];
-  const target = lo + r() * (hi - lo);
-  const spb = 60 / plan.state.tempo;
-  const fits = NICE_BARS.filter(n => (n * 4) % unit === 0);
-  const snap = want => fits.reduce((a, n) => (Math.abs(Math.log(n / want)) < Math.abs(Math.log(a / want)) ? n : a));
+  const spb  = 60 / plan.state.tempo;
+  const bar  = 4 * spb;
+  const hold = Math.max(HOLD, cb);
+  const room = target - LOOKAHEAD - hold * spb - RING; // seconds for the sections
+  const nearest = (options, want) => options.reduce((a, n) => (Math.abs(Math.log(n / want)) < Math.abs(Math.log(a / want)) ? n : a));
+  let fits = NICE_BARS.filter(n => (n * 4) % unit === 0);
+  const snap = want => nearest(fits, want);
   const bars = {};
-  const total = () => kinds.reduce((sum, k) => sum + bars[k] * 4, 0) * spb;
-  // Everything as short as it will go to fit the target, all kinds scaled
-  // alike; then, one kind at a time, the parts that carry a song longer,
-  // while that brings it nearer the target.
-  let f = 2.5;
-  do {
-    for (const k of kinds) bars[k] = snap(KINDS[k].bars * f);
-    f -= 0.05;
-  } while (f > 0.5 && total() > target);
-  for (const k of GROW) {
-    if (!(k in bars)) continue;
-    const longer = fits.find(n => n > bars[k]);
-    if (!longer || longer > KINDS[k].bars * 2.5) continue;
-    const before = total(), was = bars[k];
-    bars[k] = longer;
-    if (Math.abs(total() - target) >= Math.abs(before - target)) bars[k] = was;
+  for (const kind of kinds) {
+    if (!EDGES[kind]) continue;
+    const x     = long[kind] ? 2 : 1;
+    const most  = EDGES[kind].most * x;
+    const short = EDGE_BARS.filter(n => n * bar <= most);
+    const want  = Math.min(most, Math.max(EDGE_LEAST, target * EDGES[kind].share * x)) / bar;
+    const opts  = short.length ? short : EDGE_BARS.slice(0, 1);
+    // The outro takes what's left at the end (below), so it starts short.
+    bars[kind] = kind === kinds.at(-1) ? opts.findLast(n => n <= want) ?? opts[0] : nearest(opts, want);
   }
+  const total = () => kinds.reduce((sum, k) => sum + bars[k], 0) * bar;
+  const fill = f => { for (const k of kinds) if (!EDGES[k]) bars[k] = snap(KINDS[k].bars * f); };
+  // A form too long for the song, even with every section at half its
+  // length, loses sections (see CUTS).
+  for (const [run, keep] of CUTS[form]) {
+    for (;;) {
+      fill(0.5);
+      if (total() <= room || kinds.filter(k => k === run[0]).length <= keep) break;
+      const i = kinds.findIndex((_, j) => run.every((k, n) => kinds[j + n] === k));
+      if (i < 0) break;
+      kinds.splice(i, run.length);
+    }
+  }
+  // Everything as short as it will go to fit, all kinds scaled alike; then,
+  // one kind at a time, the parts that carry a song longer, while it still
+  // fits, up to three times their bars.
+  const shortest = () => {
+    let f = 2.5;
+    do {
+      fill(f);
+      f -= 0.05;
+    } while (f > 0.1 && total() > room);
+  };
+  shortest();
+  // Still too long (a short song, a slow tempo): sections of half an
+  // eight-bar progression; then a shorter outro, then a shorter intro, down
+  // to a bar each; then only the intro, the hook and the outro.
+  if (total() > room) {
+    fits = NICE_BARS;
+    shortest();
+  }
+  for (const k of [kinds.at(-1), kinds[0]]) {
+    while (bars[k] > 1 && total() > room) bars[k] = EDGE_BARS[EDGE_BARS.indexOf(bars[k]) - 1];
+  }
+  if (total() > room) {
+    const hook = kinds.findLastIndex(k => KINDS[k].hook);
+    kinds = kinds.filter((k, i) => EDGES[k] || i === hook);
+    shortest();
+  }
+  for (let grew = true; grew;) {
+    grew = false;
+    for (const k of GROW) {
+      if (!kinds.includes(k)) continue;
+      const longer = fits.find(n => n > bars[k]);
+      if (!longer || longer > KINDS[k].bars * 3) continue;
+      const was = bars[k];
+      bars[k] = longer;
+      if (total() > room) bars[k] = was;
+      else grew = true;
+    }
+  }
+  // What's left, section by section, so the song comes out exactly its
+  // length: a unit at a time onto the sections a song stretches -- its last
+  // chorus or drop first, then the others it's about -- up to twice their
+  // length; the bars still left onto the outro; and less than a bar onto the
+  // last chord, held whole beats longer and ringing the rest.
+  const lens = kinds.map(k => bars[k]);
+  let left = Math.floor((room - total()) / bar + 1e-9);
+  const lastHook = kinds.findLastIndex(k => KINDS[k].hook);
+  const stretch = kinds.map((k, i) => i)
+    .filter(i => GROW.includes(kinds[i]))
+    .sort((a, b) => (b === lastHook) - (a === lastHook) || GROW.indexOf(kinds[a]) - GROW.indexOf(kinds[b]) || b - a);
+  for (let grew = true; grew;) {
+    grew = false;
+    for (const i of stretch) {
+      if (left < unit / 4 || lens[i] + unit / 4 > 2 * bars[kinds[i]]) continue;
+      lens[i] += unit / 4;
+      left -= unit / 4;
+      grew = true;
+    }
+  }
+  if (left > 0) lens[lens.length - 1] += left;
+  const spare = Math.max(0, room - lens.reduce((a, n) => a + n, 0) * bar);
+  const endBeats = hold + Math.floor(spare / spb + 1e-9);
 
   // A key change up for the last chorus, now and then.
-  const lift = form === 'song' && r() < 0.3 ? (r() < 0.75 ? 2 : 1) : 0;
+  // Not for a song's only chorus: there's nothing to lift it from.
+  let lift = form === 'song' && r() < 0.3 ? (r() < 0.75 ? 2 : 1) : 0;
+  if (kinds.filter(k => k === 'chorus').length < 2) lift = 0;
   const lastChorus = kinds.lastIndexOf('chorus');
 
   const sections = [];
   const seen = {};
-  const recipes = {};
   let at = 0, shift = 0;
   kinds.forEach((kind, i) => {
     const k = KINDS[kind];
-    const beats = bars[kind] * 4;
+    const beats = lens[i] * 4;
     const next = kinds[i + 1];
     if (i === lastChorus && lift) shift = lift;
-    // The same recipe for every section of a kind: they're the same section.
-    recipes[kind] ??= RECIPES[kind](r);
     seen[kind] = (seen[kind] ?? 0) + 1;
     const final = kind === 'chorus' && i === lastChorus || kind === 'drop' && i === kinds.lastIndexOf('drop');
     sections.push({
@@ -226,7 +339,7 @@ export function composeSong(plan, roleOf) {
       // Transitions
       fill:     !!next && form !== 'ambient',                         // drum fill on the last bar
       roll:     kind === 'build',                                     // snare roll building into the drop
-      gap:      kind === 'build' && next === 'drop' && r() < 0.6 ? pick([1, 1, 2]) : 0, // silence before the drop
+      gap:      kind === 'build' && next === 'drop' ? gap : 0,        // silence before the drop
       riser:    kind === 'build',
       swell:    (next === 'chorus' || next === 'swell') && kind !== 'chorus',
       impact:   kind === 'drop' || (kind === 'chorus' && final),
@@ -240,7 +353,6 @@ export function composeSong(plan, roleOf) {
   for (let i = 1; i < sections.length; i++) sections[i].crash ||= sections[i - 1].fill;
 
   // The end: the tonic, held.
-  const endBeats = Math.max(8, cb);
   sections.push({
     kind: 'end', label: KINDS.end.label, n: 1, start: at, beats: endBeats,
     energy: KINDS.end.energy, prog: [0], colours: [1], roles: RECIPES.end(r), hook: false, shift,
@@ -248,7 +360,10 @@ export function composeSong(plan, roleOf) {
   });
   at += endBeats;
 
-  const song = { seed, form, sections, end: at, tempo: plan.state.tempo };
+  // Exactly its length, unless even its shortest form is longer.
+  const seconds = Math.max(target, LOOKAHEAD + at * spb + RING);
+  const song = { seed, form, sections, end: at, tempo: plan.state.tempo, target, seconds,
+    ring: seconds - LOOKAHEAD - at * spb };
   arrange(song, plan, roleOf);
   return song;
 }
@@ -312,5 +427,6 @@ export const song = {
   },
 };
 
-// Seconds from the first downbeat to the end of the last chord.
-export const songSeconds = s => s.end * 60 / s.tempo;
+// A song's whole length, as an export has it: from the lead-in before its
+// first downbeat to the end of its last chord's ring.
+export const songSeconds = s => s.seconds;

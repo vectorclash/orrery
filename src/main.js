@@ -1,4 +1,4 @@
-import { state, rootName, scaleName, LOOKAHEAD, START_DELAY, ROOT_BASE_MIDI, pick } from './state.js';
+import { state, rootName, scaleName, START_DELAY, ROOT_BASE_MIDI, pick } from './state.js';
 import { audio, ensureAudioRunning, audioStopped, setRoom, ROOMS, heardTime } from './audio/context.js';
 import { everyTick } from './audio/ticker.js';
 import {
@@ -17,7 +17,7 @@ import { transport } from './audio/transport.js';
 import { song, songSeconds } from './audio/song.js';
 import { newSeed } from './random.js';
 import { showPending, clearPending } from './pending.js';
-import { encodeConfig, decodeConfig, ALL_INST_KEYS } from './share.js';
+import { encodeConfig, decodeConfig, planFromConfig, ALL_INST_KEYS } from './share.js';
 import { startAnimation } from './visuals/animate.js';
 import { post } from './visuals/post.js';
 
@@ -241,8 +241,6 @@ const kindBtns             = document.querySelectorAll('.kind-btn');
 const songExportBtn        = document.getElementById('song-export-btn');
 const formBtns             = document.querySelectorAll('.form-btn');
 const newSongBtn           = document.getElementById('new-song-btn');
-const formLength           = document.getElementById('form-length');
-const lengthRow            = document.getElementById('length-row');
 const panelHideBtn         = document.getElementById('panel-hide-btn');
 
 // ─── Enable state (all off by default) ───────────────────────────────────────
@@ -265,10 +263,9 @@ let infiniteKind      = localStorage.getItem('orrery.infinite') === 'songs' ? 's
 let songPlan          = null;   // the song Infinite mode is playing (or last played)
 let manualForm        = 'loop'; // Edit mode: a LOOP of the arrangement, or a SONG made from it
 let manualSongSeed    = newSeed();
-
-// A song's last chord rings out for this long (seconds) before the next song
-// starts, or before an export of it ends.
-const SONG_TAIL = 4;
+// LENGTH, in seconds, kept for each form: a loop's export, a song's length.
+let loopLength        = 10;
+let songLength        = 180;
 
 // ─── Populate selects ─────────────────────────────────────────────────────────
 ROOT_NAMES.forEach((name, i) => {
@@ -347,7 +344,7 @@ function refreshSummaries() {
     ...(state.sweep > 0 ? [`SWEEP ${Math.round(state.sweep * 100)}%`] : []),
   ].join(' · ');
   instrumentsSummary.textContent = enabledInstrumentLabels().join(' · ') || 'NONE';
-  showSongLength();
+  showLength();
 }
 
 // Briefly lights up a section's summary, so a RANDOM on a collapsed section
@@ -690,8 +687,12 @@ chordSlider.addEventListener('input', () => {
   clearGenreHighlight();
 });
 lengthInput.addEventListener('input', () => {
-  lengthValue.textContent = `${lengthInput.value}s`;
+  if (manualForm === 'song') songLength = parseInt(lengthInput.value, 10);
+  else loopLength = parseInt(lengthInput.value, 10);
+  showLength();
 });
+// A song of another length is another song: from the top, as NEW SONG.
+lengthInput.addEventListener('change', () => { if (manualForm === 'song') replayManual(); });
 rootSelect.addEventListener('change', () => {
   applyFeel({ rootMidi: ROOT_BASE_MIDI + parseInt(rootSelect.value, 10) });
   clearGenreHighlight();
@@ -719,6 +720,7 @@ function syncManualFromInfinite() {
     ].filter(k => k in manualEnabled)));
     setGenreHighlight(genreButtons.get(GENRES.find(g => g.name === songPlan.genre)) ?? null);
     manualSongSeed = songPlan.song.seed;
+    songLength = songFor(songPlan).target;
     setForm('song');
     return;
   }
@@ -899,7 +901,7 @@ function infiniteTick() {
   tick();
   if (infiniteKind === 'songs') {
     // The last chord has rung out: the next song.
-    if (songOver() && audio.ctx.currentTime > transport.timeAt(song.current.end) + SONG_TAIL) nextSongNow();
+    if (songOver() && audio.ctx.currentTime > transport.timeAt(song.current.end) + song.current.ring) nextSongNow();
     updateSongDisplay();
   } else {
     updateInfiniteDisplay();
@@ -1046,7 +1048,7 @@ function manualPlan() {
       ...(drumSubs.length ? ['drums'] : []),
       ...SIMPLE_VOICES.filter(({ key }) => manualEnabled[key]).map(({ voice }) => voice.name),
     ],
-    ...(asSong ? { song: { seed: manualSongSeed } } : {}),
+    ...(asSong ? { song: { seed: manualSongSeed, length: songLength } } : {}),
   };
 }
 
@@ -1181,7 +1183,7 @@ function manualEveryTick() {
   manualTick();
   showManualStatus();
   // A song stops when its last chord has rung out.
-  if (songOver() && audio.ctx.currentTime > transport.timeAt(song.current.end) + SONG_TAIL) {
+  if (songOver() && audio.ctx.currentTime > transport.timeAt(song.current.end) + song.current.ring) {
     stopManualPlayback();
     return;
   }
@@ -1315,11 +1317,11 @@ function stopExport() {
   updatePlayEnabled();
 }
 
-// How long an export of `plan` runs: a loop for its LENGTH; a song from its
-// first downbeat to its last chord, rung out.
+// How long an export of `plan` runs: a loop for its LENGTH; a song for its
+// own length, its last chord rung out.
 function exportSeconds(plan) {
-  if (plan.song) return LOOKAHEAD + songSeconds(songFor(plan)) + SONG_TAIL;
-  return Math.max(5, parseInt(lengthInput.value, 10) || 10);
+  if (plan.song) return songSeconds(songFor(plan));
+  return Math.max(5, loopLength);
 }
 
 function resetExportButton() {
@@ -1383,11 +1385,11 @@ songExportBtn.addEventListener('click', async () => {
 
 // ─── Form: a loop, or a song ──────────────────────────────────────────────────
 // LOOP plays the arrangement as it is, for as long as it plays (and exports
-// for LENGTH). SONG composes a song from it (see src/audio/song.js): the
-// instruments come and go section by section and the feel follows each
-// section's energy, around the controls' settings. The song is its seed: the
-// same until NEW SONG, so what plays is what exports, and a share link
-// carries it.
+// for LENGTH). SONG composes a song from it (see src/audio/song.js), as near
+// LENGTH as whole phrases come: the instruments come and go section by
+// section and the feel follows each section's energy, around the controls'
+// settings. The song is its seed and length: the same until NEW SONG or a new
+// LENGTH, so what plays is what exports, and a share link carries both.
 function setForm(form) {
   manualForm = form;
   formBtns.forEach(b => {
@@ -1395,14 +1397,22 @@ function setForm(form) {
     b.classList.toggle('active', on);
     b.setAttribute('aria-pressed', String(on));
   });
-  lengthRow.hidden = form === 'song';
   newSongBtn.hidden = form !== 'song';
-  showSongLength();
+  // min and max first, so the value isn't clamped to the other form's range.
+  const asSong = form === 'song';
+  lengthInput.min   = asSong ? 30 : 5;
+  lengthInput.max   = asSong ? 360 : 300;
+  lengthInput.step  = 5;
+  lengthInput.value = asSong ? songLength : loopLength;
+  showLength();
 }
 
-function showSongLength() {
+// A loop's LENGTH; a song's as composed, which is LENGTH unless even the
+// shortest song at this tempo is longer.
+function showLength() {
+  if (manualForm !== 'song') { lengthValue.textContent = `${loopLength}s`; return; }
   const any = Object.values(manualEnabled).some(v => v);
-  formLength.textContent = manualForm === 'song' && any ? clock(songSeconds(songFor(manualPlan()))) : '';
+  lengthValue.textContent = clock(any ? songSeconds(songFor(manualPlan())) : songLength);
 }
 
 // From the top, in the new form or with the new song: now if playing, at
@@ -1422,7 +1432,7 @@ formBtns.forEach(b => b.addEventListener('click', () => {
 }));
 newSongBtn.addEventListener('click', () => {
   manualSongSeed = newSeed();
-  showSongLength();
+  showLength();
   showPending(newSongBtn);
   replayManual();
 });
@@ -1477,12 +1487,16 @@ function applyConfig(cfg) {
   state.room         = cfg.rm ?? state.room;
   showFeel();
   setInstruments(new Set(cfg.m || []));
-  if (cfg.song) manualSongSeed = cfg.song.seed;
+  if (cfg.song) {
+    manualSongSeed = cfg.song.seed;
+    // A link from before songs had lengths: the length the song drew itself.
+    songLength = cfg.song.length ?? songFor(planFromConfig(cfg)).target;
+  }
   setForm(cfg.song ? 'song' : 'loop');
 }
 
 manualShareBtn.addEventListener('click', () => {
-  const hash = `c=${encodeConfig(manualEnabled, manualForm === 'song' ? manualSongSeed : null)}`;
+  const hash = `c=${encodeConfig(manualEnabled, manualForm === 'song' ? { seed: manualSongSeed, length: songLength } : null)}`;
   history.replaceState(null, '', `#${hash}`);
   navigator.clipboard.writeText(window.location.href).then(() => {
     manualShareBtn.textContent = 'COPIED!';

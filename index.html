@@ -233,7 +233,6 @@
     .kind-action.recording { border-color: #8a6a6a; color: #c8a8a8; }
     .kind-action:disabled { opacity: 0.5; cursor: not-allowed; }
     #form-row .kind-toggle { background: transparent; }
-    #form-length { margin-left: auto; }
 
     /* ─── Collapsible sections ──────────────────────────────────────────────── */
     .collapsible-section {
@@ -1042,12 +1041,11 @@
           <button class="kind-btn form-btn" data-form="song" title="A song made from it: intro, sections, outro">SONG</button>
         </div>
         <button class="header-btn" id="new-song-btn" hidden title="Compose a different song from the same settings">NEW SONG</button>
-        <span class="ctrl-value" id="form-length"></span>
       </div>
 
       <div class="ctrl-row" id="length-row">
         <span class="ctrl-label">LENGTH</span>
-        <input type="range" class="feel-slider" id="manual-length" min="5" max="300" step="5" value="10">
+        <input type="range" class="feel-slider" id="manual-length" min="5" max="300" step="5" value="10" title="How long a loop exports for, or how long a song is">
         <span class="ctrl-value" id="manual-length-value">10s</span>
       </div>
 
