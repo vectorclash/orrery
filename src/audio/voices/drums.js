@@ -152,7 +152,8 @@ function crash(t, v) {
 }
 
 // Toms and congas are tuned to the key: low to the root, high to the fifth.
-function drum(t, v, hz, piece, decay, verb) {
+// `gated` sends them to the gated room (see gateIn) as well as the hall.
+function drum(t, v, hz, piece, decay, verb, gated = 0) {
   const o = osc('sine', hz * 1.5, t, t + decay + 0.1), e = gain(0);
   o.frequency.setValueAtTime(hz * 1.5, t);
   o.frequency.exponentialRampToValueAtTime(hz, t + 0.04);
@@ -162,6 +163,7 @@ function drum(t, v, hz, piece, decay, verb) {
   perc(ne.gain, t, v * 0.25, 0.02, 0.0005);
   n.connect(bp); bp.connect(ne); ne.connect(out(piece));
   send(e, audio.reverbSend, verb);
+  if (gated) { const wet = gain(gated); e.connect(wet); wet.connect(gateIn()); }
 }
 const tomLo   = (t, v) => drum(t, v, midiToHz(fold(state.rootMidi, 38, 49)), 'tomLo', 0.45, 0.25);
 const tomHi   = (t, v) => drum(t, v, midiToHz(fold(state.rootMidi + 7, 45, 56)), 'tomHi', 0.32, 0.25);
@@ -279,13 +281,14 @@ function gatedSnare(t, v) {
   hit.connect(out()); hit.connect(wet); wet.connect(gateIn());
 }
 
-// Simmons SDS-V electronic tom: an oscillator whose pitch falls steeply
-// through the whole note (the "pew"), a filtered-noise stick attack, and some
-// of the gated room. Tuned to the key: root, fifth and octave.
+// Simmons SDS-V electronic tom: an oscillator whose pitch falls through the
+// whole note (the "pew") -- an octave, not the laser zap a deeper bend
+// gives -- a filtered-noise stick attack, and some of the gated room. Tuned
+// to the key: root, fifth and octave.
 function simmons(t, v, hz, piece) {
-  const o = osc('triangle', hz * 2.2, t, t + 0.6), body = gain(0);
-  o.frequency.setValueAtTime(hz * 2.2, t);
-  o.frequency.exponentialRampToValueAtTime(hz * 0.7, t + 0.5);
+  const o = osc('triangle', hz * 1.6, t, t + 0.6), body = gain(0);
+  o.frequency.setValueAtTime(hz * 1.6, t);
+  o.frequency.exponentialRampToValueAtTime(hz * 0.8, t + 0.5);
   perc(body.gain, t, v, 0.5, 0.001);
   const n = noise(t, 0.06), bp = filter('bandpass', hz * 6, 1.2), stick = gain(0);
   perc(stick.gain, t, v * 0.4, 0.04, 0.0005);
@@ -297,6 +300,11 @@ function simmons(t, v, hz, piece) {
 const simLo  = (t, v) => simmons(t, v, midiToHz(fold(state.rootMidi, 38, 49)), 'tomLo');
 const simMid = (t, v) => simmons(t, v, midiToHz(fold(state.rootMidi + 7, 45, 56)), 'tomMid');
 const simHi  = (t, v) => simmons(t, v, midiToHz(fold(state.rootMidi + 12, 50, 61)), 'tomHi');
+// Gated toms, the 80s record's usual fill: the acoustic tom, big in the gated
+// room, at the Simmons' pitches.
+const gtomLo  = (t, v) => drum(t, v, midiToHz(fold(state.rootMidi, 38, 49)), 'tomLo', 0.3, 0.1, 0.7);
+const gtomMid = (t, v) => drum(t, v, midiToHz(fold(state.rootMidi + 7, 45, 56)), 'tomMid', 0.28, 0.1, 0.7);
+const gtomHi  = (t, v) => drum(t, v, midiToHz(fold(state.rootMidi + 12, 50, 61)), 'tomHi', 0.25, 0.1, 0.7);
 
 // Per-piece loudness (before density/brightness scaling and velocity).
 const KIT = {
@@ -309,7 +317,8 @@ const KIT = {
   shaker:  [shaker,  0.06],  bell:  [cowbell, 0.07], swish:   [swish,   0.3],
   btap:    [brushTap, 0.34],
   gsnare:  [gatedSnare, 0.2], simLo: [simLo,   0.26], simMid:  [simMid,  0.24],
-  simHi:   [simHi,   0.22],
+  simHi:   [simHi,   0.22],  gtomLo: [gtomLo, 0.26], gtomMid: [gtomMid, 0.24],
+  gtomHi:  [gtomHi,  0.22],
   tamb:    [tambourine, 0.09],
 };
 
@@ -320,10 +329,15 @@ const KIT = {
 // 16 steps = sixteenths; 12 steps = eighth-note triplets (a swung or 12/8 bar).
 //   swing   — MPC-style: fraction of an eighth taken by its first sixteenth
 //   human   — small timing/velocity drift, for styles played by a person
-//   fill    — 'snare' or 'tom' fill at the end of 4-bar phrases (then a crash)
+//   fill    — a kind of fill from FILLS (then a crash), or { kind: weight }
+//             to choose one each time
+//   machine — programmed, not played: a fill only into a song's chorus or
+//             drop (outside a song, now and then every 16 bars).
+//             Otherwise a fill ends every 8th bar and most 4th bars.
 //   rolls   — trap hi-hat rolls
 //   bpm     — tempo range the style suits (Infinite mode picks by tempo)
 const VEL = { X: 1.15, x: 1, o: 0.62, g: 0.35, f: 0.15 };
+const SYNTH_FILLS = { gsnare: 2, gtom: 2, simmons: 1 };
 
 const STYLES = {
   minimal: { bpm: [50, 140], tracks: {
@@ -363,7 +377,7 @@ const STYLES = {
     kick:  'x.....x.x.....x.',
     rim:   'x..x..x...x..x..',
     hat:   'o.g.o.g.o.g.o.g.' } },
-  house: { bpm: [110, 140], fill: 'snare', tracks: {
+  house: { bpm: [110, 140], fill: 'snare', machine: true, tracks: {
     kick:   'x...x...x...x...',
     clap:   '....x.......x...',
     ohat:   '..x...x...x...x.',
@@ -410,13 +424,14 @@ const STYLES = {
     snare:  '....x.......x...',
     hat:    'x.o.x.o.x.o.x.o.',
     shaker: '.g.g.g.g.g.g.g.g' } },
-  // 80s drum machine: the rock beat with a gated snare and Simmons fills.
-  synthwave: { bpm: [80, 125], fill: 'simmons', tracks: {
+  // 80s drum machine: the rock beat with a gated snare; its fills gated
+  // snare or toms, sometimes Simmons.
+  synthwave: { bpm: [80, 125], fill: SYNTH_FILLS, machine: true, tracks: {
     kick:   'x.......x.x.....',
     gsnare: '....x.......x...',
     hat:    'x.o.x.o.x.o.x.o.' } },
   // Outrun: four on the floor under driving sixteenths (Kavinsky, Carpenter Brut).
-  outrun: { bpm: [95, 130], fill: 'simmons', tracks: {
+  outrun: { bpm: [95, 130], fill: SYNTH_FILLS, machine: true, tracks: {
     kick:   'x...x...x...x...',
     gsnare: '....x.......x...',
     hat:    'xoxoxoxoxoxoxoxo' } },
@@ -428,7 +443,7 @@ const STYLES = {
   // hat chokes the open one (see hat), so the two on one step left only a tick.
   // Deep house: a swung 909 groove -- off-beat open hats, a shaker and rim
   // ghosts under the clap.
-  deep_house: { dance: true, bpm: [115, 128], swing: 0.56, human: true, fill: 'snare', tracks: {
+  deep_house: { dance: true, bpm: [115, 128], swing: 0.56, human: true, fill: 'snare', machine: true, tracks: {
     k909:   'x...x...x...x...',
     clap:   '....x.......x...',
     ohat:   '..o...o...o...o.',
@@ -443,15 +458,14 @@ const STYLES = {
     ohat:  '..x...x...x...x.',
     rim:   '...g.......g..g.',
     clap:  '....g.......g...' } },
-  // Trance: four on the floor, a clap on two and four, off-beat open hats and
-  // a snare roll into every fourth bar.
-  trance: { dance: true, bpm: [128, 140], fill: 'snare', tracks: {
+  // Trance: four on the floor, a clap on two and four, off-beat open hats.
+  trance: { dance: true, bpm: [128, 140], fill: 'snare', machine: true, tracks: {
     k909:  'x...x...x...x...',
     clap:  '....x.......x...',
     ohat:  '..x...x...x...x.',
     hat:   'g...g...g...g...' } },
   // Big room / EDM: a heavy kick, clap and snare stacked on two and four.
-  big_room: { dance: true, bpm: [120, 132], fill: 'snare', tracks: {
+  big_room: { dance: true, bpm: [120, 132], fill: 'snare', machine: true, tracks: {
     k909:  'X...X...X...X...',
     clap:  '....x.......x...',
     snare: '....o.......o...',
@@ -496,7 +510,7 @@ const STYLES = {
     congaLo: 'o.....o.........' } },
   // Drum & bass: the two-step -- a kick on one and the "and" of three, the
   // snare on two and four with ghosts between, over driving hats.
-  dnb: { dance: true, bpm: [160, 178], fill: 'snare', tracks: {
+  dnb: { dance: true, bpm: [160, 178], fill: 'snare', machine: true, tracks: {
     kick:   'x.........x.....',
     snare:  '....x..g.g..x..g',
     hat:    'x.o.x.o.x.o.x.o.',
@@ -515,7 +529,10 @@ const FILLS = {
   16: {
     snare: { 4: { snare: 'goxX' }, 8: { snare: 'g.gooxxX' } },
     tom:   { 4: { tomHi: 'xo..', tomLo: '..xx' }, 8: { snare: 'x.......', tomHi: '.xx.o...', tomLo: '....xxoX' } },
-    // Electronic toms rolling down from high to low.
+    // The 80s kit: gated snare, gated toms, and electronic toms, each rolling
+    // down from high to low.
+    gsnare:  { 4: { gsnare: 'xoxX' }, 8: { gsnare: 'x.x.xoxX' } },
+    gtom:    { 4: { gtomHi: 'xo..', gtomMid: '..x.', gtomLo: '...X' }, 8: { gsnare: 'x.......', gtomHi: '..xo....', gtomMid: '....xo..', gtomLo: '......xX' } },
     simmons: { 4: { simHi: 'xx..', simMid: '..x.', simLo: '...x' }, 8: { simHi: 'xxo.....', simMid: '...xxo..', simLo: '......xX' } },
   },
   12: {
@@ -542,7 +559,7 @@ const KICKS   = ['kick', 'k808', 'k909', 'taiko'];
 const SNARES  = ['snare', 'gsnare', 'clap', 'rim'];
 // What each kind of roll stops while it plays: the parts it takes over.
 const ROLLED  = {
-  backbeat: ['snare', 'gsnare', 'clap', 'rim', 'tomHi', 'tomLo', 'simLo', 'simMid', 'simHi'],
+  backbeat: ['snare', 'gsnare', 'clap', 'rim', 'tomHi', 'tomLo', 'simLo', 'simMid', 'simHi', 'gtomLo', 'gtomMid', 'gtomHi'],
   kick:     KICKS,
   perc:     ['congaLo', 'congaHi', 'tomLo', 'tomHi', 'bell'],
 };
@@ -574,6 +591,13 @@ function rollHit(b, from, end, i, steps) {
 }
 
 // ─── Sequencer ────────────────────────────────────────────────────────────────
+// One key of `weights` ({ key: weight }), drawn in proportion to its weight.
+function weighted(weights) {
+  let r = random() * Object.values(weights).reduce((a, w) => a + w, 0);
+  for (const [k, w] of Object.entries(weights)) if ((r -= w) < 0) return k;
+  return Object.keys(weights).at(-1);
+}
+
 let style = 'four_four';
 let curBar = -1, fill = null, fillFrom = 99, crashNext = false, rollSteps = new Set();
 let sec = null;      // the song section the current bar is in, or null
@@ -588,12 +612,13 @@ function startBar(bar, p, steps) {
   const lastBar = !!sec && bar * 4 + 4 >= end;
   if (sec && bar * 4 === sec.start && sec.crash) crashNext = true;
   const wanted = rollFrom !== null && bar * 4 >= rollFrom ? false
-    : lastBar ? sec.fill
+    : lastBar ? sec.fill && (!p.machine || !!song.sectionAt(end)?.hook)
+    : p.machine ? !sec && bar % 16 === 15 && random() < 0.6
     : bar % 4 === 3 && (bar % 8 === 7 || random() < 0.55);
   if (p.fill && wanted) {
     const beats = bar % 8 === 7 || lastBar ? 2 : 1;
     const n = beats * steps / 4;
-    fill = FILLS[steps][p.fill][n];
+    fill = FILLS[steps][typeof p.fill === 'string' ? p.fill : weighted(p.fill)][n];
     fillFrom = steps - n;
   }
   rollSteps = new Set();
