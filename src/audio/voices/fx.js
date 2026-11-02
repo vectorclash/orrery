@@ -1,5 +1,5 @@
 import { audio, getVoiceBus, noise } from '../context.js';
-import { beat, rand } from '../../state.js';
+import { state, beat, rand, midiToHz } from '../../state.js';
 import { createVoice, transport } from '../transport.js';
 import { song } from '../song.js';
 import { osc, gain, filter, send } from '../synth.js';
@@ -7,8 +7,11 @@ import { osc, gain, filter, send } from '../synth.js';
 // ─── Transitions ──────────────────────────────────────────────────────────────
 // The sounds that join a song's sections, scheduled by the section they belong
 // to (see song.js):
-//   riser     -- a build's white noise, a band sweeping up and swelling, cut
-//                dead where the build ends (or its silent beat begins)
+//   riser     -- a build's, one of three (see BUILDS in song.js), cut dead
+//                where the build ends (or its silent beat begins):
+//                noise   -- white noise, a band sweeping up and swelling
+//                pitch   -- two detuned saws gliding up two octaves onto the key
+//                cymbal  -- a reversed cymbal over the last bars, long and bright
 //   swell     -- a reversed-cymbal swell over the last two beats into a chorus
 //   impact    -- the downbeat of a drop: a sub boom falling in pitch and a
 //                burst of noise into the hall
@@ -31,6 +34,45 @@ function riser(t, end) {
   n.connect(bp); bp.connect(env); env.connect(bus());
   send(env, audio.reverbSend, 0.35);
 }
+
+function pitchRiser(t, end) {
+  const dur = end - t;
+  if (dur <= 0.1) return;
+  // Onto the tonic around C6, from two octaves below.
+  const top = midiToHz(84 + ((state.rootMidi % 12) + 6) % 12 - 6);
+  const lp = filter('lowpass', 600, 1.5);
+  lp.frequency.setValueAtTime(600, t);
+  lp.frequency.exponentialRampToValueAtTime(9000, end);
+  const env = gain(0);
+  env.gain.setValueAtTime(0.0001, t);
+  env.gain.exponentialRampToValueAtTime(0.09, end - 0.01);
+  env.gain.linearRampToValueAtTime(0, end);
+  for (const cents of [-14, 14]) {
+    const o = osc('sawtooth', top / 4, t, end + 0.02, cents);
+    o.frequency.setValueAtTime(top / 4, t);
+    o.frequency.exponentialRampToValueAtTime(top, end);
+    o.connect(lp);
+  }
+  lp.connect(env); env.connect(bus());
+  send(env, audio.reverbSend, 0.3);
+}
+
+function cymbal(t, end) {
+  const from = Math.max(t, end - 8 * beat());
+  if (end - from <= 0.1) return;
+  const n = noise(from, end - from + 0.02);
+  const hp = filter('highpass', 5000, 0.7);
+  hp.frequency.setValueAtTime(5000, from);
+  hp.frequency.exponentialRampToValueAtTime(2500, end);
+  const env = gain(0);
+  env.gain.setValueAtTime(0.0001, from);
+  env.gain.exponentialRampToValueAtTime(0.3, end - 0.01);
+  env.gain.linearRampToValueAtTime(0, end);
+  n.connect(hp); hp.connect(env); env.connect(bus());
+  send(env, audio.reverbSend, 0.5);
+}
+
+const RISERS = { noise: riser, pitch: pitchRiser, cymbal };
 
 function swell(t, end) {
   const n = noise(t, end - t + 0.02);
@@ -81,7 +123,7 @@ function play(t, b) {
   if (!sec) return 1;
   const end = sec.start + sec.beats;
   if (b === sec.start) {
-    if (sec.riser)    riser(t, transport.timeAt(end - sec.gap));
+    if (sec.build)    RISERS[sec.build.riser](t, transport.timeAt(end - sec.gap));
     if (sec.impact)   impact(t);
     if (sec.downlift) downlift(t, Math.min(8, sec.beats) * beat() * rand(0.95, 1.05));
   }

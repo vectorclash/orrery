@@ -38,15 +38,15 @@ export function closedAt(b) {
   return 1 - x * x;
 }
 
-// A song's build (see song.js) takes the filter over, whatever the depth: shut
-// to about 850 Hz at the start and opening, slowly and then in a rush, until
-// it is fully open where the build ends -- the music brightening into the drop.
-const BUILD_SHUT = 0.7;
+// A song's build (see BUILDS in song.js) can take the filter over, whatever
+// the depth: shut as far as the build says (0.7 is about 850 Hz, 0.9 about
+// 350) at the start and opening, slowly and then in a rush, until it is fully
+// open where the build ends -- the music brightening into the drop.
 function buildClosed(b) {
   const sec = song.sectionAt(b);
-  if (!sec?.riser) return null;
+  if (!sec?.build?.filter) return null;
   const x = Math.min(1, (b - sec.start) / Math.max(1, sec.beats - sec.gap));
-  return BUILD_SHUT * (1 - x * x);
+  return sec.build.filter * (1 - x * x);
 }
 
 let active = false;

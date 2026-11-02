@@ -3,6 +3,7 @@ import { state, beat, rand, pick, currentScale, midiToHz, random } from '../../s
 import { createVoice } from '../transport.js';
 import { logNote } from '../notes.js';
 import { harmony, bassRoot } from '../harmony.js';
+import { song } from '../song.js';
 import { osc, gain, filter, perc, ahr, lfo, pluckBuffer, playBuffer, shaper } from '../synth.js';
 
 // ─── Bass ─────────────────────────────────────────────────────────────────────
@@ -395,7 +396,33 @@ function logDrum(t, midi, dur) {
 }
 
 // ─── Scheduling ───────────────────────────────────────────────────────────────
+// A build's pedal (see BUILDS in song.js): the chord's root in the style's
+// own sound, coming in halfway on the beat and then in eighths for the last
+// quarter, driving into the drop. Short notes, so the build stays under the
+// drop it leads to.
+function pedal(t, b, sec) {
+  const off = b % 1 > 0.25, x = (b - sec.start) / sec.beats;
+  if (x < 0.5 || (off && x < 0.75)) return 0.5;
+  const midi = root(harmony.at(b));
+  const dur = beat() * 0.5 * 0.6;
+  prev = midi;
+  if (style === 'acid') acidNote(t, midi, dur, off, null);
+  else if (style === 'deep') deepBass(t, midi, dur);
+  else if (style === 'disco') discoBass(t, midi, dur);
+  else if (style === 'reese') reeseBass(t, midi, dur);
+  else if (style === 'log') logDrum(t, midi, dur);
+  else if (style === '808') bass808(t, midi, dur, null);
+  else if (style === 'sub') subBass(t, midi, dur);
+  else if (style === 'rumble') rumbleBass(t, midi, dur);
+  else if (style === 'plucked' || style === 'walking') stringBass(t, midi, dur, { bright: 0.4, pick: 0.18, t60: 1.2, level: off ? 0.46 : 0.38 });
+  else synthBass(t, midi, dur);
+  return 0.5;
+}
+
 function play(t, b) {
+  const sec = song.sectionAt(b), build = sec?.build;
+  if (build?.kickOut && b >= sec.start + sec.beats - sec.gap - build.kickOut - 1e-6) return 0.25; // out with the kick
+  if (build?.pedal) return pedal(t, b, sec);
   const bar = Math.floor(b / 4 + 1e-9), pos = b - bar * 4;
   if (bar !== curBar) {
     curBar = bar;

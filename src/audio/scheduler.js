@@ -232,6 +232,7 @@ function drift() {
 // restarting there, and every random stream reseeded from the kind of section
 // it is, so each verse, chorus or drop plays what the first one did. Every
 // beat: the feel, from the section's energy and the song's own (song.base).
+// Near a build's end, the chord it holds (see BUILDS in song.js).
 let songBeat = 0;     // the next beat the conductor acts on
 let songBass = false; // whether the bass plays in this section
 
@@ -257,17 +258,20 @@ function onBeat(b) {
   const sec = song.sectionAt(b);
   if (b === sec.start) enterSection(sec, b);
   setFeel(song.energyAt(sec, b));
+  if (b === sec.holdFrom) harmony.setForm([sec.build.hold], [0.5], b);
   const end = sec.start + sec.beats;
   if (sec.gap && b === end - sec.gap) gateGap(transport.timeAt(b), transport.timeAt(end));
 }
 
 function enterSection(sec, b) {
   reseedStreams(sec.kind);
-  restream('ensemble', sec.hook ? 'hook' : sec.kind);
+  // A build that teases the hook plays its motif, as the drop will.
+  const hook = sec.hook || !!sec.build?.tease;
+  restream('ensemble', hook ? 'hook' : sec.kind);
   state.rootMidi = ROOT_BASE_MIDI + ((song.base.rootMidi - ROOT_BASE_MIDI + sec.shift) % 12 + 12) % 12;
   harmony.setForm(sec.prog, sec.colours, b);
   ensemble.reset();
-  ensemble.hold = sec.hook;
+  ensemble.hold = hook;
   setActiveVoices(voicesNamed(sec.voices));
   songBass = sec.bass;
   for (const v of ALL_VOICES) v.reset(b);

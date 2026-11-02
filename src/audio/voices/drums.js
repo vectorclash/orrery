@@ -530,14 +530,38 @@ const FILL_REPLACES = ['snare', 'gsnare', 'tomHi', 'tomLo', 'hat', 'ohat', 'ride
 //   pulse -- the kick and the time (hats, ride, shaker): an intro's beat
 //   light -- the beat without its accents: no open hats, crashes or percussion
 //   full  -- everything
-// each a little harder than the last, and the transitions: a fill on a section's last bar and a crash after it, a
-// snare roll through a build's last bars, faster and louder as it goes, and
-// nothing at all in the silent beat before a drop.
+//   roll  -- nothing but a build's roll (a stripped build, see BUILDS in song.js)
+// each a little harder than the last, and the transitions: a fill on a
+// section's last bar and a crash after it, a build's roll through its last
+// bars, faster and louder as it goes, played on the kit's own backbeat, kick
+// or percussion, and nothing at all in the silent beat before a drop.
 const PULSE   = new Set(['kick', 'k808', 'k909', 'taiko', 'hat', 'ride', 'shaker']);
-const PART_LEVEL = { pulse: 0.75, light: 0.85, full: 1 }; // played softer in a verse, opened up in a chorus
+const PART_LEVEL = { pulse: 0.75, light: 0.85, full: 1, roll: 1 }; // played softer in a verse, opened up in a chorus
 const ACCENTS = new Set(['ohat', 'crash', 'tamb', 'swish', 'bell', 'congaLo', 'congaHi']);
-const ROLL_BARS = 8;
-const ROLLED  = ['snare', 'gsnare', 'clap', 'rim', 'tomHi', 'tomLo', 'simLo', 'simMid', 'simHi'];
+const KICKS   = ['kick', 'k808', 'k909', 'taiko'];
+const SNARES  = ['snare', 'gsnare', 'clap', 'rim'];
+// What each kind of roll stops while it plays: the parts it takes over.
+const ROLLED  = {
+  backbeat: ['snare', 'gsnare', 'clap', 'rim', 'tomHi', 'tomLo', 'simLo', 'simMid', 'simHi'],
+  kick:     KICKS,
+  perc:     ['congaLo', 'congaHi', 'tomLo', 'tomHi', 'bell'],
+};
+
+// The tracks a roll plays in style `p`, taking turns: its backbeat (the
+// loudest snare, clap or rim on two and four), its kick, or its congas (else
+// toms), low and high.
+function rollTracks(p, what) {
+  if (what === 'kick') return [KICKS.find(k => p.tracks[k]) ?? 'kick'];
+  if (what === 'perc') return p.tracks.congaHi || p.tracks.congaLo ? ['congaLo', 'congaHi'] : ['tomLo', 'tomHi'];
+  const steps = p.steps || 16;
+  let best = 'snare', most = 0;
+  for (const track of SNARES) {
+    const line = p.tracks[track];
+    const v = line ? Math.max(VEL[line[steps / 4]] || 0, VEL[line[steps * 3 / 4]] || 0) : 0;
+    if (v > most) { best = track; most = v; }
+  }
+  return [best];
+}
 
 // The roll from beat `from` to `end`: how hard a snare lands on step `i` of
 // beat `b`, or 0 for none. Quarters, then eighths, then sixteenths, louder
@@ -553,14 +577,14 @@ function rollHit(b, from, end, i, steps) {
 let style = 'four_four';
 let curBar = -1, fill = null, fillFrom = 99, crashNext = false, rollSteps = new Set();
 let sec = null;      // the song section the current bar is in, or null
-let rollFrom = null; // beat at which this section's snare roll starts
+let rollFrom = null; // beat at which this section's roll starts
 
 function startBar(bar, p, steps) {
   curBar = bar;
   fill = null; fillFrom = 99;
   sec = song.sectionAt(bar * 4);
   const end = sec ? sec.start + sec.beats : 0;
-  rollFrom = sec?.roll ? Math.max(sec.start, end - ROLL_BARS * 4) : null;
+  rollFrom = sec?.build?.roll ? Math.max(sec.start, end - sec.build.rollBars * 4) : null;
   const lastBar = !!sec && bar * 4 + 4 >= end;
   if (sec && bar * 4 === sec.start && sec.crash) crashNext = true;
   const wanted = rollFrom !== null && bar * 4 >= rollFrom ? false
@@ -595,24 +619,30 @@ function play(t, b) {
   const end = sec ? sec.start + sec.beats : Infinity;
   if (b >= end - (sec?.gap ?? 0) - 1e-6) return next; // the silence before a drop
   const part = sec?.drums ?? 'full';
+  const build = sec?.build;
   const rolling = rollFrom !== null && b >= rollFrom - 1e-6;
+  const noKick = !!build?.kickOut && b >= end - sec.gap - build.kickOut - 1e-6;
 
   const hits = [];
   if (i === 0 && crashNext) { hits.push(['crash', 1]); crashNext = false; }
   for (const [track, line] of Object.entries(p.tracks)) {
+    if (part === 'roll') break;
     if (i >= fillFrom && FILL_REPLACES.includes(track)) continue;
     if (part === 'pulse' && !PULSE.has(track)) continue;
     if (part === 'light' && ACCENTS.has(track)) continue;
-    if (rolling && ROLLED.includes(track)) continue;
+    if (rolling && ROLLED[build.roll].includes(track)) continue;
+    if (noKick && KICKS.includes(track)) continue;
     hits.push([track, line[i]]);
   }
-  if (fill) {
+  if (fill && part !== 'roll') {
     for (const [track, line] of Object.entries(fill)) hits.push([track, line[i - fillFrom]]);
     if (i === steps - 1) crashNext = true;
   }
   if (rolling) {
     const v = rollHit(b, rollFrom, end - sec.gap, i, steps);
-    if (v) hits.push(['snare', v]);
+    const tracks = rollTracks(p, build.roll);
+    // A kick roll's sixteenths would swamp everything at a snare's level.
+    if (v) hits.push([tracks[Math.round((b - rollFrom) / unit) % tracks.length], v * (build.roll === 'kick' ? 0.8 : 1)]);
   }
 
   for (const [track, ch] of hits) {

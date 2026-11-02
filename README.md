@@ -300,7 +300,16 @@ Each form has a few weighted sequences, varied now and then (a double chorus to 
 - Every beat: **density**, **brightness**, **space** and **pump** from the section's energy (rising through a build, falling through an outro) around the song's own settings.
 - The master leveller, which evens out eras, would fight a song's dynamics — lifting a breakdown, then pulling the build after it down as it grows — so in a song it only listens to the hook sections (choruses, drops, the top of a swell), which set the song's level, and holds still through the rest. An intro stays quieter than a drop, a build grows into it, and one song's choruses come out about as loud as the next one's.
 
-**Transitions.** A drum fill on a section's last bar and a crash after it; through a build's last eight bars, a snare roll in quarters, eighths, then sixteenths, louder all the way, with a white-noise riser sweeping up over the whole build (`src/audio/voices/fx.js`); often a beat or two of silence before the drop (everything but the reverb and echo tails, cut on a gate after the pump), then an impact on the drop's downbeat — a falling sub boom and a burst into the hall. A breakdown opens with noise sweeping down, and a reversed-cymbal swell leads into a chorus.
+**Builds.** A build is where a dance track's genre would most easily go missing — the bass and the lead step out — so a song builds the way its kit's music does, picking one of five builds weighted by drum style (trance mostly rolls, house and disco mostly filter, big room rolls its kick, afro house its congas, D&B and jungle strip down):
+- **roll** — the kit's own backbeat (its snare, clap or rim, whichever is loudest on two and four) rolls in quarters, eighths, then sixteenths, louder all the way, over the last four or eight bars.
+- **filter** — no roll: the groove, bass and all, plays on through a lowpass shut to about 350–430 Hz and opening, slowly and then in a rush, into the drop; the kick and bass drop out for the last bar or two.
+- **kick** — the kick itself rolls into the drop.
+- **perc** — the congas (or, in a kit without them, the toms) roll, low and high in turn, in place of the snare.
+- **strip** — the beat drops out and the bass holds a pedal; only the roll comes back, for the last four bars.
+
+Then, drawn per song: how far the filter shuts (if at all), which riser plays over the build — white noise sweeping up, two detuned saws gliding up two octaves onto the key's tonic, or a reversed cymbal over the last two bars — whether the bass holds a pedal on the chord's root (in from halfway, on the beat and then in eighths), whether the lead plays the drop's hook under the filter as a tease, and whether the last two bars or so hold one chord of tension (the scale's V, ♭VII, ♭II…, never the drop's own first chord) for the drop to resolve. Every build in a song is the same build, and a change of kit mid-song (Edit mode) builds the way the new kit does.
+
+**Transitions.** A drum fill on a section's last bar and a crash after it; a build's roll and riser (above, `src/audio/voices/fx.js`); often a beat or two of silence before the drop (everything but the reverb and echo tails, cut on a gate after the pump), then an impact on the drop's downbeat — a falling sub boom and a burst into the hall. A breakdown opens with noise sweeping down, and a reversed-cymbal swell leads into a chorus.
 
 ---
 

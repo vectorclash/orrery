@@ -18,8 +18,7 @@ import { progressionsFor } from './harmony.js';
 //
 // Three forms:
 //   song    -- intro, verses, choruses (the hook), a bridge, an outro
-//   club    -- dance music: grooves, builds with a snare roll and a riser,
-//              drops, breakdowns
+//   club    -- dance music: grooves, builds (see BUILDS), drops, breakdowns
 //   ambient -- no beat to speak of: a theme, swells and drifts
 
 // What each kind of section is for. `energy` is where it starts and ends
@@ -68,7 +67,7 @@ const RECIPES = {
   outro:     () => ({ bed: 1, air: 9, motion: 1, lead: 0, bass: false, drums: null }),
   open:      r => ({ bed: 0, air: 0, motion: r() < 0.5 ? 1 : 0, lead: 0, bass: r() < 0.5, drums: 'pulse' }),
   groove:    r => ({ bed: r() < 0.5 ? 1 : 0, air: 0, motion: 9, lead: 0, bass: true, drums: 'light' }),
-  build:     () => ({ bed: 1, air: 0, motion: 9, lead: 0, bass: false, drums: 'light' }), // the drop brings the low end back
+  build:     () => ({ bed: 1, air: 0, motion: 9, lead: 0, bass: false, drums: 'light' }), // the drop brings the low end back (but see BUILDS)
   drop:      () => ({ bed: 9, air: 9, motion: 9, lead: 9, bass: true, drums: 'full' }),
   breakdown: () => ({ bed: 9, air: 9, motion: 0, lead: 9, bass: false, drums: null }),
   close:     r => ({ bed: 0, air: 1, motion: 1, lead: 0, bass: r() < 0.5, drums: 'pulse' }),
@@ -144,6 +143,89 @@ const CLUB_DRUMS = new Set([
   'house', 'deep_house', 'techno', 'trance', 'big_room', 'disco', 'afro_house', 'amapiano',
   'garage', 'dnb', 'jungle', 'breakbeat', 'four_four',
 ]);
+// ─── Builds ───────────────────────────────────────────────────────────────────
+// A build is where a dance track's genre could most easily go missing: the
+// bass and the lead step out, and what's left is the roll and the riser. So
+// a song builds the way its kit's music does, one of:
+//   roll    -- the backbeat (the kit's own snare, clap or rim) rolls, quarters
+//              to sixteenths, under a riser and the filter opening (trance, EDM)
+//   filter  -- no roll: the groove, bass and all, keeps playing through the
+//              filter as it opens, then the kick and bass drop out for the
+//              last bars, so the drop still lands (house, disco)
+//   kick    -- the kick itself rolls into the drop (big room, techno)
+//   perc    -- the congas (or toms) roll in place of the snare (afro house)
+//   strip   -- the beat drops out and the bass holds a pedal, the roll alone
+//              coming back for the last bars (drum & bass, jungle)
+// Then, drawn per song: how long the roll is, how far the filter shuts, which
+// riser (noise, a pitched glide, a reversed cymbal), whether the bass holds
+// the chord's root in eighths (a pedal), whether the lead teases the hook
+// under the filter, and whether the last bars hold one chord of tension that
+// the drop resolves. Every build in a song is the same build.
+const BUILDS = {
+  roll:   { roll: 'backbeat', drums: 'light', filter: [0, 0.5, 0.7], risers: { noise: 3, pitch: 2, cymbal: 1 }, pedal: 0.35 },
+  filter: { roll: null,       drums: 'light', filter: [0.85, 0.9],   risers: { cymbal: 2, noise: 1, pitch: 1 }, pedal: 0, bass: true },
+  kick:   { roll: 'kick',     drums: 'light', filter: [0.5, 0.7],    risers: { pitch: 2, noise: 2, cymbal: 1 }, pedal: 0.4 },
+  perc:   { roll: 'perc',     drums: 'light', filter: [0.5, 0.6],    risers: { noise: 2, cymbal: 2, pitch: 1 }, pedal: 0.35 },
+  strip:  { roll: 'backbeat', drums: 'roll',  filter: [0, 0.4],      risers: { pitch: 2, noise: 2, cymbal: 1 }, pedal: 1 },
+};
+// How likely each build is, by drum style.
+const BUILD_WEIGHTS = {
+  house:      { filter: 3, roll: 2, kick: 1 },
+  deep_house: { filter: 4, roll: 1, perc: 1 },
+  techno:     { kick: 2, filter: 2, roll: 1, strip: 1 },
+  trance:     { roll: 4, filter: 1, kick: 1 },
+  big_room:   { kick: 3, roll: 2 },
+  disco:      { filter: 4, perc: 1, roll: 1 },
+  afro_house: { perc: 4, filter: 1, roll: 1 },
+  amapiano:   { perc: 2, filter: 2, strip: 1 },
+  garage:     { filter: 2, roll: 2, strip: 1 },
+  dnb:        { roll: 3, strip: 2 },
+  jungle:     { roll: 2, strip: 2 },
+  breakbeat:  { roll: 2, strip: 1, filter: 1 },
+};
+const ANY_BUILD = { roll: 2, filter: 1, perc: 1, strip: 1 };
+// The chord a build can hold over its last bars, by scale (degrees, as in
+// harmony.js): the one that pulls hardest toward the tonic.
+const TENSION = {
+  aeolian: [6, 4, 5], dorian: [3, 6], phrygian: [1, 6], lydian: [1, 4],
+  mixolydian: [6, 3], major: [4, 3], minor_pent: [3, 4], major_pent: [3, 4],
+};
+const HOLD_BARS = 2;
+
+function weighted(r, weights) {
+  const entries = Object.entries(weights);
+  let w = r() * entries.reduce((s, [, n]) => s + n, 0);
+  for (const [k, n] of entries) if ((w -= n) <= 0) return k;
+  return entries[0][0];
+}
+
+// The song's build, for the plan's kit: drawn from the song's seed alone, so
+// a change of instruments mid-song (Edit mode) builds the same way for the
+// same kit.
+function buildFor(song, plan) {
+  const r = seeded(hashSeed(song.seed, 'build'));
+  const pick = a => a[Math.floor(r() * a.length)];
+  const d = plan.voices.includes('drums') ? plan.drumStyle : null;
+  const kind = weighted(r, d ? BUILD_WEIGHTS[d] ?? ANY_BUILD : { filter: 1 });
+  const b = BUILDS[kind];
+  const drop = song.sections.find(s => s.kind === 'drop');
+  const tensions = TENSION[SCALE_NAMES[plan.state.scaleIdx]].filter(t => t !== drop?.prog[0]);
+  const filter = pick(b.filter);
+  return {
+    kind,
+    roll:     b.roll,
+    rollBars: kind === 'strip' ? 4 : pick([4, 8, 8]),
+    drums:    b.drums,
+    filter,
+    kickOut:  kind === 'filter' ? pick([4, 8, 8]) : 0, // beats before the drop without the kick and bass
+    riser:    weighted(r, b.risers),
+    pedal:    r() < b.pedal,
+    bass:     !!b.bass,
+    tease:    filter >= 0.5 && r() < 0.35, // heard through the filter, then in full at the drop
+    hold:     r() < 0.5 && tensions.length ? pick(tensions) : null,
+  };
+}
+
 // Drums too quiet to carry a song form on their own.
 const SOFT_DRUMS = new Set(['minimal', 'ghost']);
 
@@ -338,9 +420,7 @@ export function composeSong(plan, roleOf) {
       shift,
       // Transitions
       fill:     !!next && form !== 'ambient',                         // drum fill on the last bar
-      roll:     kind === 'build',                                     // snare roll building into the drop
       gap:      kind === 'build' && next === 'drop' ? gap : 0,        // silence before the drop
-      riser:    kind === 'build',
       swell:    (next === 'chorus' || next === 'swell') && kind !== 'chorus',
       impact:   kind === 'drop' || (kind === 'chorus' && final),
       downlift: kind === 'breakdown',
@@ -356,7 +436,7 @@ export function composeSong(plan, roleOf) {
   sections.push({
     kind: 'end', label: KINDS.end.label, n: 1, start: at, beats: endBeats,
     energy: KINDS.end.energy, prog: [0], colours: [1], roles: RECIPES.end(r), hook: false, shift,
-    fill: false, roll: false, gap: 0, riser: false, swell: false, impact: false, downlift: false, crash: false,
+    fill: false, gap: 0, swell: false, impact: false, downlift: false, crash: false,
   });
   at += endBeats;
 
@@ -369,10 +449,12 @@ export function composeSong(plan, roleOf) {
 }
 
 // Which instruments play in each section: the recipe's count of each role,
-// taken from the plan's instruments in an order fixed for the song. Kept apart
-// from composing so a change of instruments mid-song (Edit mode) rearranges
-// the same song.
+// taken from the plan's instruments in an order fixed for the song, and how
+// its builds build (see BUILDS). Kept apart from composing so a change of
+// instruments mid-song (Edit mode) rearranges the same song.
 export function arrange(song, plan, roleOf) {
+  const build = buildFor(song, plan);
+  const cb = plan.state.chordBeats || 4;
   const r = seeded(hashSeed(song.seed, 'parts'));
   const names = [...plan.voices.filter(n => n !== 'drums')].sort();
   // Shuffle, then a stable order per role: "the first motion voice" is the
@@ -386,10 +468,16 @@ export function arrange(song, plan, roleOf) {
   const hasDrums = plan.voices.includes('drums'), hasBass = !!plan.bassStyle;
 
   for (const s of song.sections) {
+    const b = s.kind === 'build' ? build : null;
+    s.build = b;
+    // The held chord starts on a chord change HOLD_BARS or so before the end.
+    s.holdFrom = b?.hold != null ? s.start + cb * Math.max(1, Math.floor((s.beats - 4 * HOLD_BARS) / cb)) : null;
+    if (s.holdFrom >= s.start + s.beats) s.holdFrom = null;
+    const roles = b ? { ...s.roles, lead: b.tease ? 1 : 0, bass: b.bass || b.pedal, drums: b.drums } : s.roles;
     const voices = [];
-    for (const role of ['bed', 'motion', 'lead', 'air']) voices.push(...byRole[role].slice(0, s.roles[role]));
-    const drums = hasDrums && s.roles.drums ? s.roles.drums : null;
-    let bass = hasBass && s.roles.bass;
+    for (const role of ['bed', 'motion', 'lead', 'air']) voices.push(...byRole[role].slice(0, roles[role]));
+    const drums = hasDrums && roles.drums ? roles.drums : null;
+    let bass = hasBass && roles.bass;
     // Never an empty section: fall back to the first voice there is, in
     // order of what sounds most like the music on its own.
     if (!voices.length && !drums && !bass) {
