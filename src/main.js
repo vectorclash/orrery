@@ -1131,11 +1131,21 @@ function stopManualPlayback() {
 // same song, the same bar, the drone still held.
 function pauseAudio() {
   paused = true;
-  muteAudio();
+  muteAudio(PAUSE_FADE);
   const ctx = audio.ctx;
-  // After the fade, so it doesn't click; not if PLAY came first.
-  setTimeout(() => { if (paused && audio.ctx === ctx) ctx.suspend().catch(() => {}); }, 60);
+  // Not until the fade has reached the speakers, so it doesn't click and the
+  // output holds only silence; not if PLAY came first.
+  setTimeout(() => { if (paused && audio.ctx === ctx) ctx.suspend().catch(() => {}); }, silentAfter(PAUSE_FADE));
 }
+
+// The output queues what the context has rendered -- `outputLatency` of it,
+// a tenth of a second on built-in speakers -- and a context stopped with
+// music in that queue keeps it: Safari plays it first when audio next starts,
+// in this page or the next, a moment of the old music mid-phrase. So the
+// context only stops once a fade has gone through the queue: `silentAfter`
+// milliseconds after one `fadeSec` long begins.
+const PAUSE_FADE = 0.04;
+const silentAfter = fadeSec => (fadeSec + (audio.ctx.outputLatency || audio.ctx.baseLatency || 0)) * 1000 + 100;
 
 // PLAY waits on the browser before there's sound (see ensureAudioRunning): a
 // moment for a fresh context, far longer while AirPlay opens. Pressed again
@@ -1178,6 +1188,25 @@ function pauseIfSilenced() {
   if (infiniteRunning) pauseInfinite();
   if (manualPlaying)   pauseManual();
 }
+
+// Leaving the page (a reload, a link) while it plays: the same, or the next
+// page would open on the end of this one's music (see silentAfter). The page
+// mutes and waits while the audio thread fills the queue with silence, then
+// closes -- a busy wait, since nothing else holds a page that's going, and at
+// most LEAVE_WAIT_MS of it, which covers built-in speakers and headphones.
+// Back from the back-forward cache, the closed context reads as stopped, so
+// the controls pause and PLAY carries on in a new one (see resumeAudio).
+const LEAVE_WAIT_MS = 300;
+addEventListener('pagehide', () => {
+  if (!audio.ctx || audio.ctx.state === 'closed') return;
+  const audible = audio.ctx.state === 'running' && audio.masterGain.gain.value > 0;
+  for (const p of [audio.masterGain.gain, audio.reverbGain.gain]) {
+    p.cancelScheduledValues(0);
+    p.value = 0;
+  }
+  if (audible) for (const until = performance.now() + Math.min(LEAVE_WAIT_MS, silentAfter(0)); performance.now() < until;);
+  audio.ctx.close().catch(() => {});
+});
 
 // ─── Manual play ─────────────────────────────────────────────────────────────
 // PLAY / PAUSE, and STOP: back to the top (a song from its intro).
