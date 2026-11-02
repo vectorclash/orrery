@@ -52,6 +52,7 @@ export const music = {
   ripples:   [],   // note onsets: { x, y, z, role, vel, age }
   strikes:   [],   // drum hits: { kind, vel, age, id }, kind as in hits; id counts up
   chord:     [],   // pitch classes of the sounding chord, root first
+  changes:   0,    // counts up as each new song or era is heard (see logChange)
   scale:     new Set(),
   tonic:     0,
 };
@@ -73,6 +74,7 @@ function level(n, age) {
 }
 
 function hear(e, now) {
+  if (e.kind === 'change') { music.changes++; return; }
   const late = now - e.t;
   if (e.kind === 'hit') {
     if (late > 0.2) return; // stale (the tab was in the background)

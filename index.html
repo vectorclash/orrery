@@ -80,6 +80,42 @@
     @media (hover: hover) { .mode-tab:hover { color: #aabece; } }
     .mode-tab.active { color: #d0dde8; background: rgba(100,140,200,0.12); }
 
+    /* ─── Kaleidoscope toggle ─────────────────────────────────────────────── */
+    /* A view setting for both modes, so it sits outside them: level with the
+       mode tabs, in the top-left corner, which no layout uses. Narrow screens
+       have no room beside the tabs for the word, so they show its icon. */
+    #kaleido-btn {
+      pointer-events: all;
+      position: fixed;
+      top: 20px;
+      left: calc(20px + env(safe-area-inset-left, 0px));
+      z-index: 2;
+      background: transparent;
+      border: 1px solid #4a5a6a;
+      color: #7a8a9a;
+      font-family: inherit;
+      font-size: 11px;
+      padding: 8px 22px;
+      cursor: pointer;
+      letter-spacing: 3px;
+      transition: color 0.2s, background 0.2s;
+      -webkit-tap-highlight-color: transparent;
+      touch-action: manipulation;
+    }
+    /* Its negative margins keep the icon from heightening the line, so the
+       button stays as tall as the tabs beside it. */
+    #kaleido-btn svg { display: none; width: 1.6em; height: 1.6em; margin: -0.3em 0; vertical-align: middle; }
+    @media (hover: hover) { #kaleido-btn:hover { color: #aabece; } }
+    #kaleido-btn.active { color: #d0dde8; background: rgba(100,140,200,0.12); }
+    @media (max-width: 759px) {
+      #kaleido-btn { left: calc(16px + env(safe-area-inset-left, 0px)); padding: 8px 12px; }
+      #kaleido-btn svg { display: inline-block; }
+      #kaleido-btn .lbl { display: none; }
+    }
+    @media (max-width: 600px) {
+      #kaleido-btn { font-size: 12px; padding: 12px; } /* as the tabs' bigger tap targets */
+    }
+
     /* ─── Infinite mode UI ────────────────────────────────────────────────── */
     /* Full-width and centred with text-align, not translateX(-50%): NEXT
        grows the row's width, and a %-transform on a box whose size is
@@ -906,6 +942,12 @@
       <button class="mode-tab active" data-mode="infinite">INFINITE</button>
       <button class="mode-tab" data-mode="manual">EDIT</button>
     </div>
+
+    <button id="kaleido-btn" aria-pressed="false" aria-label="Kaleidoscope" title="Kaleidoscope (K)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true">
+        <path d="M12 2 20.66 7v10L12 22l-8.66-5V7ZM12 2v20M20.66 7 3.34 17M20.66 17 3.34 7"/>
+      </svg><span class="lbl">KALEIDOSCOPE</span>
+    </button>
 
     <!-- Infinite mode -->
     <div id="infinite-ui">

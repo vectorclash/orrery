@@ -24,6 +24,13 @@ export function logHit(piece, t, vel) {
   log[written++ % SIZE] = { kind: 'hit', voice: piece, t, vel };
 }
 
+// The music becomes something new at `t`: a session starts (a new song, or
+// playing from the top), or the next era begins.
+export function logChange(t) {
+  if (!logging) return;
+  log[written++ % SIZE] = { kind: 'change', t };
+}
+
 // Calls `fn` for every event written since position `since`; returns the new
 // position. If the reader fell more than SIZE events behind, it skips ahead.
 export function readLog(since, fn) {

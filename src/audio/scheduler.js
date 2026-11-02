@@ -2,6 +2,7 @@ import { audio, beginSession, setEchoTime, setRoom, updateLowCuts, updateLevel, 
 import { state, SCALE_NAMES, TICK_MS, LOOKAHEAD, ROOT_BASE_MIDI, rand, pick, beat, random, clamp } from '../state.js';
 import { seedStreams, reseedStreams, restream, newSeed } from '../random.js';
 import { harmony } from './harmony.js';
+import { logChange } from './notes.js';
 import { transport } from './transport.js';
 import { ensemble } from './phrase.js';
 import { song, composeSong, arrange } from './song.js';
@@ -121,6 +122,11 @@ export function setActiveVoices(voices) {
 // one. A song can start partway, at a section's first beat: each section is
 // seeded on its own, so it plays as it would have (see levelOfSong in render.js).
 export function startSession(t, from = 0) {
+  restart(t, from);
+  logChange(t);
+}
+
+function restart(t, from) {
   seedStreams(song.current ? song.current.seed : newSeed());
   beginSession();
   transport.start(t, from);
@@ -210,6 +216,7 @@ function advanceEra(at) {
   setEchoTime(beat() * 0.75, transport.timeAt(at));
   setRoom(state.room, transport.timeAt(at));
   harmony.reroll(at);
+  logChange(transport.timeAt(at));
 
   // A new era is a new section: everyone re-enters on its first downbeat.
   pickVoices();
@@ -308,7 +315,7 @@ export const songOver = () => !!song.current && songBeat > song.current.end;
 export function resumeSession(t) {
   const s = song.current;
   const sec = s && song.sectionAt(Math.min(songBeat, s.end) - 1);
-  startSession(t, sec ? sec.start : 0);
+  restart(t, sec ? sec.start : 0); // the same music, so no change to log
 }
 
 // Back to eras or a loop: no song.

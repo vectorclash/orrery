@@ -230,6 +230,7 @@ const exportProgressBar    = document.getElementById('export-progress-bar');
 const clearInstrumentsBtn  = document.getElementById('clear-instruments-btn');
 const genreRandomBtn       = document.getElementById('genre-random-btn');
 const feelRandomBtn        = document.getElementById('feel-random-btn');
+const kaleidoBtn           = document.getElementById('kaleido-btn');
 const instrumentsRandomBtn = document.getElementById('instruments-random-btn');
 const randomizeAllBtn      = document.getElementById('randomize-all-btn');
 const genreSummary         = document.getElementById('genre-summary');
@@ -770,11 +771,25 @@ panelHideBtn.addEventListener('click', () => {
   manualUiBody.inert = collapsed;
 });
 
+// ─── Kaleidoscope ─────────────────────────────────────────────────────────────
+// A view setting, the same in both modes and remembered between visits; share
+// links describe the music, so they leave it out.
+function setKaleido(on) {
+  post.kaleido = on;
+  kaleidoBtn.classList.toggle('active', on);
+  kaleidoBtn.setAttribute('aria-pressed', String(on));
+  localStorage.setItem('orrery.kaleido', on ? 'on' : 'off');
+}
+setKaleido(localStorage.getItem('orrery.kaleido') === 'on');
+kaleidoBtn.addEventListener('click', () => setKaleido(!post.kaleido));
+
 // ─── Keys ─────────────────────────────────────────────────────────────────────
-// B toggles bloom.
+// B toggles bloom, K the kaleidoscope.
 window.addEventListener('keydown', e => {
   if (e.metaKey || e.ctrlKey || e.altKey || e.target.closest?.('input, select, textarea')) return;
-  if (e.key.toLowerCase() === 'b') post.bloom = !post.bloom;
+  const key = e.key.toLowerCase();
+  if (key === 'b') post.bloom = !post.bloom;
+  if (key === 'k') setKaleido(!post.kaleido);
 });
 
 // ─── Infinite mode ────────────────────────────────────────────────────────────
