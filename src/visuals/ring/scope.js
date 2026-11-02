@@ -85,6 +85,8 @@ let acc = 0, head = 0;
 
 const _a = new THREE.Color(), _b = new THREE.Color();
 
+export { points as ringPoints };
+
 export function updateRing({ dt, t, hue }) {
   const { live, shown } = waveform;
   const chord = music.chord;

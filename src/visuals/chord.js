@@ -110,6 +110,8 @@ function chordOrder(chord) {
   return pcs.slice(best).concat(pcs.slice(0, best));
 }
 
+export { points as moonPoints };
+
 export function updateChord({ hue, dt, t }) {
   mat.uniforms.uPx.value = renderer.domElement.height / 750;
   const ease = 1 - Math.exp(-dt / 0.35);

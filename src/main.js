@@ -20,6 +20,7 @@ import { showPending, clearPending } from './pending.js';
 import { encodeConfig, decodeConfig, planFromConfig, ALL_INST_KEYS } from './share.js';
 import { startAnimation } from './visuals/animate.js';
 import { post } from './visuals/post.js';
+import { mirrors, useSymmetry } from './visuals/mirrors.js';
 
 // ─── Definitions ──────────────────────────────────────────────────────────────
 const ROOT_NAMES   = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
@@ -784,12 +785,15 @@ setKaleido(localStorage.getItem('orrery.kaleido') === 'on');
 kaleidoBtn.addEventListener('click', () => setKaleido(!post.kaleido));
 
 // ─── Keys ─────────────────────────────────────────────────────────────────────
-// B toggles bloom, K the kaleidoscope.
+// B toggles bloom, K the kaleidoscope, M the 3D mirrors (no button: an extra),
+// and 1–3 choose the mirrors' symmetry.
 window.addEventListener('keydown', e => {
   if (e.metaKey || e.ctrlKey || e.altKey || e.target.closest?.('input, select, textarea')) return;
   const key = e.key.toLowerCase();
   if (key === 'b') post.bloom = !post.bloom;
   if (key === 'k') setKaleido(!post.kaleido);
+  if (key === 'm') mirrors.on = !mirrors.on;
+  if (mirrors.on && ['1', '2', '3'].includes(key)) useSymmetry(+key - 1);
 });
 
 // ─── Infinite mode ────────────────────────────────────────────────────────────

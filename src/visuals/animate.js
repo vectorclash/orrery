@@ -1,5 +1,6 @@
 import { camera, clock } from './scene.js';
 import { updateCore } from './core/index.js';
+import { updateMirrors } from './mirrors.js';
 import { updateSpectrum } from './spectrum.js';
 import { updateMusic } from './music.js';
 import { updateRing } from './ring/scope.js';
@@ -57,6 +58,7 @@ function animate(timestamp) {
   updateWaveform();
   updateSpectrum(freqData);
   updateCore({ energy, hue, dt, fade, t });
+  updateMirrors({ dt });
   updateChord({ hue, dt, t }); // before the ring, which it lights
   updateRing({ hue, dt, t });
   updateStars(energy, bass, hue, t);
