@@ -75,7 +75,9 @@
       touch-action: manipulation;
     }
     .mode-tab:last-child { border-right: none; }
-    .mode-tab:hover { color: #aabece; }
+    /* Hover styles only where there is hover: on a touch screen :hover sticks to
+       the last thing tapped, so a toggle tapped away from still looked selected. */
+    @media (hover: hover) { .mode-tab:hover { color: #aabece; } }
     .mode-tab.active { color: #d0dde8; background: rgba(100,140,200,0.12); }
 
     /* ─── Infinite mode UI ────────────────────────────────────────────────── */
@@ -110,10 +112,10 @@
       -webkit-tap-highlight-color: transparent;
       touch-action: manipulation;
     }
-    #start-btn:hover           { border-color: #aaa; color: #eee; }
+    @media (hover: hover) { #start-btn:hover           { border-color: #aaa; color: #eee; } }
     #start-btn:active          { border-color: #ccc; color: #fff; }
     #start-btn.playing         { border-color: #556; color: #778; }
-    #start-btn.playing:hover   { border-color: #99aacc; color: #bbccdd; }
+    @media (hover: hover) { #start-btn.playing:hover   { border-color: #99aacc; color: #bbccdd; } }
 
     /* Grows out of PLAY's right edge while playing; collapsed to nothing
        (and out of the tab order) while stopped. */
@@ -146,7 +148,7 @@
       opacity: 1;
       border-color: #556;
     }
-    #next-btn.shown:hover { border-color: #99aacc; color: #d0dde8; }
+    @media (hover: hover) { #next-btn.shown:hover { border-color: #99aacc; color: #d0dde8; } }
     #next-btn.shown:active { border-color: #aabece; color: #e0ecf6; }
 
     /* A change on its way to the speakers (see src/pending.js): lit from the
@@ -224,7 +226,7 @@
       touch-action: manipulation;
     }
     .kind-btn + .kind-btn { border-left: 1px solid #3a4a5a; }
-    .kind-btn:hover, .kind-action:hover:not(:disabled) { color: #aabece; }
+    @media (hover: hover) { .kind-btn:hover, .kind-action:hover:not(:disabled) { color: #aabece; } }
     .kind-btn.active { color: #d0dde8; background: rgba(100,140,200,0.12); }
     .kind-action {
       border: 1px solid #3a4a5a;
@@ -254,9 +256,9 @@
       transition: background 0.15s;
       border-radius: 2px;
     }
-    .section-header:hover { background: rgba(100,150,200,0.07); }
-    .section-header:hover .section-label { color: #aabece; }
-    .section-header:hover .section-chevron { color: #7a9fc0; border-color: #4a6a8a; }
+    @media (hover: hover) { .section-header:hover { background: rgba(100,150,200,0.07); } }
+    @media (hover: hover) { .section-header:hover .section-label { color: #aabece; } }
+    @media (hover: hover) { .section-header:hover .section-chevron { color: #7a9fc0; border-color: #4a6a8a; } }
     .section-header .section-label { margin-bottom: 0; }
     .section-header-right {
       display: flex;
@@ -327,7 +329,7 @@
       transition: border-color 0.15s, color 0.15s;
       -webkit-tap-highlight-color: transparent;
     }
-    .header-btn:hover { border-color: #6a8aaa; color: #aabece; }
+    @media (hover: hover) { .header-btn:hover { border-color: #6a8aaa; color: #aabece; } }
     .header-btn:active { border-color: #aabece; color: #e0ecf6; }
 
     /* ─── Manual panel ────────────────────────────────────────────────────── */
@@ -625,7 +627,7 @@
       -webkit-tap-highlight-color: transparent;
       touch-action: manipulation;
     }
-    .action-btn:hover:not(:disabled) { border-color: #8899aa; color: #d0dde8; }
+    @media (hover: hover) { .action-btn:hover:not(:disabled) { border-color: #8899aa; color: #d0dde8; } }
     .action-btn:active:not(:disabled) { border-color: #aabece; color: #e0ecf6; }
     .action-btn.playing { border-color: #7a8fa8; color: #aabbc8; }
     .action-btn.recording { border-color: #8a6a6a; color: #c8a8a8; cursor: default; }
@@ -659,7 +661,7 @@
       transition: border-color 0.15s, color 0.15s, background 0.15s;
       -webkit-tap-highlight-color: transparent;
     }
-    .genre-btn:hover { border-color: #6a8aaa; color: #aabece; }
+    @media (hover: hover) { .genre-btn:hover { border-color: #6a8aaa; color: #aabece; } }
     .genre-btn.active { border-color: #7a9fc0; color: #ccdde8; background: rgba(100,150,200,0.1); }
 
     /* root / scale dropdowns */
@@ -872,7 +874,7 @@
       -webkit-tap-highlight-color: transparent;
       touch-action: manipulation;
     }
-    #panel-hide-btn:hover { color: #d0dde8; }
+    @media (hover: hover) { #panel-hide-btn:hover { color: #d0dde8; } }
     #panel-hide-btn > span {
       grid-area: 1 / 1;
       transition: opacity 0.25s ease;
@@ -884,10 +886,10 @@
       border-bottom-color: transparent;
       color: #8899aa;
     }
-    #manual-ui.collapsed #panel-hide-btn:hover { color: #d0dde8; }
+    @media (hover: hover) { #manual-ui.collapsed #panel-hide-btn:hover { color: #d0dde8; } }
     #manual-ui.collapsed #panel-hide-btn .lbl-hide { opacity: 0; }
     #manual-ui.collapsed #panel-hide-btn .lbl-show { opacity: 1; }
-    #manual-ui.collapsed:hover { border-color: #8899aa; }
+    @media (hover: hover) { #manual-ui.collapsed:hover { border-color: #8899aa; } }
 
     #randomize-all-btn {
       width: 100%;

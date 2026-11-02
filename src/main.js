@@ -237,7 +237,7 @@ const feelSummary          = document.getElementById('feel-summary');
 const instrumentsSummary   = document.getElementById('instruments-summary');
 const manualShareBtn       = document.getElementById('manual-share-btn');
 const modeTabs             = document.querySelectorAll('.mode-tab');
-const kindBtns             = document.querySelectorAll('.kind-btn');
+const kindBtns             = document.querySelectorAll('.kind-btn[data-kind]'); // not FORM's, which share the look
 const songExportBtn        = document.getElementById('song-export-btn');
 const formBtns             = document.querySelectorAll('.form-btn');
 const newSongBtn           = document.getElementById('new-song-btn');
@@ -263,6 +263,7 @@ let infiniteKind      = localStorage.getItem('orrery.infinite') === 'songs' ? 's
 let songPlan          = null;   // the song Infinite mode is playing (or last played)
 let manualForm        = 'loop'; // Edit mode: a LOOP of the arrangement, or a SONG made from it
 let manualSongSeed    = newSeed();
+let linked            = null; // the configuration the address bar's link describes (see forgetStaleLink)
 // LENGTH, in seconds, kept for each form: a loop's export, a song's length.
 let loopLength        = 10;
 let songLength        = 180;
@@ -334,6 +335,7 @@ function enabledInstrumentLabels() {
 }
 
 function refreshSummaries() {
+  forgetStaleLink();
   genreSummary.textContent = document.querySelector('.genre-btn.active')?.textContent ?? 'CUSTOM';
   feelSummary.textContent = [
     `${ROOT_NAMES[rootSelect.value]} ${SCALE_LABELS[scaleSelect.value]}`,
@@ -933,11 +935,15 @@ async function resumeInfinite() {
   return true;
 }
 
-startBtn.addEventListener('click', async () => {
+startBtn.addEventListener('click', () => {
   if (infiniteRunning) {
     if (paused) resumeInfinite(); else pauseInfinite();
     return;
   }
+  startInfinite();
+});
+
+const startInfinite = oneStart(async () => {
   if (!await startAudio()) return;
 
   showInfinitePlaying(true);
@@ -1131,6 +1137,15 @@ function pauseAudio() {
   setTimeout(() => { if (paused && audio.ctx === ctx) ctx.suspend().catch(() => {}); }, 60);
 }
 
+// PLAY waits on the browser before there's sound (see ensureAudioRunning): a
+// moment for a fresh context, far longer while AirPlay opens. Pressed again
+// meanwhile, it's the same start -- each press used to start a session, the
+// second taking the music back to the top just after the first began.
+function oneStart(start) {
+  let starting = null;
+  return () => starting ??= start().finally(() => { starting = null; });
+}
+
 // Resolves false if there's still no sound (see ensureAudioRunning). If the
 // context had to be replaced, everything scheduled went with the old one, so
 // the session starts again on the new one (see resumeSession). Pressed twice
@@ -1166,12 +1181,15 @@ function pauseIfSilenced() {
 
 // ─── Manual play ─────────────────────────────────────────────────────────────
 // PLAY / PAUSE, and STOP: back to the top (a song from its intro).
-manualPlayBtn.addEventListener('click', async () => {
+manualPlayBtn.addEventListener('click', () => {
   if (manualPlaying) {
     if (paused) resumeManual(); else pauseManual();
     return;
   }
+  startManual();
+});
 
+const startManual = oneStart(async () => {
   if (!await manualInit()) return;
   manualPlaying = true;
   showManualPlaying(true);
@@ -1415,6 +1433,7 @@ function setForm(form) {
 // A loop's LENGTH; a song's as composed, which is LENGTH unless even the
 // shortest song at this tempo is longer.
 function showLength() {
+  forgetStaleLink();
   if (manualForm !== 'song') { lengthValue.textContent = `${loopLength}s`; return; }
   const any = Object.values(manualEnabled).some(v => v);
   lengthValue.textContent = clock(any ? songSeconds(songFor(manualPlan())) : songLength);
@@ -1500,9 +1519,25 @@ function applyConfig(cfg) {
   setForm(cfg.song ? 'song' : 'loop');
 }
 
+// The configuration as a link: the controls' own feel, not the state a song
+// playing varies section by section (its key lifted, its density following
+// the energy).
+function shareConfig() {
+  return encodeConfig(manualEnabled, manualForm === 'song' ? { seed: manualSongSeed, length: songLength } : null, manualPlan().state);
+}
+
+// The address bar carries a link once one is opened or SHARE is pressed. Once
+// anything changes it no longer describes what's set -- reloading or copying it
+// would bring the old configuration back -- so it goes, until the next SHARE.
+function forgetStaleLink() {
+  if (linked === null || shareConfig() === linked) return;
+  linked = null;
+  history.replaceState(null, '', location.pathname + location.search);
+}
+
 manualShareBtn.addEventListener('click', () => {
-  const hash = `c=${encodeConfig(manualEnabled, manualForm === 'song' ? { seed: manualSongSeed, length: songLength } : null)}`;
-  history.replaceState(null, '', `#${hash}`);
+  linked = shareConfig();
+  history.replaceState(null, '', `#c=${linked}`);
   navigator.clipboard.writeText(window.location.href).then(() => {
     manualShareBtn.textContent = 'COPIED!';
   }).catch(() => {
@@ -1522,6 +1557,7 @@ if (_hashMatch) {
   const cfg = decodeConfig(_hashMatch[1]);
   if (cfg) {
     applyConfig(cfg);
+    linked = shareConfig();
     // Switch to manual tab directly — bypass the auto-randomize guard in the click handler
     if (currentMode !== 'manual') {
       currentMode = 'manual';

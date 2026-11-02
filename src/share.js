@@ -57,9 +57,9 @@ const instByte = i => (i < 40 ? 6 + (i >> 3) : i < 48 ? 13 : i < 56 ? 15 : i < 6
   : i < FIXED_INST_BITS ? 19 : TAIL_LEN + 1 + ((i - FIXED_INST_BITS) >> 3));
 
 // `enabled` maps an ALL_INST_KEYS key to whether that instrument is on; the
-// rest comes from the live state. `song`, { seed, length } if given, makes it
-// a song's link.
-export function encodeConfig(enabled, song = null) {
+// rest comes from `feel` (the fields of a plan's state). `song`, { seed,
+// length } if given, makes it a song's link.
+export function encodeConfig(enabled, song = null, feel = state) {
   const tail = Math.ceil(Math.max(0, ALL_INST_KEYS.length - FIXED_INST_BITS) / 8);
   const b = new Uint8Array(tail || song ? TAIL_LEN + 1 + tail + (song ? 7 : 0) : TAIL_LEN);
   if (tail || song) b[TAIL_LEN] = tail;
@@ -70,20 +70,20 @@ export function encodeConfig(enabled, song = null) {
     view.setUint32(at + 1, song.seed >>> 0, true);
     view.setUint16(at + 5, song.length, true);
   }
-  b[0] = state.rootMidi - ROOT_BASE_MIDI;
-  b[1] = state.scaleIdx;
-  b[2] = state.tempo;
-  b[3] = Math.round(state.density * 100);
-  b[4] = Math.round(state.brightness * 100);
-  b[5] = Math.round(state.spaciousness * 100);
+  b[0] = feel.rootMidi - ROOT_BASE_MIDI;
+  b[1] = feel.scaleIdx;
+  b[2] = feel.tempo;
+  b[3] = Math.round(feel.density * 100);
+  b[4] = Math.round(feel.brightness * 100);
+  b[5] = Math.round(feel.spaciousness * 100);
   ALL_INST_KEYS.forEach((k, i) => {
     if (enabled[k]) b[instByte(i)] |= (1 << (i % 8));
   });
-  b[11] = Math.round(state.harmonyLock * 100);
-  b[12] = state.chordBeats;
-  b[14] = Math.max(0, Object.keys(ROOMS).indexOf(state.room));
-  b[17] = Math.round(state.pump * 100);
-  b[18] = Math.round(state.sweep * 100);
+  b[11] = Math.round(feel.harmonyLock * 100);
+  b[12] = feel.chordBeats;
+  b[14] = Math.max(0, Object.keys(ROOMS).indexOf(feel.room));
+  b[17] = Math.round(feel.pump * 100);
+  b[18] = Math.round(feel.sweep * 100);
   return btoa(String.fromCharCode(...b)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
 }
 
