@@ -498,6 +498,7 @@ function freeInstruments() {
   setInstruments(keys);
 }
 
+// All of it, the song's seed with the rest: in SONG form, another song.
 const WILDCARD = 0.1;
 function randomizeAll() {
   if (Math.random() < WILDCARD) {
@@ -506,14 +507,18 @@ function randomizeAll() {
   } else {
     applyGenre(weightedGenre(), { vary: true });
   }
+  manualSongSeed = newSeed();
+  showLength();
   flashSection('section-genre');
   flashSection('section-feel');
   flashSection('section-instruments');
 }
 
-// While playing, each button shows how long until its change is heard.
-function pressed(btn, change) {
+// While playing, each button shows how long until its change is heard. A
+// change that makes another song plays it from the top, as NEW SONG does.
+function pressed(btn, change, anotherSong = () => false) {
   btn.addEventListener('click', () => {
+    if (anotherSong()) { change(); showPending(btn); replayManual(); return; }
     if (!manualPlaying || paused) { change(); showPending(btn); return; }
     const before = soundingVoices();
     change();
@@ -527,7 +532,7 @@ function pressed(btn, change) {
 pressed(genreRandomBtn, randomizeGenre);
 pressed(feelRandomBtn, randomizeFeel);
 pressed(instrumentsRandomBtn, randomizeInstruments);
-pressed(randomizeAllBtn, randomizeAll);
+pressed(randomizeAllBtn, randomizeAll, () => manualForm === 'song');
 
 // ─── Build instrument panel ───────────────────────────────────────────────────
 const cbElements = {}; // key → <input> — needed for exclusive-group deselection
@@ -1388,8 +1393,8 @@ songExportBtn.addEventListener('click', async () => {
 // for LENGTH). SONG composes a song from it (see src/audio/song.js), as near
 // LENGTH as whole phrases come: the instruments come and go section by
 // section and the feel follows each section's energy, around the controls'
-// settings. The song is its seed and length: the same until NEW SONG or a new
-// LENGTH, so what plays is what exports, and a share link carries both.
+// settings. The song is its seed and length: the same until NEW SONG, RANDOMIZE
+// ALL or a new LENGTH, so what plays is what exports, and a share link carries both.
 function setForm(form) {
   manualForm = form;
   formBtns.forEach(b => {
