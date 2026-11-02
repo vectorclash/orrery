@@ -12,13 +12,54 @@ const QUANTUM = 128; // frames per render quantum
 // Renders `durationSec` of `plan` (see applyPlan) offline: the same scheduler
 // drives an OfflineAudioContext, so the file is exactly what the engine
 // produces, faster than real time and from true silence.
+// A song can start partway, at beat `plan.song.from` (see songPlanFor): from
+// the top of the section that beat falls in -- each section is seeded on its
+// own, so it plays as it does in the whole song -- with the bars before
+// `from` cut off, so `from` falls where beat 0 otherwise does.
 window.renderExport = async (plan, durationSec, sampleRate, onProgress) => {
+  const from = plan.song?.from ?? 0;
+  const sec = from ? songFor(plan).sections.findLast(s => s.start <= from + 1e-9) : null;
+  const cut = sec ? (from - sec.start) * 60 / plan.state.tempo : 0;
+  const rendered = await render(plan, durationSec + cut, sampleRate, sec?.start ?? 0, onProgress);
+  if (!cut) return rendered;
+  const skip = Math.round(cut * sampleRate), length = Math.round(durationSec * sampleRate);
+  const out = new AudioBuffer({ length, numberOfChannels: rendered.numberOfChannels, sampleRate });
+  for (let c = 0; c < rendered.numberOfChannels; c++) {
+    out.copyToChannel(rendered.getChannelData(c).subarray(skip, skip + length), c);
+  }
+  return out;
+};
+
+// The plan for a take of a song `durationSec` long whose first hook -- the
+// first drop, chorus or swell at or after `hookAtSec` -- lands `hookAtSec`
+// into it, rather than one that opens on the intro: for pages that cut a song
+// to their own timeline (Chromaforge's ads drop on the first product). It
+// starts in the bars before the hook (song.from), and a song whose last chord
+// would come before the take ends is made longer: the same song at a longer
+// LENGTH, so the take never runs into the silence after it.
+window.songPlanFor = (plan, durationSec, hookAtSec = 0) => {
+  const spb = 60 / plan.state.tempo, lead = Math.round(hookAtSec / spb);
+  let p = plan;
+  for (let i = 0; i < 8; i++) {
+    const s = songFor(p);
+    const hooks = s.sections.filter(x => x.hook && x.energy[0] >= 0.6); // as levelOfSong's
+    const hook = hooks.find(x => x.start >= lead) ?? hooks[0];
+    const from = Math.max(0, (hook?.start ?? 0) - lead);
+    const short = durationSec - (s.end - from) * spb;
+    p = { ...p, song: { ...p.song, from } };
+    if (short <= 0 || i === 7) break;
+    p.song.length = Math.ceil(s.seconds + short);
+  }
+  return p;
+};
+
+async function render(plan, durationSec, sampleRate, fromBeat, onProgress) {
   const stepped = typeof OfflineAudioContext.prototype.suspend === 'function';
   const ctx = new OfflineAudioContext(stepped ? 2 : 3, Math.round(durationSec * sampleRate), sampleRate);
   initAudio(ctx);
   applyPlan(plan);
   const opts = { skipBass: !plan.bassStyle, skipEvolve: true, levelMs: plan.song?.levelMs };
-  startSession(LOOKAHEAD);
+  startSession(LOOKAHEAD, fromBeat);
   if (opts.levelMs) presetLevel(opts.levelMs);
 
   // Fade to silence over the last stretch so long tails (bell, harp, pad)
@@ -37,7 +78,7 @@ window.renderExport = async (plan, durationSec, sampleRate, onProgress) => {
 
   const progress = t => onProgress(t / durationSec);
   return stepped ? renderStepped(ctx, times, opts, progress) : renderAhead(ctx, times, opts, progress);
-};
+}
 
 // ─── A song's level ───────────────────────────────────────────────────────────
 // What a song's first hook section (its first chorus, drop or swell) reads on

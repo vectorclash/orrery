@@ -48,6 +48,8 @@ Full control over every parameter. The panel is divided into three collapsible s
 
 **Export** renders a WAV file offline, faster than real time, in a hidden iframe (`src/render.js`) with its own copy of the engine, so whatever is playing carries on undisturbed. The same scheduler drives an `OfflineAudioContext`, stepped every 60 ms of audio time as the live ticks are (Firefox, which can't pause an offline render, takes a two-pass route that works out the leveller's moves afterwards). A loop runs for exactly LENGTH, and so does a song, ending with its last chord rung out. Over the last moments (up to 0.4 s) a fade lets decaying voices die away instead of being chopped, and no new notes start inside it. Because every musical choice is seeded (see [Seeded randomness](#seeded-randomness-srcrandomjs)), an exported song is note for note the one that played.
 
+Pages that embed the renderer (Chromaforge's ad builder, which scores its ads with Orrery) get `renderExport`, `planFromShare` (a share link as a plan), `levelOfSong` and `exportBeatZero` (where beat 0 falls in a rendered file) from its window, and `songPlanFor(plan, seconds, hookAt)`: a take of a song cut to the page's own timeline, starting in the bars before its first drop, chorus or swell so that lands `hookAt` seconds in, and made longer if its last chord would come before the take ends. A song renders from any beat (`plan.song.from`): from the top of the section that beat falls in, which plays as it does in the whole song, with the bars before it cut off.
+
 ---
 
 ## Audio Engine
