@@ -3,6 +3,7 @@ import { state, beat, rand, pick, lerp, register, midiToHz, random } from '../..
 import { createVoice } from '../transport.js';
 import { logNote } from '../notes.js';
 import { harmony } from '../harmony.js';
+import { lines } from '../lines.js';
 import { osc, gain, filter, send, lfo } from '../synth.js';
 
 // Vocal chop: the pitched, chopped-up vocal hook of house, garage and future
@@ -78,10 +79,16 @@ function chop(t, midi, len, vowel, fall) {
 }
 
 function play(t, b) {
+  const line = lines.next('vox', b);
+  if (line) {
+    // Each note of a written hook keeps its syllable, so it comes round the same.
+    if (line.midi !== null) chop(t, line.midi, line.dur * beat() * 0.92, VOWEL_NAMES[line.i % VOWEL_NAMES.length], false);
+    return line.gap;
+  }
   const p = Math.floor(b / 16);
   if (p !== phrase) {
     phrase = p;
-    if (!hook.length || random() < 0.3) hook = makeHook();
+    if (!hook.length || (state.composer < 2 && random() < 0.3)) hook = makeHook();
   }
   const step = Math.round((b - Math.floor(b / 8) * 8) * 4) % 32;
   const c = hook.find(h => h.step === step);

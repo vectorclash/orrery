@@ -5,6 +5,7 @@
 // as Chromaforge's ad builder, which renders a pasted link into its videos.
 import { state, ROOT_BASE_MIDI, pick } from './state.js';
 import { ROOMS } from './audio/context.js';
+import { LANGUAGE_NAMES } from './audio/language.js';
 
 // Canonical instrument order for the share-link bitmask. Spelled out rather
 // than derived from the display lists in main.js, so reordering the UI can never
@@ -37,7 +38,9 @@ export const ALL_INST_KEYS = [
 //  pump×100(1), sweep×100(1), instBitmask bits 64–71 (1 byte),
 //  tail length n(1), instBitmask bits 72 and up (n bytes),
 //  form(1): 1 = a song, seed(4, little-endian): the song's,
-//  length(2, little-endian): the song's, in seconds]
+//  length(2, little-endian): the song's, in seconds,
+//  composer(1), language(1): its place in LANGUAGE_NAMES,
+//  writing seed(4, little-endian): a song written from another's seed, if it is]
 // The first 72 instruments were fitted into spare bytes as they came. Everything
 // after them goes in the tail, which grows with ALL_INST_KEYS, so appending a key
 // needs no change here. While there are no more than 72 keys the tail is left
@@ -51,6 +54,11 @@ export const ALL_INST_KEYS = [
 // its form, seed and length sit at 21 + n; a loop's link stops before them,
 // and a page from before songs ignores them and plays the loop. A song's link
 // from before lengths stops after the seed, and its song draws its own.
+// The composer is the last field. Composer 1 doesn't write it, so its links are
+// byte for byte what they always were, and a link without one is composer 1's,
+// which is how every link made before composer 2 keeps its song. A loop from
+// composer 2 writes the form and song fields as zeros to reach it. A song that keeps
+// another's chords and hook (see writeSong in audio/song.js) adds that song's seed.
 const FIXED_INST_BITS = 72;
 const TAIL_LEN = 20; // the tail's length byte; its bits start at TAIL_LEN + 1
 const instByte = i => (i < 40 ? 6 + (i >> 3) : i < 48 ? 13 : i < 56 ? 15 : i < 64 ? 16
@@ -61,15 +69,22 @@ const instByte = i => (i < 40 ? 6 + (i >> 3) : i < 48 ? 13 : i < 56 ? 15 : i < 6
 // length } if given, makes it a song's link.
 export function encodeConfig(enabled, song = null, feel = state) {
   const tail = Math.ceil(Math.max(0, ALL_INST_KEYS.length - FIXED_INST_BITS) / 8);
-  const b = new Uint8Array(tail || song ? TAIL_LEN + 1 + tail + (song ? 7 : 0) : TAIL_LEN);
-  if (tail || song) b[TAIL_LEN] = tail;
+  const written = (feel.composer ?? 1) >= 2;
+  const rewrites = written && song?.writing != null;
+  const b = new Uint8Array(tail || song || written ? TAIL_LEN + 1 + tail + (rewrites ? 13 : written ? 9 : song ? 7 : 0) : TAIL_LEN);
+  if (tail || song || written) b[TAIL_LEN] = tail;
+  const at = TAIL_LEN + 1 + tail;
   if (song) {
-    const at = TAIL_LEN + 1 + tail;
     const view = new DataView(b.buffer);
     b[at] = 1;
     view.setUint32(at + 1, song.seed >>> 0, true);
     view.setUint16(at + 5, song.length, true);
   }
+  if (written) {
+    b[at + 7] = feel.composer;
+    b[at + 8] = Math.max(0, LANGUAGE_NAMES.indexOf(feel.language));
+  }
+  if (rewrites) new DataView(b.buffer).setUint32(at + 9, song.writing >>> 0, true);
   b[0] = feel.rootMidi - ROOT_BASE_MIDI;
   b[1] = feel.scaleIdx;
   b[2] = feel.tempo;
@@ -99,6 +114,7 @@ export function decodeConfig(str) {
     const song = b[at] === 1 && b.length >= at + 5 ? {
       seed:   view.getUint32(at + 1, true),
       length: b.length >= at + 7 ? view.getUint16(at + 5, true) : undefined,
+      ...(b.length >= at + 13 ? { writing: view.getUint32(at + 9, true) } : {}),
     } : undefined;
     return {
       r: ROOT_BASE_MIDI + (b[0] % 12), s: b[1], t: b[2],
@@ -110,6 +126,8 @@ export function decodeConfig(str) {
       pu: b[17] !== undefined ? b[17] / 100 : 0,
       sw: b[18] !== undefined ? b[18] / 100 : 0,
       song,
+      cv: b[at + 7] ?? 1,
+      lg: LANGUAGE_NAMES[b[at + 8]] ?? 'ANY',
     };
   } catch { return null; }
 }
@@ -138,6 +156,8 @@ export function planFromConfig(cfg) {
       room:         cfg.rm ?? state.room,
       pump:         cfg.pu,
       sweep:        cfg.sw,
+      composer:     cfg.cv ?? 1,
+      language:     cfg.lg ?? 'ANY',
     },
     // A song picks from several by its seed, as Edit mode does.
     bassStyle: !bassSubs.length ? null : cfg.song ? bassSubs[cfg.song.seed % bassSubs.length] : pick(bassSubs),
@@ -146,8 +166,16 @@ export function planFromConfig(cfg) {
       ...(drumSubs.length ? ['drums'] : []),
       ...cfg.m.filter(k => !k.includes(':')),
     ],
-    ...(cfg.song ? { song: { seed: cfg.song.seed, length: cfg.song.length } } : {}),
+    ...(cfg.song ? { song: { ...cfg.song } } : {}),
   };
+}
+
+// A song's plan as a link: the plan's own instruments and feel, at `length` seconds.
+export function linkForPlan(plan, length) {
+  const on = Object.fromEntries(plan.voices.filter(v => v !== 'drums').map(v => [v, true]));
+  if (plan.bassStyle) on[`bass:${plan.bassStyle}`] = true;
+  if (plan.drumStyle) on[`drums:${plan.drumStyle}`] = true;
+  return encodeConfig(on, { ...plan.song, length }, plan.state);
 }
 
 // A whole share URL, a bare `#c=…` hash, or just the characters after `c=`.

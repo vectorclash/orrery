@@ -1,8 +1,9 @@
 import { audio, getVoiceBus, noise } from '../context.js';
-import { currentScale, rand, pick, register, midiToHz, scaleNotes, random } from '../../state.js';
+import { rand, pick, register, midiToHz, scaleNotes, random } from '../../state.js';
 import { createVoice } from '../transport.js';
 import { logNote } from '../notes.js';
 import { harmony } from '../harmony.js';
+import { lines } from '../lines.js';
 import { osc, gain, filter, send, perc } from '../synth.js';
 
 // Handbell. The old partials (1, 2.756, 5.404, 8.801) are those of an untuned
@@ -17,11 +18,18 @@ const PARTIALS = [ // ratio, level, decay (× note length)
 ];
 
 function play(t, b) {
-  const wait = pick([2, 3, 4, 4]);
-  if (random() < 0.3) return wait;
-
-  const notes = scaleNotes(register(74, 32, 84), currentScale(), 2);
-  const midi  = harmony.pickChordTone(notes, b);
+  const line = lines.next('bell', b);
+  if (line?.midi === null) return line.gap;
+  let wait, midi;
+  if (line) {
+    wait = line.gap;
+    midi = line.midi;
+  } else {
+    wait = pick([2, 3, 4, 4]);
+    if (random() < 0.3) return wait;
+    const notes = scaleNotes(register(74, 32, 84), harmony.scaleAt(b), 2);
+    midi = harmony.pickChordTone(notes, b);
+  }
   const hz    = midiToHz(midi);
   const dur   = rand(2.5, 5.0);
   logNote('bell', t, midi, dur, 0.7);

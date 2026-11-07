@@ -3,6 +3,7 @@ import { state, beat, rand, pick, lerp, register, midiToHz, random } from '../..
 import { createVoice } from '../transport.js';
 import { logNote } from '../notes.js';
 import { harmony } from '../harmony.js';
+import { lines } from '../lines.js';
 import { osc, gain, filter, send } from '../synth.js';
 
 // Saw pluck: the bright, short lead of trance and EDM. Three detuned saws
@@ -36,20 +37,29 @@ function chordTones(b) {
 }
 
 function play(t, b) {
+  const line = lines.next('sawpluck', b);
+  if (line) {
+    if (line.midi !== null) pluck(t, line.midi, line.vel >= 0.92 ? 1 : 0.82);
+    return line.gap;
+  }
+  const hold = state.composer >= 2; // a figure that comes round holds for its section
   const p = Math.floor(b / 16);
   if (p !== phrase) {
     phrase = p;
-    if (!gate || random() < 0.4) gate = pick(GATES);
-    if (!walk || random() < 0.4) walk = pick(WALKS);
+    if (!gate || (!hold && random() < 0.4)) gate = pick(GATES);
+    if (!walk || (!hold && random() < 0.4)) walk = pick(WALKS);
   }
   const step = Math.round((b - Math.floor(b / 4) * 4) * 4) % 16;
   if (gate[step] !== 'x') return 0.25;
 
   const notes = chordTones(b);
   const hit = gate.slice(0, step + 1).split('x').length - 2; // which sounding step this is
-  const midi = notes[walk[hit % walk.length]];
+  pluck(t, notes[walk[hit % walk.length]], step % 4 === 0 ? 1 : 0.82);
+  return 0.25;
+}
+
+function pluck(t, midi, accent) {
   const hz = midiToHz(midi);
-  const accent = step % 4 === 0 ? 1 : 0.82;
   const len = beat() * 0.25 * 0.9;
   logNote('sawpluck', t, midi, len, accent);
 
@@ -68,7 +78,6 @@ function play(t, b) {
   lp.connect(env); env.connect(bus);
   send(env, audio.echoSend, 0.45);
   send(env, audio.reverbSend, lerp(0.2, 0.55, state.spaciousness));
-  return 0.25;
 }
 
 // Draws nothing on reset -- every voice is reset at the start of a session, playing or not,

@@ -20,7 +20,7 @@ function play(t, b) {
   const seg  = harmony.at(b);
   const len  = seg.end - b;
   const dur  = len * beat();
-  const pcs  = harmony.pcs(seg.degree, seg.seventh ? 4 : 3);
+  const pcs  = harmony.voiced(seg);
   const v    = harmony.voice(pcs, prev, register(60, 28, 78));
   prev = v;
   for (const m of v) logNote('synthbrass', t, m, dur, 0.7);

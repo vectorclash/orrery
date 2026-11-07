@@ -1,11 +1,14 @@
 import { audio, beginSession, setEchoTime, setRoom, updateLowCuts, updateLevel, noteClock, gateGap } from './context.js';
 import { state, SCALE_NAMES, TICK_MS, LOOKAHEAD, ROOT_BASE_MIDI, rand, pick, beat, random, clamp } from '../state.js';
-import { seedStreams, reseedStreams, restream, newSeed } from '../random.js';
+import { seedStreams, reseedStreams, restream, newSeed, stream } from '../random.js';
 import { harmony } from './harmony.js';
 import { logChange } from './notes.js';
 import { transport } from './transport.js';
 import { ensemble } from './phrase.js';
 import { song, composeSong, arrange } from './song.js';
+import { lines } from './lines.js';
+import { languageOf, intervalsFor, LANGUAGE_NAMES } from './language.js';
+import { writeMotif, lineOver } from './hook.js';
 import { fxVoice } from './voices/fx.js';
 
 import { bassVoice }     from './voices/bass.js';
@@ -113,6 +116,17 @@ export const songFor = plan => composeSong(plan, roleOf);
 export function setActiveVoices(voices) {
   activeVoices = voices;
   ensemble.leads = voices.filter(v => v.role === 'lead').map(v => v.name);
+  lines.follow(voices.map(v => v.name));
+}
+
+// A loop or an era has no song to write its hook: it writes one for its own chords,
+// and whoever can carry it has it, from beat `at`.
+function writeFreeLine(at) {
+  if (state.composer < 2 || song.current) return;
+  const w = harmony.written;
+  const name = SCALE_NAMES[state.scaleIdx];
+  const motif = writeMotif(stream('writing'), languageOf(state.language), w.tokens, name, state.chordBeats || 4, state.harmonyLock, { spoken: intervalsFor(state.language, state.composer) });
+  lines.setFree(lineOver(motif, w.tokens, name, state.chordBeats || 4), at, activeVoices.map(v => v.name), state.language);
 }
 
 // ─── Session ──────────────────────────────────────────────────────────────────
@@ -133,8 +147,11 @@ function restart(t, from) {
   setEchoTime(beat() * 0.75, t);
   harmony.reroll(0);
   ensemble.reset();
-  ensemble.hold = false;
+  ensemble.hold = state.composer >= 2; // composer 2's motifs hold for a section
+  lines.clear();
+  writeFreeLine(0);
   for (const v of ALL_VOICES) v.reset();
+  if (state.composer >= 2 && !song.current) bassVoice.newSection(); // a song's sections do this
   pumpVoice.reset();
   sweepVoice.reset();
   fxVoice.reset();
@@ -212,6 +229,9 @@ function advanceEra(at) {
   state.octaveShift  = pick([-1, 0, 0, 1]);
   state.chordBeats   = pick([4, 4, 8]);
   state.room         = roomFor(state.spaciousness, state.tempo);
+  // Each era speaks a language of its own (composer 2), any genre's: its chords and
+  // its hook, whatever instruments it draws.
+  if (state.composer >= 2) state.language = pick(LANGUAGE_NAMES);
   transport.retime(at);
   setEchoTime(beat() * 0.75, transport.timeAt(at));
   setRoom(state.room, transport.timeAt(at));
@@ -222,7 +242,9 @@ function advanceEra(at) {
   pickVoices();
   bassVoice.reroll();
   drumsVoice.reroll();
+  if (state.composer >= 2) { ensemble.reset(); writeFreeLine(at); }
   for (const v of ALL_VOICES) v.reset(at);
+  if (state.composer >= 2) bassVoice.newSection();
 }
 
 function drift() {
@@ -259,16 +281,21 @@ function onBeat(b) {
     setActiveVoices([]);
     songBass = false;
     ensemble.hold = false;
+    lines.clear();
     for (const v of ALL_VOICES) v.reset(b);
     return;
   }
   const sec = song.sectionAt(b);
   if (b === sec.start) enterSection(sec, b);
   setFeel(song.energyAt(sec, b));
-  if (b === sec.holdFrom) harmony.setForm([sec.build.hold], [0.5], b);
+  if (b === sec.holdFrom && !sec.turnFrom) harmony.setForm([sec.build.hold], [0.5], b);
+  if (b === sec.turnFrom) harmony.setForm([sec.turn], null, b);
   const end = sec.start + sec.beats;
   if (sec.gap && b === end - sec.gap) gateGap(transport.timeAt(b), transport.timeAt(end));
 }
+
+// Where a section's lines stop (see lines.set).
+const restOf = sec => (state.composer >= 4 && sec.turnFrom != null ? sec.turnFrom : Infinity);
 
 function enterSection(sec, b) {
   reseedStreams(sec.kind);
@@ -278,7 +305,8 @@ function enterSection(sec, b) {
   state.rootMidi = ROOT_BASE_MIDI + ((song.base.rootMidi - ROOT_BASE_MIDI + sec.shift) % 12 + 12) % 12;
   harmony.setForm(sec.prog, sec.colours, b);
   ensemble.reset();
-  ensemble.hold = hook;
+  ensemble.hold = hook || state.composer >= 2;
+  lines.set(sec.lines, b, sec.beats, sec.shift, restOf(sec));
   setActiveVoices(voicesNamed(sec.voices));
   songBass = sec.bass;
   for (const v of ALL_VOICES) v.reset(b);
@@ -321,6 +349,7 @@ export function resumeSession(t) {
 // Back to eras or a loop: no song.
 export function unloadSong() {
   song.current = null;
+  lines.clear();
   if (audio.level) audio.level.holdsAt = null;
 }
 
@@ -342,6 +371,7 @@ export function rearrangeSong(plan) {
   arrange(song.current, plan, roleOf);
   const sec = song.sectionAt(songBeat - 1);
   if (!sec) return;
+  lines.set(sec.lines, sec.start, sec.beats, sec.shift, restOf(sec));
   setActiveVoices(voicesNamed(sec.voices));
   songBass = sec.bass;
 }

@@ -134,12 +134,29 @@ function approach(target, from) {
   return inRange(target + (dir > 0 ? 7 : -5));
 }
 
+// Composer 2's chord knows its own fifth (a diminished chord's isn't a perfect one),
+// and a chord with another note in the bass stays on that note: the fifth above it
+// would be a different chord.
+function fifthOf(seg, r) {
+  const c = seg.degree;
+  if (typeof c !== 'object') return fifth(r);
+  if (c.bass !== c.root) return r;
+  const up = c.tones[2] % 12;
+  if (up !== 6 && up !== 7 && up !== 8) return fifth(r);
+  return r + up <= HI ? r + up : r + up - 12;
+}
+
+// How long a note of `beats` can last at `b`: composer 2's chords can change inside
+// a bar, and a held note mustn't ring over the change. Composer 1's only change on
+// bar lines, where a pattern's notes already stop.
+const room = (b, beats) => (state.composer >= 2 ? Math.min(beats, harmony.at(b).end - b) : beats);
+
 function resolve(code, b, len) {
   const seg = harmony.at(b);
   const r   = root(seg);
   if (b - seg.start < 1e-6) return r; // chord arrival always gets the root
-  if (code === 'A') return b + len >= seg.end - 1e-6 ? approach(nextRoot(seg), prev ?? r) : fifth(r);
-  if (code === 'F') return fifth(r);
+  if (code === 'A') return b + len >= seg.end - 1e-6 ? approach(nextRoot(seg), prev ?? r) : fifthOf(seg, r);
+  if (code === 'F') return fifthOf(seg, r);
   if (code === 'O') return r + 12 <= HI + 5 ? r + 12 : r;
   return r;
 }
@@ -149,7 +166,7 @@ function resolveAcid(code, b) {
   const seg = harmony.at(b);
   const r = root(seg);
   if (code === 'O') return r + 12 <= HI + 5 ? r + 12 : r;
-  if (code === 'F') return fifth(r);
+  if (code === 'F') return fifthOf(seg, r);
   if (code === '3' || code === '7') {
     const pcs = harmony.pcs(seg.degree, 4);
     const pc = pcs[code === '3' ? 1 : 3];
@@ -170,7 +187,7 @@ function walkNote(b) {
   if (k < 1e-6 || prev === null) return root(seg);
   const target = nextRoot(seg);
   if (left <= 1 + 1e-6) return approach(target, prev);
-  const pcs = harmony.pcs(seg.degree, seg.seventh ? 4 : 3);
+  const pcs = harmony.voiced(seg);
   const options = [];
   for (let m = prev - 5; m <= prev + 5; m++) {
     if (m === prev || m < LO || m > HI) continue;
@@ -426,7 +443,16 @@ function play(t, b) {
   const bar = Math.floor(b / 4 + 1e-9), pos = b - bar * 4;
   if (bar !== curBar) {
     curBar = bar;
-    if (GROOVE_STYLES.includes(style)) {
+    if (state.composer >= 2) {
+      // A bass figure holds for its section, note for note: that's most of what made
+      // the log drum on the song that prompted this a riff. An acid line still evolves,
+      // which is what an acid line does, but over eight bars, not two.
+      if (GROOVE_STYLES.includes(style) && !groovePattern) groovePattern = pick(GROOVE_PATTERNS[style]);
+      if (style === 'acid') {
+        if (!acidSeq.length) acidSeq = makeAcid();
+        else if (bar % 8 === 0 && random() < 0.5) acidSeq = mutateAcid(acidSeq);
+      }
+    } else if (GROOVE_STYLES.includes(style)) {
       if (!groovePattern || (bar % 4 === 0 && random() < 0.3)) groovePattern = pick(GROOVE_PATTERNS[style]);
     } else if (FIRST_DANCE_STYLES.includes(style)) {
       // The dance styles draw only here, so the classic styles' draws are untouched.
@@ -458,13 +484,17 @@ function play(t, b) {
       while (i + n < 16 && pat[i + n] === '-') n++;
       const midi = resolve(ch, b, n / 4);
       prev = midi;
-      if (style === 'deep') deepBass(t, midi, (n / 4) * beat() * 0.85);
-      else synthBass(t, midi, (n / 4) * beat() * 0.7);
+      if (style === 'deep') deepBass(t, midi, room(b, n / 4) * beat() * 0.85);
+      else synthBass(t, midi, room(b, n / 4) * beat() * 0.7);
     }
     return 0.25;
   }
 
   if (GROOVE_STYLES.includes(style)) {
+    // A groove style chosen mid-bar, while playing, hasn't reached the bar line that
+    // draws its pattern. Without this it throws on every tick until it does, and takes
+    // every voice after it in the tick with it.
+    groovePattern ??= pick(GROOVE_PATTERNS[style]);
     const pat = groovePattern, i = Math.round(pos * 4) % 16, ch = pat[i];
     if (ch === '.' || ch === '-') return 0.25;
     let n = 1;
@@ -504,7 +534,7 @@ function play(t, b) {
       if (Math.abs(acc - pos) < 1e-6) {
         const midi = resolve(code, b, len);
         prev = midi;
-        stringBass(t, midi, len * beat() * 0.9, { bright: 0.4, pick: 0.18, t60: 1.6, level: 0.42 });
+        stringBass(t, midi, room(b, len) * beat() * 0.9, { bright: 0.4, pick: 0.18, t60: 1.6, level: 0.42 });
         return len;
       }
       if (acc > pos) return acc - pos;
@@ -520,7 +550,7 @@ function play(t, b) {
     while (i + n < 16 && pattern[i + n] === '-') n++;
     const midi = resolve(ch, b, n / 4);
     prev = midi;
-    synthBass(t, midi, (n / 4) * beat() * 0.9);
+    synthBass(t, midi, room(b, n / 4) * beat() * 0.9);
   }
   return 0.25;
 }

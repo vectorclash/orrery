@@ -1,4 +1,4 @@
-import { state, rootName, scaleName, START_DELAY, ROOT_BASE_MIDI, pick } from './state.js';
+import { state, rootName, scaleName, START_DELAY, ROOT_BASE_MIDI, LATEST_COMPOSER, pick } from './state.js';
 import { audio, ensureAudioRunning, audioStopped, setRoom, ROOMS, heardTime } from './audio/context.js';
 import { everyTick } from './audio/ticker.js';
 import {
@@ -14,10 +14,13 @@ import {
   songFor, songOver, unloadSong, resumeSession, setSongFeel, rearrangeSong,
 } from './audio/scheduler.js';
 import { transport } from './audio/transport.js';
-import { song, songSeconds } from './audio/song.js';
+import { song, songSeconds, formFor } from './audio/song.js';
+import { LANGUAGE_NAMES, voicesOf } from './audio/language.js';
+import { isAir, carriersIn } from './audio/lines.js';
+import { library } from './library.js';
 import { newSeed } from './random.js';
 import { showPending, clearPending } from './pending.js';
-import { encodeConfig, decodeConfig, planFromConfig, ALL_INST_KEYS } from './share.js';
+import { encodeConfig, decodeConfig, planFromConfig, linkForPlan, ALL_INST_KEYS } from './share.js';
 import { startAnimation } from './visuals/animate.js';
 import { post } from './visuals/post.js';
 import { mirrors, useSymmetry } from './visuals/mirrors.js';
@@ -243,6 +246,16 @@ const kindBtns             = document.querySelectorAll('.kind-btn[data-kind]'); 
 const songExportBtn        = document.getElementById('song-export-btn');
 const formBtns             = document.querySelectorAll('.form-btn');
 const newSongBtn           = document.getElementById('new-song-btn');
+const composerBtns         = document.querySelectorAll('.composer-btn');
+const prevBtn              = document.getElementById('prev-btn');
+const songActions          = document.getElementById('song-actions');
+const keepBtn              = document.getElementById('keep-btn');
+const likeBtn              = document.getElementById('like-btn');
+const libraryBtn           = document.getElementById('library-btn');
+const libraryEl            = document.getElementById('library');
+const libraryList          = document.getElementById('library-list');
+const libraryTabs          = document.querySelectorAll('.library-tab');
+const libraryCloseBtn      = document.getElementById('library-close');
 const panelHideBtn         = document.getElementById('panel-hide-btn');
 
 // ─── Enable state (all off by default) ───────────────────────────────────────
@@ -265,6 +278,7 @@ let infiniteKind      = localStorage.getItem('orrery.infinite') === 'songs' ? 's
 let songPlan          = null;   // the song Infinite mode is playing (or last played)
 let manualForm        = 'loop'; // Edit mode: a LOOP of the arrangement, or a SONG made from it
 let manualSongSeed    = newSeed();
+let manualWriting     = null;   // the seed of the song this one takes its chords and hook from, if any
 let linked            = null; // the configuration the address bar's link describes (see forgetStaleLink)
 // LENGTH, in seconds, kept for each form: a loop's export, a song's length.
 let loopLength        = 10;
@@ -316,7 +330,17 @@ function showFeel() {
   sweepSlider.value      = state.sweep;
   sweepVal.textContent   = fmt2(state.sweep);
   roomSelect.value       = state.room;
+  showComposer();
   refreshSummaries();
+}
+
+// CLASSIC / NEW: which composer writes the notes (see `state.composer`).
+function showComposer() {
+  composerBtns.forEach(b => {
+    const on = (b.dataset.composer === 'new') === (state.composer >= 2);
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-pressed', String(on));
+  });
 }
 
 // Applies feel fields live; a room change crossfades into the new space.
@@ -381,7 +405,7 @@ function genreFeel(g, vary) {
   const feel = {
     scaleIdx: g.scaleIdx, tempo: g.tempo, density: g.density, brightness: g.brightness,
     spaciousness: g.spaciousness, harmonyLock: g.harmony, chordBeats: g.chord, room: g.room,
-    pump: g.pump ?? 0, sweep: g.sweep ?? 0,
+    pump: g.pump ?? 0, sweep: g.sweep ?? 0, language: g.name,
   };
   if (!vary) return feel;
   const nudge = (x, by) => round2(Math.min(0.95, Math.max(0.05, x + (Math.random() * 2 - 1) * by)));
@@ -397,8 +421,9 @@ function genreFeel(g, vary) {
 }
 
 // The genre's kit, rolled: a drum style, a bass style, a voice from each core
-// pool and a few extras.
-function rollKit(g) {
+// pool and a few extras. For composer 2 (`writes`), a kit with none of the voices
+// that carry a hook in this genre gets one.
+function rollKit(g, writes = state.composer >= 2) {
   const { drums, bass, cores, extra, extras } = g.kit;
   const keys = new Set();
   const d = pick(drums), b = pick(bass);
@@ -406,10 +431,20 @@ function rollKit(g) {
   if (b) keys.add(`bass:${b}`);
   for (const pool of cores) keys.add(pick(pool.filter(v => !keys.has(v))));
   extra.filter(v => !keys.has(v)).sort(() => Math.random() - 0.5).slice(0, between(extras)).forEach(v => keys.add(v));
+  const carriers = voicesOf(g.name);
+  const count = isAir(carriers[0]) ? carriers : carriers.filter(v => !isAir(v));
+  if (writes && !count.some(v => keys.has(v))) keys.add(pick(count.slice(0, 2)));
   return keys;
 }
 
+// A link keeps the composer that wrote it, so a song from an earlier NEW goes on
+// playing as it was. Anything drawn afresh gets the latest.
+function latestComposer() {
+  if (state.composer >= 2) state.composer = LATEST_COMPOSER;
+}
+
 function applyGenre(g, { vary = false } = {}) {
+  latestComposer();
   applyFeel(genreFeel(g, vary));
   setInstruments(rollKit(g));
   setGenreHighlight(genreButtons.get(g));
@@ -418,7 +453,8 @@ function applyGenre(g, { vary = false } = {}) {
 // Electronic genres twice as likely as classic ones.
 const GENRE_WEIGHT = g => (g.electronic ? 2 : 1);
 function weightedGenre(except = null) {
-  const pool = GENRES.filter(g => g !== except);
+  const not = [except].flat();
+  const pool = GENRES.filter(g => !not.includes(g));
   let r = Math.random() * pool.reduce((s, g) => s + GENRE_WEIGHT(g), 0);
   for (const g of pool) if ((r -= GENRE_WEIGHT(g)) <= 0) return g;
   return pool[pool.length - 1];
@@ -478,6 +514,7 @@ function freeFeel() {
     room:         roomFor(spaciousness, tempo),
     pump:         0,
     sweep:        0,
+    language:     'ANY',
   });
   clearGenreHighlight();
 }
@@ -505,6 +542,7 @@ function freeInstruments() {
 // All of it, the song's seed with the rest: in SONG form, another song.
 const WILDCARD = 0.1;
 function randomizeAll() {
+  latestComposer();
   if (Math.random() < WILDCARD) {
     freeFeel();
     freeInstruments();
@@ -512,6 +550,7 @@ function randomizeAll() {
     applyGenre(weightedGenre(), { vary: true });
   }
   manualSongSeed = newSeed();
+  manualWriting = null;
   showLength();
   flashSection('section-genre');
   flashSection('section-feel');
@@ -729,6 +768,7 @@ function syncManualFromInfinite() {
     ].filter(k => k in manualEnabled)));
     setGenreHighlight(genreButtons.get(GENRES.find(g => g.name === songPlan.genre)) ?? null);
     manualSongSeed = songPlan.song.seed;
+    manualWriting = songPlan.song.writing ?? null;
     songLength = songFor(songPlan).target;
     setForm('song');
     return;
@@ -843,10 +883,12 @@ function updateSongDisplay() {
 }
 
 function showNext(shown) {
-  nextBtn.classList.toggle('shown', shown);
+  for (const [btn, on] of [[nextBtn, shown], [prevBtn, shown && infiniteKind === 'songs']]) {
+    btn.classList.toggle('shown', on);
+    btn.tabIndex = on ? 0 : -1;
+    btn.setAttribute('aria-hidden', String(!on));
+  }
   clearPending();
-  nextBtn.tabIndex = shown ? 0 : -1;
-  nextBtn.setAttribute('aria-hidden', String(!shown));
 }
 
 function showInfinitePlaying(on) {
@@ -870,6 +912,8 @@ function stopInfinite() {
 
 function startEras() {
   unloadSong();
+  state.composer    = LATEST_COMPOSER;
+  state.language    = pick(LANGUAGE_NAMES);
   state.scaleIdx    = 0;
   state.rootMidi    = ROOT_BASE_MIDI;
   state.tempo       = Math.floor(Math.random() * 79) + 52; // 52–130
@@ -890,28 +934,118 @@ function startEras() {
   updateInfiniteDisplay();
 }
 
-// A new song from a genre's kit and a varied feel: never the same genre twice
-// running.
+// A new song from a genre's kit and a varied feel. What keeps a playlist from
+// sounding samey is partly what it just played: not one of the last few genres, if
+// it can help it not the same mode as the last song, and not a chord loop it has
+// played lately. A few tries at that, then it takes what it has.
+const RECENT_GENRES = 4;
+const RECENT_LOOPS  = 8;
+const recentGenres = [];
+const recentLoops  = [];
+const heldBy = s => s.sections.find(x => x.hook)?.prog.join(' ') ?? '';
+
 function composeInfiniteSong() {
-  const last = GENRES.find(g => g.name === songPlan?.genre) ?? null;
-  const g = weightedGenre(last);
-  const plan = planFromKeys({ octaveShift: 0, ...genreFeel(g, true) }, rollKit(g), newSeed());
+  const g = weightedGenre(recentGenres);
+  let plan = null, loop = '';
+  for (let tries = 0; tries < 8; tries++) {
+    plan = planFromKeys({ octaveShift: 0, ...genreFeel(g, true), composer: LATEST_COMPOSER }, rollKit(g, true), newSeed());
+    loop = heldBy(songFor(plan));
+    if (plan.state.scaleIdx !== songPlan?.state.scaleIdx && !recentLoops.includes(loop)) break;
+  }
+  recentGenres.push(g);
+  if (recentGenres.length > RECENT_GENRES) recentGenres.shift();
+  recentLoops.push(loop);
+  if (recentLoops.length > RECENT_LOOPS) recentLoops.shift();
   plan.genre = g.name;
   return plan;
 }
 
+// MORE LIKE THIS: the same chords and the same hook (the writing seed, see writeSong
+// in audio/song.js), in the same key and tempo, with new instruments and an arrangement
+// of its own. Of a few kits rolled, the one furthest from this one, the hook's carrier
+// changing above all, since that's the voice you'd notice. It has to keep the song's
+// form, which decides what the hook is written over, and the drums decide the form: a
+// roll whose drums would change it keeps this song's, and the rest of the roll.
+function likeThis(plan) {
+  const g = GENRES.find(x => x.name === plan.genre) ?? GENRES.find(x => x.kit.drums.includes(plan.drumStyle));
+  const carrierOf = p => carriersIn(p.voices, p.state.language)[0];
+  const parts = p => new Set([...p.voices, p.bassStyle, p.drumStyle]);
+  const was = parts(plan);
+  let best = null, bestScore = -1;
+  for (let tries = 0; g && tries < 16; tries++) {
+    const p = planFromKeys(plan.state, rollKit(g, true), newSeed());
+    if (formFor(p) !== formFor(plan)) {
+      p.drumStyle = plan.drumStyle;
+      p.voices = [...(plan.drumStyle ? ['drums'] : []), ...p.voices.filter(v => v !== 'drums')];
+    }
+    const score = [...parts(p)].filter(x => !was.has(x)).length + (carrierOf(p) !== carrierOf(plan) ? 3 : 0);
+    if (score > bestScore) { best = p; bestScore = score; }
+  }
+  // No genre to roll from: the same players, arranged anew.
+  best ??= { ...plan, song: { seed: newSeed() } };
+  best.song.writing = plan.song.writing ?? plan.song.seed;
+  best.genre = plan.genre;
+  return best;
+}
+
+// ─── History ──────────────────────────────────────────────────────────────────
+// Infinite's songs are a player's queue: PREV goes back through what it has played,
+// NEXT forward through it again, and past the end there's a new song. It's the
+// library's recent list, so it reaches back past a reload.
+let songEntry = null;                         // the song playing, as the library has it
+let place = library.recent.length - 1;        // where in the history that is
+
+function entryFor(plan) {
+  const s = songFor(plan);
+  return {
+    link: linkForPlan(plan, s.target), genre: plan.genre, root: plan.state.rootMidi, scale: plan.state.scaleIdx,
+    tempo: plan.state.tempo, seconds: Math.round(songSeconds(s)), at: Date.now(),
+    ...(plan.song.writing === undefined ? {} : { variation: true }),
+  };
+}
+
+// An entry's song, as Infinite plays them: at the octave it was written for.
+function planOf(entry) {
+  const cfg = decodeConfig(entry.link);
+  if (!cfg?.song) return null;
+  const plan = planFromConfig(cfg);
+  plan.state.octaveShift = 0;
+  plan.genre = entry.genre;
+  return plan;
+}
+
+function fromHistory(i) {
+  const plan = planOf(library.recent[i]);
+  if (plan) place = i;
+  return plan;
+}
+
+// A song that isn't from the history goes in straight after the one playing, so PREV
+// comes back to that one, and NEXT carries on from where it was.
+function played(plan) {
+  place = library.played(entryFor(plan), place + 1);
+  return plan;
+}
+
+const planAfter  = () => (place < library.recent.length - 1 && fromHistory(place + 1)) || played(composeInfiniteSong());
+const planBefore = () => (place > 0 && fromHistory(place - 1)) || songPlan;
+
 function startSong(plan) {
   songPlan = plan;
+  songEntry = entryFor(plan);
   applyPlan(plan);
   startSession(audio.ctx.currentTime + START_DELAY);
   tick();
   updateSongDisplay();
   updateKindUI();
+  showKept();
+  if (!libraryEl.hidden) showLibrary();
 }
 
-// Straight on to a new song, with a quick fade instead of a cut.
+// Straight on to another song, with a quick fade instead of a cut. `plan` is asked for
+// when it starts, so a press that's ignored here moves nothing in the history.
 let switching = false;
-function nextSongNow() {
+function switchSong(plan) {
   if (switching) return;
   switching = true;
   muteAudio(0.15);
@@ -919,8 +1053,20 @@ function nextSongNow() {
     switching = false;
     if (!infiniteRunning) return;
     if (!paused) unmuteAudio(); // switched to ERAS meanwhile: they're already playing
-    if (infiniteKind === 'songs') startSong(composeInfiniteSong());
+    if (infiniteKind === 'songs') startSong(plan());
   }, 170);
+}
+const nextSongNow = () => switchSong(planAfter);
+
+// Another song, from wherever Infinite is: playing, it fades across; paused, it plays
+// again with the change (a new song starts from silence, so it needs no fade); stopped,
+// it starts.
+let startOn = null;
+async function goToSong(plan, btn = null) {
+  if (btn) showPending(btn);
+  if (!infiniteRunning) { startOn = plan; startInfinite(); return; }
+  if (!paused) switchSong(plan);
+  else if (await resumeInfinite()) startSong(plan());
 }
 
 function infiniteTick() {
@@ -966,13 +1112,14 @@ const startInfinite = oneStart(async () => {
   if (!await startAudio()) return;
 
   showInfinitePlaying(true);
-  showNext(true);
   infoEl.classList.add('active');
   stateEl.classList.add('active');
 
-  if (infiniteKind === 'songs') startSong(composeInfiniteSong());
+  if (infiniteKind === 'songs') startSong((startOn ?? (() => played(composeInfiniteSong())))());
   else startEras();
+  startOn = null;
   infiniteRunning = true;
+  showNext(true);
   infiniteTicks   = everyTick(infiniteTick);
   updateKindUI();
 });
@@ -983,15 +1130,148 @@ const startInfinite = oneStart(async () => {
 nextBtn.addEventListener('click', async () => {
   if (!infiniteRunning) return;
   if (infiniteKind === 'songs') {
-    if (!paused) nextSongNow();
-    else if (await resumeInfinite()) startSong(composeInfiniteSong());
-    showPending(nextBtn);
+    goToSong(planAfter, nextBtn);
     return;
   }
   if (paused && !await resumeInfinite()) return;
   requestEra();
   showPending(nextBtn, eraDue());
 });
+
+// PREV, as any player has it: back to the top of this song, or if you've only just
+// started it, to the one before.
+const PREV_RESTARTS_AFTER = 3; // seconds
+
+prevBtn.addEventListener('click', () => {
+  if (!infiniteRunning || infiniteKind !== 'songs') return;
+  const heard = transport.beatAt(heardTime()) * 60 / state.tempo;
+  goToSong(heard > PREV_RESTARTS_AFTER ? () => songPlan : planBefore, prevBtn);
+});
+
+// ─── Keeping a song ───────────────────────────────────────────────────────────
+function showKept() {
+  const kept = !!songEntry && library.isKept(songEntry.link);
+  keepBtn.textContent = kept ? 'KEPT' : 'KEEP';
+  keepBtn.classList.toggle('on', kept);
+  keepBtn.setAttribute('aria-pressed', String(kept));
+  keepBtn.title = kept ? 'In your library. Press to take it out' : 'Keep this song in your library';
+}
+
+keepBtn.addEventListener('click', () => {
+  if (!songEntry) return;
+  if (library.isKept(songEntry.link)) library.unkeep(songEntry.link);
+  else library.keep(songEntry);
+  showKept();
+  if (!libraryEl.hidden) showLibrary();
+});
+
+likeBtn.addEventListener('click', () => {
+  if (!songPlan) return;
+  goToSong(() => played(likeThis(songPlan)), likeBtn);
+});
+
+// ─── The library ──────────────────────────────────────────────────────────────
+// The songs you've kept, and the ones you've heard lately (see library.js). Each can
+// be played, or copied as a link; a kept one takes two presses to remove, since a song
+// found by luck may not come round again.
+let libraryTab = 'kept';
+
+const scaleLabel = entry => `${ROOT_NAMES[entry.root - ROOT_BASE_MIDI]} ${SCALE_LABELS[entry.scale]}`;
+const linkTo = entry => `${location.origin}${location.pathname}#c=${entry.link}`;
+
+function timeAgo(at) {
+  const min = Math.round((Date.now() - at) / 60000);
+  if (min < 1) return 'JUST NOW';
+  if (min < 60) return `${min} MIN AGO`;
+  const hours = Math.round(min / 60);
+  if (hours < 24) return `${hours} HR AGO`;
+  const days = Math.round(hours / 24);
+  return days === 1 ? 'YESTERDAY' : `${days} DAYS AGO`;
+}
+
+function libraryButton(label, title, onClick) {
+  const btn = document.createElement('button');
+  btn.className = 'header-btn';
+  btn.textContent = label;
+  btn.title = title;
+  btn.addEventListener('click', onClick);
+  return btn;
+}
+
+// Asks once more before `onSure`, for as long as the question stays up.
+function removeButton(onSure) {
+  let timer = 0;
+  const btn = libraryButton('REMOVE', 'Take this song out of your library', () => {
+    if (timer) { clearTimeout(timer); onSure(); return; }
+    btn.textContent = 'SURE?';
+    timer = setTimeout(() => { timer = 0; btn.textContent = 'REMOVE'; }, 2500);
+  });
+  return btn;
+}
+
+function libraryRow(entry) {
+  const row = document.createElement('div');
+  row.className = 'library-row';
+  row.classList.toggle('current', entry.link === songEntry?.link);
+  const about = document.createElement('div');
+  about.className = 'library-about';
+  const name = document.createElement('div');
+  name.className = 'library-name';
+  name.textContent = entry.variation ? `${entry.genre} · VARIATION` : entry.genre;
+  const meta = document.createElement('div');
+  meta.className = 'library-meta';
+  meta.textContent = [scaleLabel(entry), `${entry.tempo} BPM`, clock(entry.seconds), timeAgo(entry.at)].join(' · ');
+  about.append(name, meta);
+
+  const actions = document.createElement('div');
+  actions.className = 'library-actions';
+  const link = libraryButton('LINK', 'Copy a link to this song', () => {
+    navigator.clipboard.writeText(linkTo(entry)).then(() => { link.textContent = 'COPIED!'; }).catch(() => { link.textContent = 'FAILED'; });
+    setTimeout(() => { link.textContent = 'LINK'; }, 1600);
+  });
+  const keep = library.isKept(entry.link)
+    ? removeButton(() => { library.unkeep(entry.link); showKept(); showLibrary(); })
+    : libraryButton('KEEP', 'Keep this song in your library', () => { library.keep(entry); showKept(); showLibrary(); });
+  const play = libraryButton('PLAY', 'Play this song', () => {
+    const plan = planOf(entry);
+    if (plan) goToSong(() => played(plan), play);
+  });
+  actions.append(play, link, keep);
+  row.append(about, actions);
+  return row;
+}
+
+function showLibrary() {
+  libraryTabs.forEach(b => {
+    const on = b.dataset.tab === libraryTab;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-pressed', String(on));
+    if (b.dataset.tab === 'kept') b.textContent = library.kept.length ? `KEPT ${library.kept.length}` : 'KEPT';
+  });
+  // The recent list is a queue, so a song played twice is there twice, and not always
+  // in the order it was played. Here, each once, the latest first.
+  const seen = new Set();
+  const entries = libraryTab === 'kept' ? library.kept
+    : [...library.recent].sort((a, b) => b.at - a.at).filter(e => !seen.has(e.link) && seen.add(e.link));
+  libraryList.replaceChildren(...entries.map(libraryRow));
+  if (entries.length) return;
+  const none = document.createElement('div');
+  none.className = 'library-none';
+  none.textContent = libraryTab === 'kept' ? 'Press KEEP while a song plays, and it will be here.' : 'The songs you hear in SONGS will be here.';
+  libraryList.append(none);
+}
+
+function setLibraryOpen(open) {
+  libraryEl.hidden = !open;
+  infiniteUi.classList.toggle('library-open', open);
+  libraryBtn.classList.toggle('on', open);
+  libraryBtn.setAttribute('aria-expanded', String(open));
+  if (open) showLibrary();
+}
+libraryBtn.addEventListener('click', () => setLibraryOpen(libraryEl.hidden));
+libraryCloseBtn.addEventListener('click', () => setLibraryOpen(false));
+libraryTabs.forEach(b => b.addEventListener('click', () => { libraryTab = b.dataset.tab; showLibrary(); }));
+window.addEventListener('keydown', e => { if (e.key === 'Escape' && !libraryEl.hidden) setLibraryOpen(false); });
 
 // ERAS / SONGS. A switch while playing starts the other straight away; while
 // paused, it lets go of what was paused, and PLAY starts the other.
@@ -1002,7 +1282,9 @@ function updateKindUI() {
     b.setAttribute('aria-pressed', String(on));
   });
   nextBtn.title = infiniteKind === 'songs' ? 'Next song' : 'Move on to the next era';
-  songExportBtn.hidden = infiniteKind !== 'songs' || !songPlan;
+  songActions.hidden = infiniteKind !== 'songs' || !songPlan;
+  libraryBtn.hidden = infiniteKind !== 'songs';
+  if (infiniteKind !== 'songs') setLibraryOpen(false);
 }
 kindBtns.forEach(b => b.addEventListener('click', () => {
   if (b.dataset.kind === infiniteKind) return;
@@ -1012,10 +1294,12 @@ kindBtns.forEach(b => b.addEventListener('click', () => {
   if (!infiniteRunning) return;
   if (paused) { stopInfinite(); return; }
   clearPending();
-  if (infiniteKind === 'songs') startSong(composeInfiniteSong());
+  showNext(true);
+  if (infiniteKind === 'songs') startSong(played(composeInfiniteSong()));
   else startEras();
 }));
 updateKindUI();
+showKept();
 
 // ─── Manual helpers ───────────────────────────────────────────────────────────
 function enabledBassSubtypes()  { return BASS_SUBTYPES.filter(s  => manualEnabled[`bass:${s}`]);  }
@@ -1069,6 +1353,8 @@ function manualPlan() {
       pump:         parseFloat(pumpSlider.value),
       sweep:        parseFloat(sweepSlider.value),
       room:         roomSelect.value,
+      composer:     state.composer,
+      language:     state.language,
     },
     // A song picks from several the same way every time, so it plays as it
     // will export.
@@ -1078,7 +1364,7 @@ function manualPlan() {
       ...(drumSubs.length ? ['drums'] : []),
       ...SIMPLE_VOICES.filter(({ key }) => manualEnabled[key]).map(({ voice }) => voice.name),
     ],
-    ...(asSong ? { song: { seed: manualSongSeed, length: songLength } } : {}),
+    ...(asSong ? { song: { seed: manualSongSeed, length: songLength, ...(manualWriting === null ? {} : { writing: manualWriting }) } } : {}),
   };
 }
 
@@ -1503,11 +1789,32 @@ formBtns.forEach(b => b.addEventListener('click', () => {
   replayManual();
 }));
 newSongBtn.addEventListener('click', () => {
+  latestComposer();
   manualSongSeed = newSeed();
+  manualWriting = null;
   showLength();
   showPending(newSongBtn);
   replayManual();
 });
+// The genre whose kit this is, for a link from before languages, which doesn't say:
+// the one that uses these drums, and this bass if more than one does.
+function languageOfKit() {
+  const has = (list, prefix) => list.some(x => x && manualEnabled[`${prefix}:${x}`]);
+  const by = GENRES.filter(g => has(g.kit.drums, 'drums'));
+  const g = by.find(x => has(x.kit.bass, 'bass')) ?? by[0];
+  return g?.name ?? 'ANY';
+}
+
+// The other composer, same settings and same seed: from the top, to compare them.
+composerBtns.forEach(b => b.addEventListener('click', () => {
+  const wanted = b.dataset.composer === 'new';
+  if (wanted === state.composer >= 2) return;
+  state.composer = wanted ? LATEST_COMPOSER : 1;
+  if (wanted && state.language === 'ANY') state.language = languageOfKit();
+  showComposer();
+  showLength();
+  replayManual();
+}));
 
 // While a song plays, the FEEL controls set the song's own feel, which each
 // section then varies; set straight onto the state, a section would undo them
@@ -1557,10 +1864,13 @@ function applyConfig(cfg) {
   state.pump         = cfg.pu ?? 0;
   state.sweep        = cfg.sw ?? 0;
   state.room         = cfg.rm ?? state.room;
+  state.composer     = cfg.cv ?? 1;
+  state.language     = cfg.lg ?? 'ANY';
   showFeel();
   setInstruments(new Set(cfg.m || []));
   if (cfg.song) {
     manualSongSeed = cfg.song.seed;
+    manualWriting = cfg.song.writing ?? null;
     // A link from before songs had lengths: the length the song drew itself.
     songLength = cfg.song.length ?? songFor(planFromConfig(cfg)).target;
   }
@@ -1571,7 +1881,8 @@ function applyConfig(cfg) {
 // playing varies section by section (its key lifted, its density following
 // the energy).
 function shareConfig() {
-  return encodeConfig(manualEnabled, manualForm === 'song' ? { seed: manualSongSeed, length: songLength } : null, manualPlan().state);
+  const plan = manualPlan();
+  return encodeConfig(manualEnabled, plan.song ?? null, plan.state);
 }
 
 // The address bar carries a link once one is opened or SHARE is pressed. Once
@@ -1595,6 +1906,9 @@ manualShareBtn.addEventListener('click', () => {
 });
 
 // ─── Boot ─────────────────────────────────────────────────────────────────────
+// The page writes with the latest composer unless a link says otherwise. The state's
+// own default stays 1, so a plan that doesn't say is played as it was written.
+state.composer = LATEST_COMPOSER;
 startAnimation();
 setForm(manualForm);
 showFeel();

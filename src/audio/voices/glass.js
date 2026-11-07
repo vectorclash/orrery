@@ -1,8 +1,9 @@
 import { audio, getVoiceBus } from '../context.js';
-import { currentScale, rand, pick, register, midiToHz, scaleNotes, random } from '../../state.js';
+import { rand, pick, register, midiToHz, scaleNotes, random } from '../../state.js';
 import { createVoice } from '../transport.js';
 import { logNote } from '../notes.js';
 import { harmony } from '../harmony.js';
+import { lines } from '../lines.js';
 import { osc, gain, send } from '../synth.js';
 
 // Glass harmonica: a rubbed glass rim. An almost pure tone that swells in
@@ -10,11 +11,18 @@ import { osc, gain, send } from '../synth.js';
 // that gives rubbed glass its shimmer — and faint upper harmonics. (The old
 // "FM" version used a modulation index of 0.012, i.e. a plain sine.)
 function play(t, b) {
-  const wait = pick([2, 3, 4, 5]);
-  if (random() < 0.35) return wait;
-
-  const notes = scaleNotes(register(72, 30, 86), currentScale(), 2);
-  const midi  = harmony.pickChordTone(notes, b);
+  const line = lines.next('glass', b);
+  if (line?.midi === null) return line.gap;
+  let wait, midi;
+  if (line) {
+    wait = line.gap;
+    midi = line.midi;
+  } else {
+    wait = pick([2, 3, 4, 5]);
+    if (random() < 0.35) return wait;
+    const notes = scaleNotes(register(72, 30, 86), harmony.scaleAt(b), 2);
+    midi = harmony.pickChordTone(notes, b);
+  }
   const hz    = midiToHz(midi);
   const dur   = rand(3.0, 7.0);
   logNote('glass', t, midi, dur, 0.7);

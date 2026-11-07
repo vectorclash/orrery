@@ -1,5 +1,7 @@
 import { state, SCALE_NAMES, pick, fold, register, currentScale, random } from '../state.js';
 import { transport } from './transport.js';
+import { parseChord, chordScale, soundingPcs, isPent } from './chords.js';
+import { freeForm } from './language.js';
 
 // ─── Shared harmonic context ────────────────────────────────────────────────
 // Every harmonic and melodic voice reads the chord from here, so at any
@@ -100,7 +102,43 @@ let segStart  = 0;   // beat position where the current chord began
 let lastLen   = 4;
 let formScale = null;
 
+// Composer 2 (see chords.js): the same pointer isn't enough, since its chords
+// needn't be equal lengths. A written form is { tokens, chords, at, total }: the
+// loop's chords, the beat it starts from, its length in chord lengths. Null while
+// composer 1's form above is playing. A chord's `degree` here is the chord itself,
+// so pcs, stack and degreeNear take either, and the voices needn't know which.
+let written = null;
+let lastBeat = 0;
+
+function write(tokens, atBeat) {
+  formScale = SCALE_NAMES[state.scaleIdx];
+  const chords = tokens.map(t => parseChord(t, formScale));
+  written = { tokens, chords, at: atBeat, total: chords.reduce((s, c) => s + c.dur, 0) };
+  lastLen = chordLen();
+}
+
+function writtenAt(beat) {
+  const { chords, at, total } = written;
+  const len   = chordLen();
+  const cycle = total * len;
+  const k     = Math.floor((beat - at) / cycle + 1e-9);
+  const from  = at + k * cycle;
+  let start = 0;
+  for (let i = 0; i < chords.length; i++) {
+    const d = chords[i].dur * len;
+    if (beat - from < start + d - 1e-9 || i === chords.length - 1) {
+      return { degree: chords[i], next: chords[(i + 1) % chords.length], start: from + start, end: from + start + d, seventh: chords[i].n > 3 };
+    }
+    start += d;
+  }
+}
+
 function reroll(atBeat = segStart) {
+  if (state.composer >= 2) {
+    write(freeForm(random, state.language, SCALE_NAMES[state.scaleIdx], state.harmonyLock, state.composer), atBeat);
+    return;
+  }
+  written   = null;
   formScale = SCALE_NAMES[state.scaleIdx];
   form      = buildForm(formScale);
   colour    = form.map(() => random());
@@ -117,7 +155,10 @@ export const harmony = {
   // A song's section: `prog` round and round from beat `atBeat`, with
   // `colours` (a draw per chord) deciding which chords take a 7th, so a
   // section played again is harmonised the same.
+  // Composer 2's `prog` is chord tokens, and it has no `colours`: its chords say.
   setForm(prog, colours, atBeat) {
+    if (typeof prog[0] === 'string') { write(prog, atBeat); return; }
+    written   = null;
     formScale = SCALE_NAMES[state.scaleIdx];
     form      = prog;
     colour    = colours;
@@ -129,6 +170,14 @@ export const harmony = {
   // Called once per scheduler tick. Advances the chord pointer to wherever
   // the clock is now.
   tick(now) {
+    if (written) {
+      lastBeat = transport.beatAt(now);
+      // Mode switched live: the same chords, read in the new mode. Chord length
+      // changed live: the same chord, on the next bar's grid.
+      if (SCALE_NAMES[state.scaleIdx] !== formScale) write(written.tokens, written.at);
+      if (chordLen() !== lastLen) { written.at = Math.floor(lastBeat / 4) * 4; lastLen = chordLen(); }
+      return;
+    }
     if (SCALE_NAMES[state.scaleIdx] !== formScale) reroll(); // mode switched live
     const b   = transport.beatAt(now);
     const len = chordLen();
@@ -145,10 +194,15 @@ export const harmony = {
   },
 
   // Beat position of the next chord change.
-  get nextChange() { return segStart + chordLen(); },
+  get nextChange() { return written ? writtenAt(lastBeat).end : segStart + chordLen(); },
+
+  // The written form playing (composer 2's), or null: its chord tokens, where it
+  // starts and how long a time round it is, in beats.
+  get written() { return written && { tokens: written.tokens, at: written.at, beats: written.total * chordLen() }; },
 
   // The chord segment containing musical position `beat`.
   at(beat) {
+    if (written) return writtenAt(beat);
     const len  = chordLen();
     const k    = Math.floor((beat - segStart) / len + 1e-9);
     const i    = mod(idx + k, form.length);
@@ -167,6 +221,11 @@ export const harmony = {
 
   // Pitch classes of a chord built on `degree`: root, 3rd, 5th (+7th, +9th).
   pcs(degree, count = 3) {
+    if (typeof degree === 'object') {
+      const out = [];
+      for (let i = 0; i < count; i++) out.push((state.rootMidi + degree.root + degree.tones[i % 5]) % 12);
+      return out;
+    }
     const scale = currentScale();
     const out = [];
     for (let i = 0; i < count; i++) {
@@ -178,8 +237,37 @@ export const harmony = {
   // Pitch classes of the chord sounding at `beat`, including its 7th when the
   // chord is voiced with one.
   chordPcs(beat) {
-    const seg = this.at(beat);
-    return this.pcs(seg.degree, seg.seventh ? 4 : 3);
+    return this.voiced(this.at(beat));
+  },
+
+  // Pitch classes of chord segment `seg` as a chord voice plays it.
+  voiced(seg) {
+    const c = seg.degree;
+    if (typeof c === 'object') return soundingPcs(c).map(pc => (state.rootMidi + pc) % 12);
+    return this.pcs(c, seg.seventh ? 4 : 3);
+  },
+
+  // Whether pitch class `pc` is one of the notes a tune has over chord segment `seg`
+  // (see chordScale). The tones a chord offers past what it sounds, a natural ninth above
+  // all, can be outside them: a Rhodes on F♯7 in B minor played G♯ against the tune's G.
+  fits(pc, seg) {
+    return chordScale(seg.degree, SCALE_NAMES[state.scaleIdx]).some(n => (state.rootMidi + n) % 12 === pc);
+  },
+
+  // The chord change an eighth note early: what a hit within an eighth of a change
+  // plays, the anticipation that pushes a groove. (Rhodes has always done this.)
+  pushed(beat) {
+    const cur = this.at(beat);
+    return beat + 0.5 >= cur.end - 1e-6 ? this.at(cur.end) : cur;
+  },
+
+  // The notes a melody can use at `beat`, as semitones above the tonic: the mode's,
+  // bent to fit a chord from outside it (see chordScale). A pentatonic mode keeps
+  // its five whatever the chord: its clash with a chord's third is the blues.
+  scaleAt(beat) {
+    if (!written) return currentScale();
+    const name = SCALE_NAMES[state.scaleIdx];
+    return isPent(name) ? currentScale() : chordScale(this.at(beat).degree, name);
   },
 
   // Root-position ascending chord from `baseMidi` (the tonic of the voice's
@@ -188,6 +276,17 @@ export const harmony = {
     const scale = currentScale();
     const d     = this.at(beat).degree;
     const out   = [];
+    if (typeof d === 'object') {
+      for (let i = 0; i < count; i++) {
+        let tone = d.tones[i % 5] + 12 * Math.floor(i / 5);
+        // Composer 4: a tone the chord only offers has to fit, or its own notes go higher.
+        if (state.composer >= 4 && i >= d.n && !this.fits((state.rootMidi + d.root + tone) % 12, this.at(beat))) {
+          tone = d.tones[i % d.n] + 12 * Math.floor(i / d.n);
+        }
+        out.push(baseMidi + d.root + tone);
+      }
+      return out;
+    }
     for (let i = 0; i < count; i++) {
       const deg = d + i * 2;
       out.push(baseMidi + Math.floor(deg / scale.length) * 12 + scale[deg % scale.length]);
@@ -197,6 +296,7 @@ export const harmony = {
 
   // MIDI note of scale degree `degree` nearest to `near`.
   degreeNear(degree, near) {
+    if (typeof degree === 'object') return nearestPc((state.rootMidi + degree.bass) % 12, near);
     const scale = currentScale();
     const pc = (state.rootMidi + scale[mod(degree, scale.length)]) % 12;
     return nearestPc(pc, near);

@@ -153,9 +153,10 @@
     #start-btn.playing         { border-color: #556; color: #778; }
     @media (hover: hover) { #start-btn.playing:hover   { border-color: #99aacc; color: #bbccdd; } }
 
-    /* Grows out of PLAY's right edge while playing; collapsed to nothing
-       (and out of the tab order) while stopped. */
-    #next-btn {
+    /* Grow out of PLAY's edges while playing; collapsed to nothing (and out
+       of the tab order) while stopped. PREV is for songs alone: eras have no
+       history to go back through. */
+    #next-btn, #prev-btn {
       pointer-events: none;
       background: rgba(8, 8, 14, 0.5);
       border: 1px solid transparent;
@@ -176,22 +177,30 @@
       -webkit-tap-highlight-color: transparent;
       touch-action: manipulation;
     }
-    #next-btn.shown {
+    #next-btn.shown, #prev-btn.shown {
       pointer-events: all;
       max-width: 160px;
       padding: 0 clamp(16px, 4vw, 26px);
-      margin-left: 10px;
       opacity: 1;
       border-color: #556;
     }
-    @media (hover: hover) { #next-btn.shown:hover { border-color: #99aacc; color: #d0dde8; } }
-    #next-btn.shown:active { border-color: #aabece; color: #e0ecf6; }
+    #next-btn.shown { margin-left: 10px; }
+    #prev-btn.shown { margin-right: 10px; }
+    @media (hover: hover) { #next-btn.shown:hover, #prev-btn.shown:hover { border-color: #99aacc; color: #d0dde8; } }
+    #next-btn.shown:active, #prev-btn.shown:active { border-color: #aabece; color: #e0ecf6; }
+    /* All three have to fit the narrowest phones. */
+    @media (max-width: 380px) {
+      #start-btn { padding-left: 22px; padding-right: 22px; }
+      #next-btn.shown, #prev-btn.shown { padding: 0 12px; }
+      #next-btn.shown { margin-left: 6px; }
+      #prev-btn.shown { margin-right: 6px; }
+    }
 
     /* A change on its way to the speakers (see src/pending.js): lit from the
        press, with a bar along the bottom edge that fills until the change is
        heard, then a fade back once it is. */
-    #next-btn, .header-btn, .action-btn { position: relative; }
-    #next-btn.pending, .header-btn.pending, .action-btn.pending {
+    #next-btn, #prev-btn, .kind-action, .header-btn, .action-btn { position: relative; }
+    #next-btn.pending, #prev-btn.pending, .kind-action.pending, .header-btn.pending, .action-btn.pending {
       color: #e0ecf6;
       border-color: #aabece;
       transition: none;
@@ -270,7 +279,88 @@
     }
     .kind-action.recording { border-color: #8a6a6a; color: #c8a8a8; }
     .kind-action:disabled { opacity: 0.5; cursor: not-allowed; }
-    #form-row .kind-toggle { background: transparent; }
+    .kind-action.on { color: #d0dde8; background: rgba(100,140,200,0.12); }
+
+    /* KEEP · MORE LIKE THIS · EXPORT SONG: what can be done with the song playing */
+    #song-actions {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 8px 10px;
+      margin-bottom: 10px;
+    }
+
+    /* ─── Library ─────────────────────────────────────────────────────────── */
+    /* A sheet where Edit mode's sits, over the controls. */
+    #library {
+      pointer-events: all;
+      display: flex;
+      flex-direction: column;
+      position: fixed;
+      left: 0;
+      right: 0;
+      bottom: calc(36px + env(safe-area-inset-bottom, 0px));
+      margin: 0 auto;
+      width: min(500px, 92vw);
+      max-height: calc(100dvh - 36px - env(safe-area-inset-bottom, 0px) - 76px);
+      background: rgba(4, 5, 10, 0.97);
+      border: 1px solid #4a5a6a;
+      text-align: left;
+    }
+    /* The sheet sits over these, so they step back rather than show through; the
+       transport above stays, for a short list. */
+    .library-open #infinite-kind, .library-open #song-actions,
+    .library-open #info, .library-open #state-line { visibility: hidden; }
+    #library-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      padding: 12px clamp(14px, 3.5vw, 22px);
+      border-bottom: 1px solid #2a3a4a;
+    }
+    #library-head .kind-toggle { background: transparent; }
+    #library-list {
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      min-height: 96px;
+      padding: 0 clamp(14px, 3.5vw, 22px);
+    }
+    .library-row {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px 14px;
+      padding: 12px 0;
+      border-bottom: 1px solid #1c2733;
+    }
+    .library-row:last-child { border-bottom: none; }
+    .library-about { flex: 1 1 200px; min-width: 0; }
+    .library-name {
+      font-size: 11px;
+      letter-spacing: 2.5px;
+      color: #aabbcc;
+    }
+    .library-row.current .library-name { color: #e0ecf6; }
+    .library-row.current .library-name::after { content: ' · PLAYING'; color: #7a9aba; }
+    .library-meta {
+      font-size: 9px;
+      letter-spacing: 1px;
+      color: #667788;
+      margin-top: 4px;
+    }
+    .library-actions { display: flex; gap: 6px; flex-shrink: 0; }
+    .library-actions .header-btn:last-child { min-width: 72px; } /* KEEP, REMOVE and SURE? line up */
+    .library-none {
+      padding: 32px 0;
+      text-align: center;
+      font-size: 10px;
+      letter-spacing: 2px;
+      color: #667788;
+    }
+    #form-row .kind-toggle, #composer-row .kind-toggle { background: transparent; }
+    #form-row .ctrl-label, #composer-row .ctrl-label, #length-row .ctrl-label { min-width: 72px; }
 
     /* ─── Collapsible sections ──────────────────────────────────────────────── */
     .collapsible-section {
@@ -853,6 +943,8 @@
       }
 
       .kind-btn, .kind-action { font-size: 11px; padding: 9px 14px; letter-spacing: 2px; }
+      #song-actions { gap: 8px; }
+      #song-actions .kind-action { padding-left: 10px; padding-right: 10px; }
 
       /* action buttons: four to a row, so tighter than on a desktop */
       #manual-actions { gap: 8px; }
@@ -952,6 +1044,7 @@
     <!-- Infinite mode -->
     <div id="infinite-ui">
       <div id="infinite-controls">
+        <button id="prev-btn" tabindex="-1" aria-hidden="true" title="Back to the top of this song, or just after it starts, to the one before">PREV</button>
         <button id="start-btn">PLAY</button>
         <button id="next-btn" tabindex="-1" aria-hidden="true" title="Move on to the next era">NEXT</button>
       </div>
@@ -960,10 +1053,25 @@
           <button class="kind-btn" data-kind="eras" title="Everything changes every 38 seconds">ERAS</button>
           <button class="kind-btn" data-kind="songs" title="One song after another: intro, verses and choruses or builds and drops, outro">SONGS</button>
         </div>
-        <button id="song-export-btn" class="kind-action" hidden title="Save the whole of this song as a WAV">EXPORT SONG</button>
+        <button id="library-btn" class="kind-action" hidden aria-expanded="false" aria-controls="library" title="The songs you've kept, and the ones you've heard lately">LIBRARY</button>
+      </div>
+      <div id="song-actions" hidden>
+        <button id="keep-btn" class="kind-action" aria-pressed="false">KEEP</button>
+        <button id="like-btn" class="kind-action" title="The same hook, with new instruments">MORE LIKE THIS</button>
+        <button id="song-export-btn" class="kind-action" title="Save the whole of this song as a WAV">EXPORT SONG</button>
       </div>
       <div id="info"></div>
       <div id="state-line"></div>
+      <div id="library" role="dialog" aria-label="Library" hidden>
+        <div id="library-head">
+          <div class="kind-toggle" role="group" aria-label="Which songs">
+            <button class="kind-btn library-tab" data-tab="kept">KEPT</button>
+            <button class="kind-btn library-tab" data-tab="recent">RECENT</button>
+          </div>
+          <button id="library-close" class="kind-action">CLOSE</button>
+        </div>
+        <div id="library-list"></div>
+      </div>
     </div>
 
     <!-- Manual mode -->
@@ -1085,6 +1193,14 @@
           <button class="kind-btn form-btn" data-form="song" title="A song made from it: intro, sections, outro">SONG</button>
         </div>
         <button class="header-btn" id="new-song-btn" hidden title="Compose a different song from the same settings">NEW SONG</button>
+      </div>
+
+      <div class="ctrl-row" id="composer-row">
+        <span class="ctrl-label">COMPOSER</span>
+        <div class="kind-toggle" role="group" aria-label="Composer">
+          <button class="kind-btn composer-btn" data-composer="1" title="The original: what every link made before NEW plays, note for note">CLASSIC</button>
+          <button class="kind-btn composer-btn" data-composer="new" title="Writes chords in the genre's language and gives every song a hook">NEW</button>
+        </div>
       </div>
 
       <div class="ctrl-row" id="length-row">

@@ -1,5 +1,5 @@
 import { audio, getVoiceBus } from '../context.js';
-import { beat, rand, pick, register, midiToHz, currentScale, random } from '../../state.js';
+import { state, beat, rand, pick, register, midiToHz, currentScale, random } from '../../state.js';
 import { createVoice } from '../transport.js';
 import { logNote } from '../notes.js';
 import { harmony } from '../harmony.js';
@@ -46,10 +46,15 @@ function strike(t, b, lenBeats) {
   const cur = harmony.at(b);
   const seg = b + 0.5 >= cur.end - 1e-6 ? harmony.at(cur.end) : cur;
   let pcs = harmony.pcs(seg.degree, 3);
-  if (currentScale().length === 7) {
+  if (currentScale().length === 7 || typeof seg.degree === 'object') {
     const [root, , , , ninth] = harmony.pcs(seg.degree, 5);
     pcs = harmony.pcs(seg.degree, 4).slice(1);          // 3rd, 5th, 7th
     if ((ninth - root + 12) % 12 !== 1) pcs.push(ninth); // skip a ♭9 (avoid note)
+    // Composer 4: the chord's own notes, and colour only where the tune agrees with it.
+    if (state.composer >= 4) {
+      const own = harmony.voiced(seg);
+      pcs = pcs.filter(pc => own.includes(pc) || harmony.fits(pc, seg));
+    }
   }
   const v = harmony.voice(pcs, prev, register(60, 28, 77));
   prev = v;

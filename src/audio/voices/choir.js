@@ -24,7 +24,7 @@ function play(t, b) {
   const seg  = harmony.at(b);
   const len  = seg.end - b;
   const dur  = len * beat();
-  const pcs  = harmony.pcs(seg.degree, seg.seventh ? 4 : 3);
+  const pcs  = harmony.voiced(seg);
   const v    = harmony.voice(pcs, prev, register(64, 28, 81));
   prev = v;
   for (const m of v) logNote('choir', t, m, dur, 0.6);

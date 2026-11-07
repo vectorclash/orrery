@@ -3,6 +3,7 @@ import { state, beat, pick, lerp, register, midiToHz, random } from '../../state
 import { createVoice } from '../transport.js';
 import { logNote } from '../notes.js';
 import { harmony } from '../harmony.js';
+import { lines } from '../lines.js';
 import { osc, gain, filter, send } from '../synth.js';
 
 // Arpeggiator. The step counter runs off the global beat grid, so the figure
@@ -31,17 +32,23 @@ function chordNotes(b) {
 }
 
 function play(t, b) {
+  const line = lines.next('arpeggio', b);
+  if (line) {
+    if (line.midi !== null) note(t, line.midi, line.dur * beat() * 0.85, line.vel >= 0.92 ? 1 : 0.78);
+    return line.gap;
+  }
   const p = Math.floor(b / 16);
-  if (p !== phrase) { phrase = p; if (random() < 0.5) pattern = pick(Object.keys(PATTERNS)); }
+  if (p !== phrase) { phrase = p; if (state.composer < 2 && random() < 0.5) pattern = pick(Object.keys(PATTERNS)); }
   const step  = Math.round(b / rate);
   const notes = chordNotes(b);
   const seq   = PATTERNS[pattern](notes.length);
-  const midi  = notes[seq[step % seq.length]];
+  note(t, notes[seq[step % seq.length]], rate * beat() * 0.85, step % 4 === 0 ? 1 : 0.78);
+  return rate;
+}
 
+function note(t, midi, gate, vel) {
   const bus   = getVoiceBus('arpeggio').dry;
   const hz    = midiToHz(midi);
-  const gate  = rate * beat() * 0.85;
-  const vel   = step % 4 === 0 ? 1 : 0.78;
   const peak  = 0.1 * vel;
   logNote('arpeggio', t, midi, gate, vel);
 
@@ -58,7 +65,6 @@ function play(t, b) {
   o.connect(lp); lp.connect(env); env.connect(bus);
   send(env, audio.reverbSend, 0.28);
   send(env, audio.echoSend, 0.3);
-  return rate;
 }
 
 export const arpeggioVoice = createVoice('arpeggio', play, {

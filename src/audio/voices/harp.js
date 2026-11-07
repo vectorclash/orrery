@@ -3,6 +3,7 @@ import { beat, rand, pick, clamp, register, midiToHz, random } from '../../state
 import { createVoice } from '../transport.js';
 import { logNote } from '../notes.js';
 import { harmony } from '../harmony.js';
+import { lines } from '../lines.js';
 import { gain, send, pluckBuffer, playBuffer } from '../synth.js';
 
 // Harp: a real plucked-string model (Karplus–Strong) with a soft, finger-like
@@ -21,6 +22,11 @@ function string(t, midi, vel) {
 }
 
 function play(t, b) {
+  const line = lines.next('harp', b);
+  if (line) {
+    if (line.midi !== null) string(t, line.midi, 0.55 + 0.4 * line.vel);
+    return line.gap;
+  }
   const seg  = harmony.at(b);
   const base = register(50, 28, 67);
   if (Math.abs(b - seg.start) < 1e-6) {

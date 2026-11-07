@@ -1,6 +1,10 @@
 import { SCALE_NAMES, LOOKAHEAD } from '../state.js';
 import { seeded, hashSeed } from '../random.js';
 import { progressionsFor } from './harmony.js';
+import { languageFor, writeProgressions, holdsFor, intervalsFor } from './language.js';
+import { loopLength } from './chords.js';
+import { writeMotif, lineOver, thinned, harmonised, counterLine } from './hook.js';
+import { carriersIn, isAir } from './lines.js';
 
 // ─── Songs ────────────────────────────────────────────────────────────────────
 // A song keeps what makes it itself -- key, tempo, instruments, chord
@@ -133,6 +137,21 @@ const CUTS = {
 
 // Section lengths in bars: phrases of four and eight, as songs are written.
 const NICE_BARS = [4, 8, 16, 24, 32, 48, 64];
+// Except that a twelve-bar blues wants twelves.
+const TWELVE_BARS = [12, 24, 36, 48, 72, 96];
+// A song too short for whole loops takes what it can: see composeSong.
+const ANY_BARS = [4, 8, 12, 16, 24, 32, 36, 48, 64, 72, 96];
+// What a section's length should be a whole number of, so it starts its chords from
+// the top and its hook comes round whole: the loops' common length, when there is a
+// sensible one.
+function writtenUnit(progs, scale, cb) {
+  let unit = 16;
+  for (const p of new Set(Object.values(progs))) {
+    const beats = loopLength(p, scale) * cb;
+    if (Number.isInteger(beats)) unit = lcm(unit, beats);
+  }
+  return unit <= 96 ? unit : 16;
+}
 // Which kinds of section take up the slack first when a song is short of its
 // length: the ones it's about.
 const GROW = ['chorus', 'drop', 'verse', 'swell', 'theme', 'groove', 'breakdown', 'drift',
@@ -209,7 +228,10 @@ function buildFor(song, plan) {
   const kind = weighted(r, d ? BUILD_WEIGHTS[d] ?? ANY_BUILD : { filter: 1 });
   const b = BUILDS[kind];
   const drop = song.sections.find(s => s.kind === 'drop');
-  const tensions = TENSION[SCALE_NAMES[plan.state.scaleIdx]].filter(t => t !== drop?.prog[0]);
+  const scale = SCALE_NAMES[plan.state.scaleIdx];
+  const tensions = plan.state.composer >= 2
+    ? holdsFor(scale, languageFor(plan.state.language, plan.state.composer)).filter(t => t !== drop?.prog[0]?.split(/[*/]/)[0])
+    : TENSION[scale].filter(t => t !== drop?.prog[0]);
   const filter = pick(b.filter);
   return {
     kind,
@@ -239,6 +261,60 @@ export function formFor(plan) {
 const gcd = (a, b) => (b ? gcd(b, a % b) : a);
 const lcm = (a, b) => a * b / gcd(a, b);
 
+// ─── Writing a song (composer 2) ──────────────────────────────────────────────
+// A song's chords and lines, from its language and its seed, drawn from their own
+// stream. Which line a kind of section plays, as a hook section does or a thinner
+// memory of it, or one of its own. An intro only sometimes gives the game away.
+//
+// The seed they're drawn from can be another song's (`plan.song.writing`): the same
+// chords and the same hook, with this song's own form, arrangement and players. MORE
+// LIKE THIS in Infinite mode. With no writing seed, the song's own seed writes it.
+const SECTION_LINE = {
+  intro: 'hint', verse: 'verse', pre: 'pre', chorus: 'hook', bridge: 'bridge', outro: 'thin',
+  open: 'hint', groove: 'hook', build: 'thin', drop: 'hook', breakdown: 'hook', close: 'thin',
+  dawn: null, theme: 'verse', swell: 'hook', drift: 'thin', dusk: 'thin',
+};
+
+function writeSong(plan, seed, form) {
+  const r     = seeded(hashSeed(seed, 'writing'));
+  const scale = SCALE_NAMES[plan.state.scaleIdx];
+  const cb    = plan.state.chordBeats || 4;
+  const lock  = plan.state.harmonyLock;
+  const lang  = languageFor(plan.state.language, plan.state.composer);
+  const spoken = intervalsFor(plan.state.language, plan.state.composer);
+  const progs = writeProgressions(r, lang, scale, lock);
+  const hookProg = form === 'ambient' ? progs.theme : progs.main;
+
+  // The hook, and the other parts' lines. A riff is the song's identity all through,
+  // thinner where it should be; a sung hook has a verse of its own, lower down.
+  const hook = writeMotif(r, lang, hookProg, scale, cb, lock, { spoken });
+  const riff = hook.kind === 'riff';
+  const verse  = riff ? null : writeMotif(r, lang, progs.verse, scale, cb, lock, { kind: 'topline', centres: [0, 2, 2, 4], spoken });
+  const pre    = riff ? null : writeMotif(r, lang, progs.pre, scale, cb, lock, { kind: 'riff', centres: [4, 5, 7], spoken });
+  const bridge = writeMotif(r, lang, progs.bridge, scale, cb, lock, { kind: riff ? 'topline' : 'riff', palette: lang.hook.topline, centres: [2, 4, 5], spoken });
+  const hints  = r() < 0.5;
+
+  const anchor = lineOver(hook, hookProg, scale, cb).mean; // where the hook sits, see `place` in lines.js
+  const memo = new Map();
+  const over = (motif, prog) => {
+    const key = `${motif === hook ? 'h' : motif === verse ? 'v' : motif === pre ? 'p' : 'b'}|${prog.join(' ')}`;
+    if (!memo.has(key)) memo.set(key, { ...lineOver(motif, prog, scale, cb), anchor });
+    return memo.get(key);
+  };
+  const lineFor = (kind, prog) => {
+    switch (SECTION_LINE[kind]) {
+      case 'hook':   return over(hook, prog);
+      case 'thin':   return thinned(over(hook, prog));
+      case 'hint':   return hints ? thinned(over(hook, prog)) : null;
+      case 'verse':  return verse ? over(verse, prog) : thinned(over(hook, prog));
+      case 'pre':    return pre ? over(pre, prog) : over(hook, prog);
+      case 'bridge': return over(bridge, prog);
+      default:       return null;
+    }
+  };
+  return { progs, lineFor, hookLine: prog => over(hook, prog), counter: prog => counterLine(prog, scale, cb), scale, cb };
+}
+
 // Composes the song a plan describes: its form, every section's length,
 // energy, chords and instruments. `roleOf` names a voice's role. The plan's
 // song.length is how long it should be, in seconds; without one, the song
@@ -259,22 +335,27 @@ export function composeSong(plan, roleOf) {
   if (form === 'club' && r() < 0.3) kinds.splice(kinds.lastIndexOf('drop') + 1, 0, 'drop');
 
   // Chords: a progression per part of the song, distinct where it matters.
-  const scale = SCALE_NAMES[plan.state.scaleIdx];
-  const options = progressionsFor(scale);
-  const other = (...not) => {
-    const left = options.filter(p => !not.includes(p));
-    return pick(left.length ? left : options);
-  };
-  const progs = {};
-  progs.verse  = pick(options);
-  progs.chorus = r() < 0.7 ? other(progs.verse) : progs.verse;
-  progs.pre    = r() < 0.5 ? progs.verse : other(progs.verse, progs.chorus);
-  progs.bridge = other(progs.verse, progs.chorus);
-  progs.main   = progs.chorus;
-  progs.break  = r() < 0.6 ? progs.main : other(progs.main);
-  progs.theme  = progs.verse;
-  progs.drift  = other(progs.theme);
-  const colours = new Map(Object.values(progs).map(p => [p, p.map(() => r())]));
+  // Composer 2 writes them from the language, with the song's lines.
+  const writing = plan.state.composer >= 2 ? writeSong(plan, plan.song.writing ?? seed, form) : null;
+  const progs = writing ? writing.progs : {};
+  let colours = null;
+  if (!writing) {
+    const scale = SCALE_NAMES[plan.state.scaleIdx];
+    const options = progressionsFor(scale);
+    const other = (...not) => {
+      const left = options.filter(p => !not.includes(p));
+      return pick(left.length ? left : options);
+    };
+    progs.verse  = pick(options);
+    progs.chorus = r() < 0.7 ? other(progs.verse) : progs.verse;
+    progs.pre    = r() < 0.5 ? progs.verse : other(progs.verse, progs.chorus);
+    progs.bridge = other(progs.verse, progs.chorus);
+    progs.main   = progs.chorus;
+    progs.break  = r() < 0.6 ? progs.main : other(progs.main);
+    progs.theme  = progs.verse;
+    progs.drift  = other(progs.theme);
+    colours = new Map(Object.values(progs).map(p => [p, p.map(() => r())]));
+  }
 
   // Who plays in each kind of section, and the silence before a drop: drawn
   // for the whole form before any of it is cut, so a song keeps them at any
@@ -295,13 +376,15 @@ export function composeSong(plan, roleOf) {
   // four bars, or the progression if it runs longer (eight bars of two-bar
   // chords), so a section starts its chords from the top.
   const cb   = plan.state.chordBeats || 4;
-  const unit = lcm(4 * cb, 16) <= 32 ? lcm(4 * cb, 16) : 16;
+  const unit = writing ? writtenUnit(progs, writing.scale, cb) : lcm(4 * cb, 16) <= 32 ? lcm(4 * cb, 16) : 16;
   const spb  = 60 / plan.state.tempo;
   const bar  = 4 * spb;
   const hold = Math.max(HOLD, cb);
   const room = target - LOOKAHEAD - hold * spb - RING; // seconds for the sections
   const nearest = (options, want) => options.reduce((a, n) => (Math.abs(Math.log(n / want)) < Math.abs(Math.log(a / want)) ? n : a));
-  let fits = NICE_BARS.filter(n => (n * 4) % unit === 0);
+  const barsOffered = writing && unit % 3 === 0 ? TWELVE_BARS : NICE_BARS;
+  let fits = barsOffered.filter(n => (n * 4) % unit === 0);
+  if (!fits.length) fits = barsOffered;
   const snap = want => nearest(fits, want);
   const bars = {};
   for (const kind of kinds) {
@@ -342,7 +425,7 @@ export function composeSong(plan, roleOf) {
   // eight-bar progression; then a shorter outro, then a shorter intro, down
   // to a bar each; then only the intro, the hook and the outro.
   if (total() > room) {
-    fits = NICE_BARS;
+    fits = writing ? ANY_BARS : NICE_BARS;
     shortest();
   }
   for (const k of [kinds.at(-1), kinds[0]]) {
@@ -393,7 +476,13 @@ export function composeSong(plan, roleOf) {
   // Not for a song's only chorus: there's nothing to lift it from.
   let lift = form === 'song' && r() < 0.3 ? (r() < 0.75 ? 2 : 1) : 0;
   if (kinds.filter(k => k === 'chorus').length < 2) lift = 0;
-  const lastChorus = kinds.lastIndexOf('chorus');
+  let lastChorus = kinds.lastIndexOf('chorus');
+  // Composer 2 lifts a last drop too, and prepares a lift: the bar before it plays
+  // the new key's dominant, so it arrives instead of just happening.
+  if (writing && form === 'club' && kinds.filter(k => k === 'drop').length >= 2 && r() < 0.2) {
+    lift = 2;
+    lastChorus = kinds.lastIndexOf('drop');
+  }
 
   const sections = [];
   const seen = {};
@@ -414,8 +503,13 @@ export function composeSong(plan, roleOf) {
       // A little more each time a chorus comes back.
       energy: k.energy.map(e => Math.min(1, e + (k.hook ? 0.03 * (seen[kind] - 1) : 0) + (final ? 0.02 : 0))),
       prog: progs[k.prog],
-      colours: colours.get(progs[k.prog]),
+      colours: colours?.get(progs[k.prog]) ?? null,
       roles: recipes[kind],
+      line: writing?.lineFor(kind, progs[k.prog]) ?? null,
+      hookLine: writing && kind === 'build' ? writing.hookLine(progs[k.prog]) : null,
+      counter: writing && k.hook ? writing.counter(progs[k.prog]) : null,
+      final,
+      turn: writing && lift && i === lastChorus - 1 ? `@${(lift + 7) % 12}^D7` : null,
       hook: !!k.hook,
       shift,
       // Transitions
@@ -435,7 +529,8 @@ export function composeSong(plan, roleOf) {
   // The end: the tonic, held.
   sections.push({
     kind: 'end', label: KINDS.end.label, n: 1, start: at, beats: endBeats,
-    energy: KINDS.end.energy, prog: [0], colours: [1], roles: RECIPES.end(r), hook: false, shift,
+    energy: KINDS.end.energy, prog: writing ? [lastTonic(progs.main)] : [0], colours: writing ? null : [1], roles: RECIPES.end(r), hook: false, shift,
+    line: null, hookLine: null, counter: null, turn: null,
     fill: false, gap: 0, swell: false, impact: false, downlift: false, crash: false,
   });
   at += endBeats;
@@ -447,6 +542,35 @@ export function composeSong(plan, roleOf) {
   arrange(song, plan, roleOf);
   return song;
 }
+
+// The tonic, for the last chord: in the colour the song has given it, if it has.
+function lastTonic(prog) {
+  const t = prog.find(x => /^1(\^|\*|\/|$)/.test(x));
+  return t ? t.split(/[*/]/)[0].replace('^sus4', '') : '1';
+}
+
+// Who plays a section's lines (composer 2): the kit's best carrier has the line, and
+// plays in any section that has one, whatever the recipe says, since a hook only
+// works if it's heard. A build that teases has the hook itself, through the filter.
+// In a hook section the next carrier, if there is one, plays under it: a counter-
+// melody, or the hook a third below on the last chorus or drop. Long ringing voices
+// take a busy line's bones rather than running its notes together.
+const busy = line => line.notes.length / (line.beats / 4) > 4;
+
+function assignLines(s, build, carriers, voices) {
+  s.lines = {};
+  const line = build?.tease ? s.hookLine : s.line;
+  const [first, second] = carriers;
+  if (!line || !first) return;
+  const add = name => { if (!voices.includes(name)) voices.push(name); };
+  const give = (name, l) => { s.lines[name] = isAir(name) && busy(l) ? thinned(l) : l; add(name); };
+  give(first, line);
+  if (s.counter && second) give(second, s.final ? harmonised(line) : s.counter);
+}
+
+// Voices that can say what the chord is, for a section that would have nothing else
+// (see arrange).
+const CHORD_VOICES = new Set(['rhodes', 'stab', 'guitar', 'pluck', 'harp', 'arpeggio']);
 
 // Which instruments play in each section: the recipe's count of each role,
 // taken from the plan's instruments in an order fixed for the song, and how
@@ -466,6 +590,7 @@ export function arrange(song, plan, roleOf) {
   const byRole = { bed: [], motion: [], lead: [], air: [] };
   for (const n of names) (byRole[roleOf(n)] ?? byRole.motion).push(n);
   const hasDrums = plan.voices.includes('drums'), hasBass = !!plan.bassStyle;
+  const carriers = plan.state.composer >= 2 ? carriersIn(names, plan.state.language) : null;
 
   for (const s of song.sections) {
     const b = s.kind === 'build' ? build : null;
@@ -473,11 +598,24 @@ export function arrange(song, plan, roleOf) {
     // The held chord starts on a chord change HOLD_BARS or so before the end.
     s.holdFrom = b?.hold != null ? s.start + cb * Math.max(1, Math.floor((s.beats - 4 * HOLD_BARS) / cb)) : null;
     if (s.holdFrom >= s.start + s.beats) s.holdFrom = null;
+    // The bar before a lifted key plays its dominant, in place of any held chord.
+    s.turnFrom = s.turn && s.beats > 4 ? s.start + s.beats - 4 : null;
     const roles = b ? { ...s.roles, lead: b.tease ? 1 : 0, bass: b.bass || b.pedal, drums: b.drums } : s.roles;
     const voices = [];
     for (const role of ['bed', 'motion', 'lead', 'air']) voices.push(...byRole[role].slice(0, roles[role]));
+    if (carriers) assignLines(s, b, carriers, voices);
     const drums = hasDrums && roles.drums ? roles.drums : null;
     let bass = hasBass && roles.bass;
+    // A tune alone, with no drums, bass or chords under it, is a tune with nothing to say
+    // what it means: a breakdown of solo marimba, with a Rhodes sitting unused in the kit.
+    // Composer 4 brings in the kit's chords, if it has any.
+    if (plan.state.composer >= 4 && s.lines && Object.keys(s.lines).length && !drums && !bass) {
+      const says = v => byRole.bed.includes(v) || (CHORD_VOICES.has(v) && !(v in s.lines));
+      if (!voices.some(says)) {
+        const chords = byRole.bed.find(v => v !== 'drone') ?? byRole.motion.find(says);
+        if (chords) voices.push(chords);
+      }
+    }
     // Never an empty section: fall back to the first voice there is, in
     // order of what sounds most like the music on its own.
     if (!voices.length && !drums && !bass) {

@@ -1,5 +1,6 @@
-import { state, pick, rand, currentScale, scaleNotes, random } from '../state.js';
+import { state, pick, rand, scaleNotes, random } from '../state.js';
 import { harmony } from './harmony.js';
+import { lines } from './lines.js';
 import { within, stream } from '../random.js';
 
 // ─── Phrase generator ─────────────────────────────────────────────────────────
@@ -8,7 +9,7 @@ import { within, stream } from '../random.js';
 // developed over a phrase:
 //
 //   bar 1  statement      the motif
-//   bar 2  sequence       same motif, restarted on the new chord
+//   bar 2  sequence       same motif, carrying on from bar 1 (an ostinato restarts from the chord)
 //   bar 3  variation      same rhythm, contour inverted
 //   bar 4  cadence        a closing rhythm that lands on a stable tone
 //
@@ -101,6 +102,9 @@ function soloist(name, beat) {
   return leads[Math.floor(beat / 8) % leads.length] === name;
 }
 
+const mod = (n, m) => ((n % m) + m) % m;
+const gcd = (a, b) => (b ? gcd(b, a % b) : a);
+
 function metricAccent(pos) {
   const on = (x, d) => Math.abs(x / d - Math.round(x / d)) < 1e-6;
   if (on(pos, 4)) return 1.0;
@@ -135,7 +139,8 @@ export function createPhraser({
     const phrase = Math.floor(bar / 4);
     if (lead) return sharedMotif(phrase, { style, leap, repeat });
     if (local.motifPhrase !== phrase) {
-      if (!local.motif || random() > repeat) local.motif = newMotif(style, leap);
+      // Composer 2 holds a motif for a section: it comes round, it doesn't drift.
+      if (!local.motif || (state.composer < 2 && random() > repeat)) local.motif = newMotif(style, leap);
       local.motifPhrase = phrase;
     }
     return local.motif;
@@ -150,8 +155,8 @@ export function createPhraser({
     flip = inPhrase === 2 ? -1 : 1;
   }
 
-  function pool() {
-    return scaleNotes(base(), currentScale(), octaves);
+  function pool(beat) {
+    return scaleNotes(base(), harmony.scaleAt(beat), octaves);
   }
 
   function nearestIndex(notes, midi) {
@@ -184,9 +189,23 @@ export function createPhraser({
     return k >= 0 ? k : j;
   }
 
+  // Composer 2 remembers what it played, by where it falls in the chord loop, so a
+  // phrase that comes round over the same chords comes round note for note. Without
+  // this each note is worked out from the one before and the tune drifts: measured
+  // on composer 1, the rhythm repeats every time and the pitches 60% of the time.
+  const played = new Map();
+  function memoKey(bar, i) {
+    const w = harmony.written;
+    if (!w) return null;
+    const cycle = w.beats % 16 === 0 ? w.beats : 16 * w.beats / gcd(w.beats, 16);
+    return `${mod(bar * 4 - w.at, cycle)}:${i}`;
+  }
+
   return {
     // Next event at `beat`: { midi, gap, dur, vel } — midi is null for a rest.
     next(beat) {
+      const written = lines.next(name, beat);
+      if (written) return written;
       const bar = Math.floor(beat / 4 + 1e-9);
       if (bar !== curBar) startBar(bar);
       const pos = beat - bar * 4;
@@ -200,19 +219,26 @@ export function createPhraser({
       const len = Math.abs(cell[i]);
       if (cell[i] < 0) return { midi: null, gap: len };
 
-      const solo = soloist(name, beat);
-      if (!solo) {
+      const solo = !lines.busy && soloist(name, beat);
+      if (!solo && (lead || !lines.busy)) {
         // Supporting role: an occasional long, soft chord tone on the downbeat.
         if (i !== 0 || random() < 0.5) return { midi: null, gap: len };
-        const notes = pool();
+        const notes = pool(beat);
         const j = snap(notes, nearestIndex(notes, lastMidi ?? notes[Math.floor(notes.length / 3)]), beat, 0);
         return { midi: notes[j], gap: len, dur: Math.max(len, 2), vel: 0.55 };
       }
 
-      const notes    = pool();
+      const notes    = pool(beat);
       const m        = motifFor(bar);
       const inPhrase = bar % 4;
       const lastNote = cell.slice(i + 1).every(x => x < 0);
+      const key      = memoKey(bar, i);
+      if (key && played.has(key)) {
+        const midi = played.get(key);
+        lastStep = lastMidi === null ? 0 : nearestIndex(notes, midi) - nearestIndex(notes, lastMidi);
+        lastMidi = midi;
+        return { midi, gap: len, dur: len, vel: metricAccent(pos) * PHRASE_DYNAMICS[inPhrase] * rand(0.92, 1.05) };
+      }
       let j;
       if (lastMidi === null || (ostinato && i === 0)) {
         // Phrase/riff start: nearest chord tone to the middle of the register
@@ -235,6 +261,7 @@ export function createPhraser({
       if (lastNote && inPhrase === 3 && !ostinato) j = snap(notes, j, beat, 0, true);
 
       const midi = notes[j];
+      if (key) played.set(key, midi);
       lastStep = lastMidi === null ? 0 : nearestIndex(notes, midi) - nearestIndex(notes, lastMidi);
       lastMidi = midi;
       const vel = metricAccent(pos) * PHRASE_DYNAMICS[inPhrase] * rand(0.92, 1.05);
@@ -244,6 +271,7 @@ export function createPhraser({
     reset() {
       local.motif = null; local.motifPhrase = -1;
       lastMidi = null; lastStep = 0; curBar = -1; cell = null;
+      played.clear();
     },
   };
 }

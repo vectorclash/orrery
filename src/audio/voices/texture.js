@@ -1,18 +1,26 @@
 import { audio, getVoiceBus } from '../context.js';
-import { currentScale, rand, pick, register, midiToHz, scaleNotes, random } from '../../state.js';
+import { rand, pick, register, midiToHz, scaleNotes, random } from '../../state.js';
 import { createVoice } from '../transport.js';
 import { logNote } from '../notes.js';
 import { harmony } from '../harmony.js';
+import { lines } from '../lines.js';
 import { osc, gain, send } from '../synth.js';
 
 // Sparse, high shimmer: a chord tone as two slightly detuned sines (slow
 // beating) with a quiet octave, drowned in reverb and a touch of echo.
 function play(t, b) {
-  const wait = pick([1, 2, 3, 4]);
-  if (random() < 0.4) return wait;
-
-  const notes = scaleNotes(register(68, 28, 86), currentScale(), 2);
-  const midi  = harmony.pickChordTone(notes, b);
+  const line = lines.next('texture', b);
+  if (line?.midi === null) return line.gap;
+  let wait, midi;
+  if (line) {
+    wait = line.gap;
+    midi = line.midi;
+  } else {
+    wait = pick([1, 2, 3, 4]);
+    if (random() < 0.4) return wait;
+    const notes = scaleNotes(register(68, 28, 86), harmony.scaleAt(b), 2);
+    midi = harmony.pickChordTone(notes, b);
+  }
   const hz    = midiToHz(midi);
   const dur   = rand(1.5, 4.0);
   logNote('texture', t, midi, dur, 0.7);

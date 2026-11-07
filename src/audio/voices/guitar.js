@@ -34,7 +34,7 @@ let prev    = null; // last voicing
 let segAt   = null; // start of the chord segment `prev` was voiced for
 
 function voicing(b) {
-  const seg = harmony.at(b);
+  const seg = state.composer >= 2 ? harmony.pushed(b) : harmony.at(b);
   if (segAt !== seg.start || !prev) {
     prev  = harmony.voice(harmony.pcs(seg.degree, 4), prev, register(66, 52, 78));
     segAt = seg.start;
@@ -81,7 +81,7 @@ function play(t, b) {
   const p = Math.floor(b / 16);
   if (p !== phrase) {
     phrase = p;
-    if (!pattern || random() < 0.35) pattern = pick(PATTERNS);
+    if (!pattern || (state.composer < 2 && random() < 0.35)) pattern = pick(PATTERNS);
   }
   const step = Math.round((b - Math.floor(b / 4) * 4) * 4) % 16;
   const kind = pattern[step];

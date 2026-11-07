@@ -32,8 +32,21 @@ export const state = {
   room:        'room', // acoustic space — see ROOMS in audio/context.js
   pump:        0,      // sidechain pump depth, 0–1 — see pump.js
   sweep:       0,      // filter sweep depth, 0–1 — see sweep.js
+  // Which composer writes the notes. 1 is the original: a plan or share link that
+  // doesn't say is played by it, note for note, so saved links keep their songs.
+  // 2 writes from the genre's language and gives each song a hook -- see
+  // audio/language.js and audio/hook.js. 3 gives each language its own melodic
+  // intervals too. 4 stays in key, as composer 1 always did: outside jazz, blues and
+  // funk no chord, colour or passing note leaves the mode.
+  // `language` is that genre's name. A link keeps the composer that wrote it, so
+  // writing better songs never changes one somebody saved.
+  composer:    1,
+  language:    'ANY',
   get rootBase() { return this.rootMidi + this.octaveShift * 12; },
 };
+
+// What new music is written with: the NEW in Edit mode's COMPOSER switch.
+export const LATEST_COMPOSER = 4;
 
 // ─── Scheduler constants ──────────────────────────────────────────────────────
 export const LOOKAHEAD = 0.12; // seconds

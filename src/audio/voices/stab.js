@@ -31,12 +31,12 @@ function play(t, b) {
   const p = Math.floor(b / 16);
   if (p !== phrase) {
     phrase = p;
-    if (!pattern || random() < 0.35) pattern = pick(PATTERNS);
+    if (!pattern || (state.composer < 2 && random() < 0.35)) pattern = pick(PATTERNS);
   }
   const step = Math.round((b - Math.floor(b / 4) * 4) * 4) % 16;
   if (pattern[step] === '.') return 0.25;
 
-  const seg = harmony.at(b);
+  const seg = state.composer >= 2 ? harmony.pushed(b) : harmony.at(b);
   const pcs = harmony.pcs(seg.degree, 4);
   const v   = harmony.voice(pcs, prev, register(62, 28, 79));
   prev = v;
