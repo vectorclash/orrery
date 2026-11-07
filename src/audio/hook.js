@@ -391,6 +391,17 @@ export function writeMotif(r, lang, tokens, scaleName, cb, lock, { kind, palette
 // The motif over a loop.
 export const lineOver = (motif, tokens, scaleName, cb) => realise(motif, tokens, scaleName, cb);
 
+// A hook kept with the song as notes, taken from another (see transcribe.js), as a line.
+export function lineOfHook(hook, scaleName, cb) {
+  const tl = timeline(hook.chords, scaleName, cb);
+  const notes = hook.notes.map(([at16, len16, deg]) => {
+    const at = at16 / 4, room = chordEndAt(tl, at);
+    return { at, len: Math.min(len16 / 4, room), deg, room, vel: +(accent(mod(at, 4)) * SWELL[Math.floor(at / 4) % 4]).toFixed(3) };
+  });
+  const line = finished({ beats: hook.beats, notes, fill: null }, tl, scaleName);
+  return { ...line, anchor: line.mean };
+}
+
 // ─── Lines made from lines ────────────────────────────────────────────────────
 // The bones of a line: the notes nearest the bar's first and third beats, each held
 // until the next. An intro's hint of the hook, an outro's memory of it, and what a

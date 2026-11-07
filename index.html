@@ -360,7 +360,8 @@
       color: #667788;
     }
     #form-row .kind-toggle, #composer-row .kind-toggle { background: transparent; }
-    #form-row .ctrl-label, #composer-row .ctrl-label, #length-row .ctrl-label { min-width: 72px; }
+    #form-row .ctrl-label, #song-row .ctrl-label, #composer-row .ctrl-label, #length-row .ctrl-label { min-width: 72px; }
+    @media (max-width: 359px) { #song-row .ctrl-label { display: none; } }
 
     /* ─── Collapsible sections ──────────────────────────────────────────────── */
     .collapsible-section {
@@ -767,7 +768,8 @@
       flex: 1;
     }
     .genre-group { display: flex; flex-direction: column; gap: 6px; }
-    .genre-group .group-label { text-align: left; }
+    .genre-group .group-label, #genre-hint { text-align: left; }
+    #genre-hint { margin-bottom: 12px; color: #8899aa; line-height: 1.5; }
     .genre-row {
       display: flex;
       flex-wrap: wrap;
@@ -1093,6 +1095,7 @@
           <span class="section-summary" id="genre-summary"></span>
         </div>
         <div class="section-body"><div class="section-inner">
+          <div class="group-label" id="genre-hint" hidden>A GENRE KEEPS THIS HOOK. NEW SONG LETS IT GO.</div>
           <div class="ctrl-row" style="margin-bottom:12px">
             <div id="genre-btns" class="genre-groups"></div>
           </div>
@@ -1184,30 +1187,48 @@
         </div></div>
       </div>
 
+      <!-- Song: form, composer, length -->
+      <div class="collapsible-section collapsed" id="section-song">
+        <div class="section-header">
+          <span class="section-label">SONG</span>
+          <div class="section-header-right">
+            <button class="header-btn" id="new-song-btn" hidden title="Compose a different song from the same settings">NEW SONG</button>
+            <span class="section-chevron"></span>
+          </div>
+          <span class="section-summary" id="song-summary"></span>
+        </div>
+        <div class="section-body"><div class="section-inner">
+          <div class="ctrl-row" id="form-row">
+            <span class="ctrl-label">FORM</span>
+            <div class="kind-toggle" role="group" aria-label="Form">
+              <button class="kind-btn form-btn" data-form="loop" title="The arrangement as it is, round and round">LOOP</button>
+              <button class="kind-btn form-btn" data-form="song" title="A song made from it: intro, sections, outro">SONG</button>
+            </div>
+          </div>
+
+          <div class="ctrl-row" id="song-row" hidden>
+            <span class="ctrl-label"></span>
+            <button class="kind-action" id="manual-like-btn" title="The same hook, with new instruments. After this, a genre keeps the hook and changes everything else">MORE LIKE THIS</button>
+            <button class="kind-action" id="manual-keep-btn" aria-pressed="false">KEEP</button>
+          </div>
+
+          <div class="ctrl-row" id="composer-row">
+            <span class="ctrl-label">COMPOSER</span>
+            <div class="kind-toggle" role="group" aria-label="Composer">
+              <button class="kind-btn composer-btn" data-composer="1" title="The first composer: every link made before LATEST plays in it, note for note">ORIGINAL</button>
+              <button class="kind-btn composer-btn" data-composer="new" title="The newest composer: writes chords in the genre's language and gives every song a hook">LATEST</button>
+            </div>
+          </div>
+
+          <div class="ctrl-row" id="length-row" style="margin-bottom:4px">
+            <span class="ctrl-label">LENGTH</span>
+            <input type="range" class="feel-slider" id="manual-length" min="5" max="300" step="5" value="10" title="How long a loop exports for, or how long a song is">
+            <span class="ctrl-value" id="manual-length-value">10s</span>
+          </div>
+        </div></div>
+      </div>
+
       <button class="action-btn" id="randomize-all-btn">RANDOMIZE ALL</button>
-
-      <div class="ctrl-row" id="form-row">
-        <span class="ctrl-label">FORM</span>
-        <div class="kind-toggle" role="group" aria-label="Form">
-          <button class="kind-btn form-btn" data-form="loop" title="The arrangement as it is, round and round">LOOP</button>
-          <button class="kind-btn form-btn" data-form="song" title="A song made from it: intro, sections, outro">SONG</button>
-        </div>
-        <button class="header-btn" id="new-song-btn" hidden title="Compose a different song from the same settings">NEW SONG</button>
-      </div>
-
-      <div class="ctrl-row" id="composer-row">
-        <span class="ctrl-label">COMPOSER</span>
-        <div class="kind-toggle" role="group" aria-label="Composer">
-          <button class="kind-btn composer-btn" data-composer="1" title="The original: what every link made before NEW plays, note for note">CLASSIC</button>
-          <button class="kind-btn composer-btn" data-composer="new" title="Writes chords in the genre's language and gives every song a hook">NEW</button>
-        </div>
-      </div>
-
-      <div class="ctrl-row" id="length-row">
-        <span class="ctrl-label">LENGTH</span>
-        <input type="range" class="feel-slider" id="manual-length" min="5" max="300" step="5" value="10" title="How long a loop exports for, or how long a song is">
-        <span class="ctrl-value" id="manual-length-value">10s</span>
-      </div>
 
       <div id="manual-actions">
         <button class="action-btn" id="manual-play-btn" disabled>PLAY</button>

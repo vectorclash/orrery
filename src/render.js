@@ -5,6 +5,8 @@
 import { TICK_MS, LOOKAHEAD } from './state.js';
 import { audio, initAudio, rideLevel, presetLevel } from './audio/context.js';
 import { applyPlan, startSession, tick, songFor } from './audio/scheduler.js';
+import { readLog } from './audio/notes.js';
+import { hookSection, transcribe } from './audio/transcribe.js';
 import { planFromShare } from './share.js';
 
 const QUANTUM = 128; // frames per render quantum
@@ -112,6 +114,31 @@ window.levelOfSong = async (plan, sampleRate) => {
   const from = Math.round(LOOKAHEAD * sampleRate);
   for (let i = from; i < d.length; i++) e += d[i] * d[i];
   return e / Math.max(1, d.length - from);
+};
+
+// A song's hook, as notes (see transcribe.js): its first hook section played against a
+// stand-in clock, nothing rendered, and what its voices do written down. Each section is
+// seeded on its own, so that's what it plays in the song. Null for a song with no hook.
+window.transcribeHook = plan => {
+  const sec = hookSection(songFor(plan));
+  if (!sec) return null;
+  const ctx = new OfflineAudioContext(1, 128, 44100);
+  initAudio(ctx);
+  applyPlan(plan);
+  let now = 0;
+  Object.defineProperty(ctx, 'currentTime', { get: () => now, configurable: true });
+  startSession(LOOKAHEAD, sec.start);
+  const spb = 60 / plan.state.tempo, log = [];
+  let since = readLog(Infinity, () => {});
+  const opts = { skipBass: true, skipEvolve: true };
+  for (let t = 0; t < LOOKAHEAD + sec.beats * spb; t += TICK_MS / 1000) {
+    now = t;
+    tick(opts);
+    since = readLog(since, e => {
+      if (e.kind === 'note') log.push({ voice: e.voice, beat: sec.start + (e.t - LOOKAHEAD) / spb, midi: e.midi, dur: e.dur / spb });
+    });
+  }
+  return transcribe(plan, sec, log);
 };
 
 // A share link (or its `#c=…` hash) as the plan renderExport takes, or null if

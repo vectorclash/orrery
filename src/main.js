@@ -17,6 +17,7 @@ import { transport } from './audio/transport.js';
 import { song, songSeconds, formFor } from './audio/song.js';
 import { LANGUAGE_NAMES, voicesOf } from './audio/language.js';
 import { isAir, carriersIn } from './audio/lines.js';
+import { hookOfWritten, hookSection, transcribe } from './audio/transcribe.js';
 import { library } from './library.js';
 import { newSeed } from './random.js';
 import { showPending, clearPending } from './pending.js';
@@ -238,8 +239,10 @@ const kaleidoBtn           = document.getElementById('kaleido-btn');
 const instrumentsRandomBtn = document.getElementById('instruments-random-btn');
 const randomizeAllBtn      = document.getElementById('randomize-all-btn');
 const genreSummary         = document.getElementById('genre-summary');
+const genreHint            = document.getElementById('genre-hint');
 const feelSummary          = document.getElementById('feel-summary');
 const instrumentsSummary   = document.getElementById('instruments-summary');
+const songSummary          = document.getElementById('song-summary');
 const manualShareBtn       = document.getElementById('manual-share-btn');
 const modeTabs             = document.querySelectorAll('.mode-tab');
 const kindBtns             = document.querySelectorAll('.kind-btn[data-kind]'); // not FORM's, which share the look
@@ -251,6 +254,9 @@ const prevBtn              = document.getElementById('prev-btn');
 const songActions          = document.getElementById('song-actions');
 const keepBtn              = document.getElementById('keep-btn');
 const likeBtn              = document.getElementById('like-btn');
+const songRow              = document.getElementById('song-row');
+const manualLikeBtn        = document.getElementById('manual-like-btn');
+const manualKeepBtn        = document.getElementById('manual-keep-btn');
 const libraryBtn           = document.getElementById('library-btn');
 const libraryEl            = document.getElementById('library');
 const libraryList          = document.getElementById('library-list');
@@ -279,6 +285,7 @@ let songPlan          = null;   // the song Infinite mode is playing (or last pl
 let manualForm        = 'loop'; // Edit mode: a LOOP of the arrangement, or a SONG made from it
 let manualSongSeed    = newSeed();
 let manualWriting     = null;   // the seed of the song this one takes its chords and hook from, if any
+let manualHook        = null;   // the chords and hook it's been given as notes, if any (see audio/transcribe.js)
 let linked            = null; // the configuration the address bar's link describes (see forgetStaleLink)
 // LENGTH, in seconds, kept for each form: a loop's export, a song's length.
 let loopLength        = 10;
@@ -334,7 +341,13 @@ function showFeel() {
   refreshSummaries();
 }
 
-// CLASSIC / NEW: which composer writes the notes (see `state.composer`).
+function showGenre() {
+  const genre = document.querySelector('.genre-btn.active')?.textContent ?? 'CUSTOM';
+  genreSummary.textContent = keepingHook() ? `${genre} · SAME HOOK` : genre;
+  genreHint.hidden = !keepingHook();
+}
+
+// ORIGINAL / LATEST: which composer writes the notes (see `state.composer`).
 function showComposer() {
   composerBtns.forEach(b => {
     const on = (b.dataset.composer === 'new') === (state.composer >= 2);
@@ -361,8 +374,6 @@ function enabledInstrumentLabels() {
 }
 
 function refreshSummaries() {
-  forgetStaleLink();
-  genreSummary.textContent = document.querySelector('.genre-btn.active')?.textContent ?? 'CUSTOM';
   feelSummary.textContent = [
     `${ROOT_NAMES[rootSelect.value]} ${SCALE_LABELS[scaleSelect.value]}`,
     `${bpmSlider.value} BPM`,
@@ -443,11 +454,35 @@ function latestComposer() {
   if (state.composer >= 2) state.composer = LATEST_COMPOSER;
 }
 
-function applyGenre(g, { vary = false } = {}) {
+function applyGenre(g, { vary = false, keeping = {} } = {}) {
   latestComposer();
-  applyFeel(genreFeel(g, vary));
+  applyFeel({ ...genreFeel(g, vary), ...keeping });
   setInstruments(rollKit(g));
   setGenreHighlight(genreButtons.get(g));
+}
+
+// Once a song is a variation of another, a hook is what it's about: a genre keeps that,
+// and changes everything else. A song with its hook written down by a seed has it taken
+// down as notes, since the new genre's language would write another from that seed.
+function keepingHook() {
+  return manualForm === 'song' && state.composer >= 2 && (manualHook !== null || manualWriting !== null);
+}
+
+// What a kept hook was written for, which the randoms leave alone: its mode, whose
+// notes it's made of, and its chord length, which times its chords against its notes.
+function hookFeel() {
+  if (!keepingHook()) return {};
+  const { scaleIdx, chordBeats } = manualPlan().state;
+  return { scaleIdx, chordBeats };
+}
+
+function remix(g) {
+  const keeping = hookFeel();
+  if (!manualHook?.notes) manualHook = hookOfWritten(songFor(manualPlan()));
+  manualSongSeed = newSeed();
+  manualWriting = null;
+  applyGenre(g, { keeping });
+  showLength();
 }
 
 // Electronic genres twice as likely as classic ones.
@@ -472,7 +507,11 @@ for (const [label, electronic] of [['ELECTRONIC', true], ['CLASSIC', false]]) {
     const btn = document.createElement('button');
     btn.className = 'genre-btn';
     btn.textContent = g.name;
-    btn.addEventListener('click', () => applyGenre(g));
+    btn.addEventListener('click', () => {
+      if (!keepingHook()) { applyGenre(g); return; }
+      remix(g);
+      replayManual();
+    });
     genreButtons.set(g, btn);
     row.appendChild(btn);
   }
@@ -483,7 +522,8 @@ for (const [label, electronic] of [['ELECTRONIC', true], ['CLASSIC', false]]) {
 // ─── Randomize ────────────────────────────────────────────────────────────────
 // A genre other than the one already selected.
 function randomizeGenre() {
-  applyGenre(weightedGenre(activeGenre));
+  const g = weightedGenre(activeGenre);
+  if (keepingHook()) remix(g); else applyGenre(g);
   flashSection('section-genre');
   flashSection('section-instruments');
 }
@@ -491,7 +531,7 @@ function randomizeGenre() {
 // Inside the active genre if there is one; otherwise anything at all.
 function randomizeFeel() {
   if (activeGenre) {
-    applyFeel(genreFeel(activeGenre, true));
+    applyFeel({ ...genreFeel(activeGenre, true), ...hookFeel() });
   } else {
     freeFeel();
   }
@@ -515,6 +555,7 @@ function freeFeel() {
     pump:         0,
     sweep:        0,
     language:     'ANY',
+    ...hookFeel(),
   });
   clearGenreHighlight();
 }
@@ -543,6 +584,8 @@ function freeInstruments() {
 const WILDCARD = 0.1;
 function randomizeAll() {
   latestComposer();
+  manualWriting = null;
+  manualHook = null;
   if (Math.random() < WILDCARD) {
     freeFeel();
     freeInstruments();
@@ -550,11 +593,21 @@ function randomizeAll() {
     applyGenre(weightedGenre(), { vary: true });
   }
   manualSongSeed = newSeed();
-  manualWriting = null;
+  if (manualForm === 'song') {
+    songLength = drawnLength();
+    lengthInput.value = songLength;
+    flashSection('section-song');
+  }
   showLength();
   flashSection('section-genre');
   flashSection('section-feel');
   flashSection('section-instruments');
+}
+
+// The length the song would draw for itself, as Infinite's songs do.
+function drawnLength() {
+  const plan = manualPlan();
+  return songFor({ ...plan, song: { ...plan.song, length: undefined } }).target;
 }
 
 // While playing, each button shows how long until its change is heard. A
@@ -572,7 +625,7 @@ function pressed(btn, change, anotherSong = () => false) {
     showPending(btn, changeLandsAt(before, soundingVoices()));
   });
 }
-pressed(genreRandomBtn, randomizeGenre);
+pressed(genreRandomBtn, randomizeGenre, keepingHook);
 pressed(feelRandomBtn, randomizeFeel);
 pressed(instrumentsRandomBtn, randomizeInstruments);
 pressed(randomizeAllBtn, randomizeAll, () => manualForm === 'song');
@@ -684,6 +737,7 @@ function updatePlayEnabled() {
   const any = Object.values(manualEnabled).some(v => v);
   manualPlayBtn.disabled = !any;
   manualExportBtn.disabled = exporting ? exportBtn !== manualExportBtn : !any;
+  manualLikeBtn.disabled = manualKeepBtn.disabled = !any;
   songExportBtn.disabled = exporting && exportBtn !== songExportBtn;
 }
 updatePlayEnabled();
@@ -757,20 +811,8 @@ roomSelect.addEventListener('change', () => { applyFeel({ room: roomSelect.value
 // playback, since infinite's own era evolution must not keep mutating them
 // once we're in edit mode.
 function syncManualFromInfinite() {
-  // A song comes across whole -- its genre, its own feel (not a section's) and
-  // its seed -- so it can be played again, changed, or exported.
   if (infiniteKind === 'songs' && songPlan) {
-    applyFeel({ ...songPlan.state });
-    setInstruments(new Set([
-      ...(songPlan.bassStyle ? [`bass:${songPlan.bassStyle}`] : []),
-      ...(songPlan.drumStyle ? [`drums:${songPlan.drumStyle}`] : []),
-      ...songPlan.voices.filter(n => n !== 'drums'),
-    ].filter(k => k in manualEnabled)));
-    setGenreHighlight(genreButtons.get(GENRES.find(g => g.name === songPlan.genre)) ?? null);
-    manualSongSeed = songPlan.song.seed;
-    manualWriting = songPlan.song.writing ?? null;
-    songLength = songFor(songPlan).target;
-    setForm('song');
+    showSong(songPlan);
     return;
   }
   clearGenreHighlight();
@@ -779,6 +821,23 @@ function syncManualFromInfinite() {
     `bass:${bassVoice.style}`,
     ...activeVoices.map(v => v.name === 'drums' ? `drums:${v.style}` : v.name),
   ].filter(k => k in manualEnabled)));
+}
+
+// A song comes across whole -- its genre, its own feel (not a section's) and
+// its seed -- so it can be played again, changed, or exported.
+function showSong(plan) {
+  manualSongSeed = plan.song.seed;
+  manualWriting = plan.song.writing ?? null;
+  manualHook = plan.song.hook ?? null;
+  songLength = songFor(plan).target;
+  applyFeel({ ...plan.state });
+  setInstruments(new Set([
+    ...(plan.bassStyle ? [`bass:${plan.bassStyle}`] : []),
+    ...(plan.drumStyle ? [`drums:${plan.drumStyle}`] : []),
+    ...plan.voices.filter(n => n !== 'drums'),
+  ].filter(k => k in manualEnabled)));
+  setGenreHighlight(genreButtons.get(GENRES.find(g => g.name === plan.genre)) ?? null);
+  setForm('song');
 }
 
 // ─── Mode toggle ──────────────────────────────────────────────────────────────
@@ -966,8 +1025,8 @@ function composeInfiniteSong() {
 // changing above all, since that's the voice you'd notice. It has to keep the song's
 // form, which decides what the hook is written over, and the drums decide the form: a
 // roll whose drums would change it keeps this song's, and the rest of the roll.
-function likeThis(plan) {
-  const g = GENRES.find(x => x.name === plan.genre) ?? GENRES.find(x => x.kit.drums.includes(plan.drumStyle));
+function likeThis(plan, hook = plan.song.hook) {
+  const g = GENRES.find(x => x.name === plan.genre) ?? genreOfKit(plan);
   const carrierOf = p => carriersIn(p.voices, p.state.language)[0];
   const parts = p => new Set([...p.voices, p.bassStyle, p.drumStyle]);
   const was = parts(plan);
@@ -984,8 +1043,24 @@ function likeThis(plan) {
   // No genre to roll from: the same players, arranged anew.
   best ??= { ...plan, song: { seed: newSeed() } };
   best.song.writing = plan.song.writing ?? plan.song.seed;
+  if (hook) best.song.hook = hook;
   best.genre = plan.genre;
   return best;
+}
+
+// A song from before hooks were written down has its own read out of it first, and its
+// variation is the latest composer's, in the language of its genre, given that hook.
+async function moreLikeThis(plan) {
+  if (plan.state.composer >= 2) return likeThis(plan);
+  const language = LANGUAGE_NAMES.includes(plan.genre) ? plan.genre : 'ANY';
+  return likeThis({ ...plan, state: { ...plan.state, composer: LATEST_COMPOSER, language } }, await hookOf(plan));
+}
+
+// The genre a kit is from, for a song that doesn't say (a link from before languages, or
+// a kit set by hand): the one that uses these drums, and this bass if more than one does.
+function genreOfKit({ bassStyle, drumStyle }) {
+  const by = GENRES.filter(g => drumStyle && g.kit.drums.includes(drumStyle));
+  return by.find(g => g.kit.bass.includes(bassStyle)) ?? by[0] ?? null;
 }
 
 // ─── History ──────────────────────────────────────────────────────────────────
@@ -1000,7 +1075,7 @@ function entryFor(plan) {
   return {
     link: linkForPlan(plan, s.target), genre: plan.genre, root: plan.state.rootMidi, scale: plan.state.scaleIdx,
     tempo: plan.state.tempo, seconds: Math.round(songSeconds(s)), at: Date.now(),
-    ...(plan.song.writing === undefined ? {} : { variation: true }),
+    ...(plan.song.writing === undefined && !plan.song.hook ? {} : { variation: true }),
   };
 }
 
@@ -1149,13 +1224,14 @@ prevBtn.addEventListener('click', () => {
 });
 
 // ─── Keeping a song ───────────────────────────────────────────────────────────
-function showKept() {
-  const kept = !!songEntry && library.isKept(songEntry.link);
-  keepBtn.textContent = kept ? 'KEPT' : 'KEEP';
-  keepBtn.classList.toggle('on', kept);
-  keepBtn.setAttribute('aria-pressed', String(kept));
-  keepBtn.title = kept ? 'In your library. Press to take it out' : 'Keep this song in your library';
+function showKeep(btn, kept) {
+  btn.textContent = kept ? 'KEPT' : 'KEEP';
+  btn.classList.toggle('on', kept);
+  btn.setAttribute('aria-pressed', String(kept));
+  btn.title = kept ? 'In your library. Press to take it out' : 'Keep this song in your library';
 }
+function showKept() { showKeep(keepBtn, !!songEntry && library.isKept(songEntry.link)); }
+function showManualKept() { showKeep(manualKeepBtn, manualForm === 'song' && library.isKept(shareConfig())); }
 
 keepBtn.addEventListener('click', () => {
   if (!songEntry) return;
@@ -1165,9 +1241,43 @@ keepBtn.addEventListener('click', () => {
   if (!libraryEl.hidden) showLibrary();
 });
 
-likeBtn.addEventListener('click', () => {
-  if (!songPlan) return;
-  goToSong(() => played(likeThis(songPlan)), likeBtn);
+likeBtn.addEventListener('click', async () => {
+  const plan = songPlan;
+  if (!plan) return;
+  showPending(likeBtn);
+  const like = await moreLikeThis(plan);
+  // If you've moved on while its hook was being read, this was for a song that's gone.
+  if (plan === songPlan && currentMode === 'infinite') goToSong(() => played(like));
+});
+
+// The same two in Edit mode, for the song the controls describe.
+function manualSong() {
+  const plan = manualPlan();
+  plan.genre = activeGenre?.name ?? genreOfKit(plan)?.name ?? 'CUSTOM';
+  return plan;
+}
+
+manualKeepBtn.addEventListener('click', () => {
+  const link = shareConfig();
+  if (library.isKept(link)) library.unkeep(link);
+  else library.keep({ ...entryFor(manualSong()), link });
+  showManualKept();
+  showKept();
+});
+
+manualLikeBtn.addEventListener('click', async () => {
+  showPending(manualLikeBtn);
+  const plan = manualSong();
+  // The controls can have moved on from the song playing, which plays as it was written
+  // (a genre pressed mid-song is only heard in the instruments). This means what you hear.
+  if (manualPlaying && song.current && plan.state.composer >= 2 && !plan.song.hook) {
+    const heard = hookOfWritten(song.current);
+    if (JSON.stringify(heard) !== JSON.stringify(hookOfWritten(songFor(plan)))) plan.song.hook = heard;
+  }
+  const like = await moreLikeThis(plan);
+  like.song.length = songLength;
+  showSong(like);
+  replayManual();
 });
 
 // ─── The library ──────────────────────────────────────────────────────────────
@@ -1364,7 +1474,11 @@ function manualPlan() {
       ...(drumSubs.length ? ['drums'] : []),
       ...SIMPLE_VOICES.filter(({ key }) => manualEnabled[key]).map(({ voice }) => voice.name),
     ],
-    ...(asSong ? { song: { seed: manualSongSeed, length: songLength, ...(manualWriting === null ? {} : { writing: manualWriting }) } } : {}),
+    ...(asSong ? { song: {
+      seed: manualSongSeed, length: songLength,
+      ...(manualWriting === null ? {} : { writing: manualWriting }),
+      ...(manualHook === null ? {} : { hook: manualHook }),
+    } } : {}),
   };
 }
 
@@ -1608,15 +1722,35 @@ function cancelExport() {
 }
 
 // A fresh renderer each time: module state from one render can't reach the next.
-async function loadRenderer() {
+function openRenderer() {
   const frame = document.createElement('iframe');
   frame.style.display = 'none';
   frame.srcdoc = `<script type="module" src="${RENDER_URL}"></script>`;
-  const loaded = new Promise((res, rej) => { frame.onload = res; frame.onerror = rej; });
+  const ready = new Promise((res, rej) => { frame.onload = () => res(frame.contentWindow); frame.onerror = rej; });
   document.body.appendChild(frame);
+  return { frame, ready };
+}
+
+async function loadRenderer() {
+  const { frame, ready } = openRenderer();
   exportFrame = frame;
-  await loaded;
-  return frame.contentWindow;
+  return ready;
+}
+
+// A song's hook, read in a renderer of its own, which what's playing and any export can't
+// reach (see transcribeHook in render.js). Without one, what it can tell from the song
+// alone: its chords, and a new hook written over them.
+async function hookOf(plan) {
+  const { frame, ready } = openRenderer();
+  try {
+    return (await ready).transcribeHook(plan);
+  } catch (err) {
+    console.error(err);
+    const sec = hookSection(songFor(plan));
+    return sec && transcribe(plan, sec, []);
+  } finally {
+    frame.remove();
+  }
 }
 
 // A song is first measured -- its hook alone, a fraction of the work (the
@@ -1754,12 +1888,13 @@ function setForm(form) {
     b.classList.toggle('active', on);
     b.setAttribute('aria-pressed', String(on));
   });
-  newSongBtn.hidden = form !== 'song';
+  newSongBtn.hidden = songRow.hidden = form !== 'song';
   // min and max first, so the value isn't clamped to the other form's range.
   const asSong = form === 'song';
   lengthInput.min   = asSong ? 30 : 5;
   lengthInput.max   = asSong ? 360 : 300;
-  lengthInput.step  = 5;
+  // A song by the second, so a length it drew for itself can be set again.
+  lengthInput.step  = asSong ? 1 : 5;
   lengthInput.value = asSong ? songLength : loopLength;
   showLength();
 }
@@ -1768,9 +1903,19 @@ function setForm(form) {
 // shortest song at this tempo is longer.
 function showLength() {
   forgetStaleLink();
-  if (manualForm !== 'song') { lengthValue.textContent = `${loopLength}s`; return; }
-  const any = Object.values(manualEnabled).some(v => v);
-  lengthValue.textContent = clock(any ? songSeconds(songFor(manualPlan())) : songLength);
+  showManualKept();
+  showGenre();
+  const asSong = manualForm === 'song';
+  if (!asSong) lengthValue.textContent = `${loopLength}s`;
+  else {
+    const any = Object.values(manualEnabled).some(v => v);
+    lengthValue.textContent = clock(any ? songSeconds(songFor(manualPlan())) : songLength);
+  }
+  songSummary.textContent = [
+    asSong ? 'SONG' : 'LOOP',
+    asSong ? lengthValue.textContent : clock(loopLength),
+    state.composer >= 2 ? 'LATEST COMPOSER' : 'ORIGINAL COMPOSER',
+  ].join(' · ');
 }
 
 // From the top, in the new form or with the new song: now if playing, at
@@ -1792,25 +1937,17 @@ newSongBtn.addEventListener('click', () => {
   latestComposer();
   manualSongSeed = newSeed();
   manualWriting = null;
+  manualHook = null;
   showLength();
   showPending(newSongBtn);
   replayManual();
 });
-// The genre whose kit this is, for a link from before languages, which doesn't say:
-// the one that uses these drums, and this bass if more than one does.
-function languageOfKit() {
-  const has = (list, prefix) => list.some(x => x && manualEnabled[`${prefix}:${x}`]);
-  const by = GENRES.filter(g => has(g.kit.drums, 'drums'));
-  const g = by.find(x => has(x.kit.bass, 'bass')) ?? by[0];
-  return g?.name ?? 'ANY';
-}
-
 // The other composer, same settings and same seed: from the top, to compare them.
 composerBtns.forEach(b => b.addEventListener('click', () => {
   const wanted = b.dataset.composer === 'new';
   if (wanted === state.composer >= 2) return;
   state.composer = wanted ? LATEST_COMPOSER : 1;
-  if (wanted && state.language === 'ANY') state.language = languageOfKit();
+  if (wanted && state.language === 'ANY') state.language = genreOfKit(manualPlan())?.name ?? 'ANY';
   showComposer();
   showLength();
   replayManual();
@@ -1871,6 +2008,7 @@ function applyConfig(cfg) {
   if (cfg.song) {
     manualSongSeed = cfg.song.seed;
     manualWriting = cfg.song.writing ?? null;
+    manualHook = cfg.song.hook ?? null;
     // A link from before songs had lengths: the length the song drew itself.
     songLength = cfg.song.length ?? songFor(planFromConfig(cfg)).target;
   }

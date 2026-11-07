@@ -6,6 +6,7 @@
 import { state, ROOT_BASE_MIDI, pick } from './state.js';
 import { ROOMS } from './audio/context.js';
 import { LANGUAGE_NAMES } from './audio/language.js';
+import { parseChord } from './audio/chords.js';
 
 // Canonical instrument order for the share-link bitmask. Spelled out rather
 // than derived from the display lists in main.js, so reordering the UI can never
@@ -40,7 +41,11 @@ export const ALL_INST_KEYS = [
 //  form(1): 1 = a song, seed(4, little-endian): the song's,
 //  length(2, little-endian): the song's, in seconds,
 //  composer(1), language(1): its place in LANGUAGE_NAMES,
-//  writing seed(4, little-endian): a song written from another's seed, if it is]
+//  writing seed(4, little-endian): a song written from another's seed, if it is,
+//  hook: a song given another's hook (see audio/transcribe.js), if it is: its length in
+//  sixteenths(2, little-endian), its chord tokens' length(1) and text, its note count
+//  (2, little-endian), then for each note, its distance from the last in sixteenths(1),
+//  its length(1), its place in the scale + 64(1)]
 // The first 72 instruments were fitted into spare bytes as they came. Everything
 // after them goes in the tail, which grows with ALL_INST_KEYS, so appending a key
 // needs no change here. While there are no more than 72 keys the tail is left
@@ -58,7 +63,8 @@ export const ALL_INST_KEYS = [
 // byte for byte what they always were, and a link without one is composer 1's,
 // which is how every link made before composer 2 keeps its song. A loop from
 // composer 2 writes the form and song fields as zeros to reach it. A song that keeps
-// another's chords and hook (see writeSong in audio/song.js) adds that song's seed.
+// another's chords and hook (see writeSong in audio/song.js) adds that song's seed,
+// or the hook itself, in which case the seed is its own, to reach it.
 const FIXED_INST_BITS = 72;
 const TAIL_LEN = 20; // the tail's length byte; its bits start at TAIL_LEN + 1
 const instByte = i => (i < 40 ? 6 + (i >> 3) : i < 48 ? 13 : i < 56 ? 15 : i < 64 ? 16
@@ -70,8 +76,9 @@ const instByte = i => (i < 40 ? 6 + (i >> 3) : i < 48 ? 13 : i < 56 ? 15 : i < 6
 export function encodeConfig(enabled, song = null, feel = state) {
   const tail = Math.ceil(Math.max(0, ALL_INST_KEYS.length - FIXED_INST_BITS) / 8);
   const written = (feel.composer ?? 1) >= 2;
-  const rewrites = written && song?.writing != null;
-  const b = new Uint8Array(tail || song || written ? TAIL_LEN + 1 + tail + (rewrites ? 13 : written ? 9 : song ? 7 : 0) : TAIL_LEN);
+  const given = written && song?.hook ? hookBytes(song.hook) : [];
+  const rewrites = written && (song?.writing != null || given.length > 0);
+  const b = new Uint8Array(tail || song || written ? TAIL_LEN + 1 + tail + (rewrites ? 13 + given.length : written ? 9 : song ? 7 : 0) : TAIL_LEN);
   if (tail || song || written) b[TAIL_LEN] = tail;
   const at = TAIL_LEN + 1 + tail;
   if (song) {
@@ -84,7 +91,10 @@ export function encodeConfig(enabled, song = null, feel = state) {
     b[at + 7] = feel.composer;
     b[at + 8] = Math.max(0, LANGUAGE_NAMES.indexOf(feel.language));
   }
-  if (rewrites) new DataView(b.buffer).setUint32(at + 9, song.writing >>> 0, true);
+  if (rewrites) {
+    new DataView(b.buffer).setUint32(at + 9, (song.writing ?? song.seed) >>> 0, true);
+    b.set(given, at + 13);
+  }
   b[0] = feel.rootMidi - ROOT_BASE_MIDI;
   b[1] = feel.scaleIdx;
   b[2] = feel.tempo;
@@ -102,6 +112,38 @@ export function encodeConfig(enabled, song = null, feel = state) {
   return btoa(String.fromCharCode(...b)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
 }
 
+const twoBytes = n => [n & 255, n >> 8];
+
+function hookBytes({ beats, chords, notes }) {
+  const text = chords.join(' ');
+  const out = [...twoBytes(beats * 4), text.length, ...[...text].map(c => c.charCodeAt(0)), ...twoBytes(notes?.length ?? 0)];
+  let was = 0;
+  for (const [at, len, deg] of notes ?? []) {
+    out.push(at - was, len, deg + 64);
+    was = at;
+  }
+  return out;
+}
+
+// A hook that's been cut short or damaged would play as something else, or stop the song
+// being written at all: it throws, and decodeConfig refuses the link.
+function readHook(b, from) {
+  const sixteenths = b[from] | (b[from + 1] << 8), size = b[from + 2];
+  let i = from + 3 + size;
+  const chords = String.fromCharCode(...b.subarray(from + 3, i)).split(' ');
+  chords.forEach(c => parseChord(c, 'major'));
+  const count = b[i] | (b[i + 1] << 8);
+  i += 2;
+  if (!sixteenths || i + count * 3 > b.length) throw new Error('Bad hook');
+  const notes = [];
+  let at = 0;
+  for (let k = 0; k < count; k++, i += 3) {
+    at += b[i];
+    notes.push([at, b[i + 1], b[i + 2] - 64]);
+  }
+  return { chords, beats: sixteenths / 4, notes: count ? notes : null };
+}
+
 export function decodeConfig(str) {
   try {
     const pad = str + '==='.slice(0, (4 - str.length % 4) % 4);
@@ -115,6 +157,7 @@ export function decodeConfig(str) {
       seed:   view.getUint32(at + 1, true),
       length: b.length >= at + 7 ? view.getUint16(at + 5, true) : undefined,
       ...(b.length >= at + 13 ? { writing: view.getUint32(at + 9, true) } : {}),
+      ...(b.length > at + 13 ? { hook: readHook(b, at + 13) } : {}),
     } : undefined;
     return {
       r: ROOT_BASE_MIDI + (b[0] % 12), s: b[1], t: b[2],

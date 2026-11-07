@@ -3,7 +3,7 @@ import { seeded, hashSeed } from '../random.js';
 import { progressionsFor } from './harmony.js';
 import { languageFor, writeProgressions, holdsFor, intervalsFor } from './language.js';
 import { loopLength } from './chords.js';
-import { writeMotif, lineOver, thinned, harmonised, counterLine } from './hook.js';
+import { writeMotif, lineOver, lineOfHook, thinned, harmonised, counterLine } from './hook.js';
 import { carriersIn, isAir } from './lines.js';
 
 // ─── Songs ────────────────────────────────────────────────────────────────────
@@ -269,11 +269,21 @@ const lcm = (a, b) => a * b / gcd(a, b);
 // The seed they're drawn from can be another song's (`plan.song.writing`): the same
 // chords and the same hook, with this song's own form, arrangement and players. MORE
 // LIKE THIS in Infinite mode. With no writing seed, the song's own seed writes it.
+//
+// Or the song can be given them, as notes (`plan.song.hook`, see transcribe.js): another
+// song's chords and hook, which no seed could write, because a composer 1 song wrote them
+// or another genre's language is writing this one. Its chords then play all through, the
+// hook in the sections that have it and its bones in the others.
 const SECTION_LINE = {
   intro: 'hint', verse: 'verse', pre: 'pre', chorus: 'hook', bridge: 'bridge', outro: 'thin',
   open: 'hint', groove: 'hook', build: 'thin', drop: 'hook', breakdown: 'hook', close: 'thin',
   dawn: null, theme: 'verse', swell: 'hook', drift: 'thin', dusk: 'thin',
 };
+
+// The same loop for every part of a song.
+function everywhere(chords) {
+  return Object.fromEntries(['main', 'chorus', 'verse', 'theme', 'pre', 'bridge', 'break', 'drift'].map(k => [k, chords]));
+}
 
 function writeSong(plan, seed, form) {
   const r     = seeded(hashSeed(seed, 'writing'));
@@ -282,7 +292,17 @@ function writeSong(plan, seed, form) {
   const lock  = plan.state.harmonyLock;
   const lang  = languageFor(plan.state.language, plan.state.composer);
   const spoken = intervalsFor(plan.state.language, plan.state.composer);
-  const progs = writeProgressions(r, lang, scale, lock);
+  const given = plan.song.hook;
+  const progs = given ? everywhere(given.chords) : writeProgressions(r, lang, scale, lock);
+  if (given?.notes) {
+    const line = lineOfHook(given, scale, cb), bones = thinned(line);
+    const hints = r() < 0.5;
+    const lineFor = kind => {
+      const use = SECTION_LINE[kind];
+      return use === 'hook' ? line : use === 'hint' ? (hints ? bones : null) : use ? bones : null;
+    };
+    return { progs, lineFor, hookLine: () => line, counter: () => null, scale, cb };
+  }
   const hookProg = form === 'ambient' ? progs.theme : progs.main;
 
   // The hook, and the other parts' lines. A riff is the song's identity all through,
