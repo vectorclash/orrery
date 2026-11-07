@@ -2,6 +2,7 @@ import { state, SCALE_NAMES, pick, fold, register, currentScale, random } from '
 import { transport } from './transport.js';
 import { parseChord, chordScale, soundingPcs, isPent } from './chords.js';
 import { freeForm } from './language.js';
+import { lines } from './lines.js';
 
 // ─── Shared harmonic context ────────────────────────────────────────────────
 // Every harmonic and melodic voice reads the chord from here, so at any
@@ -321,7 +322,8 @@ export const harmony = {
   // previous voicing `prev`, with a pull toward `center` so it can't wander
   // out of range over many changes. This is the difference between a pad
   // that glides between chords and one that jumps in parallel blocks.
-  voice(pcs, prev, center) {
+  voice(pcs, prev, center, around = null) {
+    if (around && state.composer >= 2) return voiceAround(pcs, prev, center, around);
     let best = null, bestCost = Infinity;
     for (let inv = 0; inv < pcs.length; inv++) {
       const order = [...pcs.slice(inv), ...pcs.slice(0, inv)];
@@ -344,6 +346,77 @@ export const harmony = {
     return best;
   },
 };
+
+// A chord voice's notes and the tune's, from composer 2 on: what a chord voice holds
+// has to leave the tune room. A held chord (`bed`) never stacks a minor second or
+// ninth inside itself: G major seventh as F♯ G B D grinds, as G B D F♯ it doesn't.
+// And any chord voice told the beats it sounds for (`from`, `to`) moves or leaves out
+// a note a minor second or ninth from a note the tune plays over it, as an arranger
+// would: under a tune on the root, the major seventh goes. A held chord that gives its
+// `name` also voices round the other held chords sounding with it, and a held chord
+// keeps under the tune where it can, so the tune stays the top line. Open (drop-2) voicings are
+// offered beside the close ones for a held chord, so there's usually a way round
+// without a jump, and no voicing puts a small interval low enough to turn to mud.
+const GRINDS = d => d === 1 || d === 13;
+// The lowest an interval sounds clear rather than muddy, as arrangers' low interval
+// limits have it: a minor second down to E3, a minor third to C3, a fifth to B♭1.
+const CLEAR = [0, 52, 51, 48, 46, 46, 47, 34, 41, 41, 41, 41];
+const muddy = (lo, hi) => hi - lo < CLEAR.length && lo < CLEAR[hi - lo];
+const CLASH = 20; // a clash held for the whole chord, against a semitone of movement
+const OVER = 6;   // a held chord's top above the tune, for the whole chord
+const DROP = 10;  // leaving the seventh out: it's what makes the chord, so only for a clash
+function voiceAround(pcs, prev, center, { bed = false, name = null, from, to }) {
+  // Another chord voice holding with this one counts as the tune does: a pad and a
+  // choir each voiced on its own could put F♯ in one and G just above it in the other.
+  const tune = lines.over(from, to), others = name ? lines.heldBy(name, from, to) : [];
+  const span = Math.max(0.25, to - from);
+  const sets = [pcs];
+  for (let i = 3; i < pcs.length; i++) sets.push(pcs.filter((_, j) => j !== i));
+  let best = null, bestCost = Infinity;
+  for (const set of sets) {
+    for (const v of shapes(set, center, bed)) {
+      const mean = v.reduce((a, b) => a + b, 0) / v.length;
+      let cost = Math.abs(mean - center) * (prev?.length ? 0.35 : 1);
+      if (prev?.length) cost += movement(prev, v);
+      for (let i = 1; i < v.length; i++) if (muddy(v[i - 1], v[i])) cost += 15;
+      if (set.length < pcs.length) cost += DROP;
+      if (bed) for (let i = 0; i < v.length; i++) for (let j = i + 1; j < v.length; j++) if (GRINDS(v[j] - v[i])) cost += 10;
+      for (const n of tune) {
+        const w = (Math.min(to, n.at + n.dur) - Math.max(from, n.at)) / span;
+        if (w <= 0) continue;
+        for (const m of v) if (GRINDS(Math.abs(m - n.midi))) cost += CLASH * w;
+        if (bed && v[v.length - 1] > n.midi) cost += OVER * w; // the tune is the top line
+      }
+      for (const n of others) for (const m of v) if (GRINDS(Math.abs(m - n.midi))) cost += CLASH;
+      if (cost < bestCost) { bestCost = cost; best = v; }
+    }
+  }
+  if (name) lines.hold(name, best, from, to);
+  return best;
+}
+
+// Every close voicing of `pcs` with its bass within reach of `center`, and for a held
+// chord each one's drop-2 (the second note from the top an octave down), lowest first.
+function shapes(pcs, center, open) {
+  const out = [];
+  for (let inv = 0; inv < pcs.length; inv++) {
+    const order = [...pcs.slice(inv), ...pcs.slice(0, inv)];
+    for (let low = center - 14; low <= center + 2; low++) {
+      if (mod(low, 12) !== order[0]) continue;
+      const v = [low];
+      for (let i = 1; i < order.length; i++) {
+        let m = v[i - 1] + 1;
+        while (mod(m, 12) !== order[i]) m++;
+        v.push(m);
+      }
+      out.push(v);
+      if (open && v.length >= 3 && v[v.length - 2] - 12 >= center - 18) {
+        out.push([v[v.length - 2] - 12, ...v.slice(0, -2), v[v.length - 1]].sort((x, y) => x - y));
+      }
+    }
+  }
+  return out;
+}
 
 function nearestPc(pc, near) {
   const base = near - mod(near - pc, 12);        // at or below `near`

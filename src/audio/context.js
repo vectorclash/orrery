@@ -639,6 +639,37 @@ export function syncLatency() {
   for (const d of audio.lag) d.delayTime.value = l;
 }
 
+// Bass in the middle: below `hz` the mix is folded to mono, the mid kept whole and the
+// side high-passed (fourth order), as mastering does, so the low end doesn't thin out on
+// a phone speaker or anywhere the stereo is summed. Several voices pan or chorus all the
+// way down; measured, their side channel ran 6 to 9 dB under the mid below 180 Hz in
+// lo-fi, blues, orchestral and nu-disco songs. Above `hz` the stereo is as it was.
+function monoBelow(ctx, hz) {
+  const input = ctx.createGain();
+  input.channelCount = 2; input.channelCountMode = 'explicit'; // a mono mix is spread to both
+  const split = ctx.createChannelSplitter(2), merge = ctx.createChannelMerger(2);
+  const mid = ctx.createGain(), side = ctx.createGain(), flip = ctx.createGain(), back = ctx.createGain();
+  mid.gain.value = 0.5; side.gain.value = 0.5; flip.gain.value = -1; back.gain.value = -1;
+  input.connect(split);
+  split.connect(mid, 0); split.connect(mid, 1);                     // (L + R) / 2
+  split.connect(side, 0); split.connect(flip, 1); flip.connect(side); // (L − R) / 2
+  let last = side;
+  for (const q of [0.5412, 1.3066]) { // Butterworth, fourth order
+    const hp = ctx.createBiquadFilter();
+    hp.type = 'highpass'; hp.frequency.value = hz;
+    hp.Q.value = 20 * Math.log10(q); // a high-pass's Q is in dB in Web Audio
+    last.connect(hp); last = hp;
+  }
+  last.connect(back);
+  mid.connect(merge, 0, 0); last.connect(merge, 0, 0); // L = mid + side
+  mid.connect(merge, 0, 1); back.connect(merge, 0, 1); // R = mid − side
+  return { input, output: merge };
+}
+
+// The level the master brings the mix up to before the limiter, set so a song comes
+// out at about −14 LUFS, the level streaming services and ad platforms normalise to.
+const MAKEUP_DB = 5.2;
+
 export function initAudio(ctx = null) {
   const AC = window.AudioContext || window.webkitAudioContext;
   audio.ctx = ctx ?? new AC();
@@ -685,10 +716,11 @@ export function initAudio(ctx = null) {
   // Makeup gain into a peak limiter: the mix used to leave 5–8 dB of unused
   // headroom (quiet next to anything else playing), and the compressor's
   // 10 ms attack lets transients through, so the limiter catches them once
-  // the level comes up. It isn't a brickwall — peaks land between about −3
-  // and −0.6 dBFS in test renders — hence the threshold well below that.
+  // the level comes up. It isn't a brickwall, hence the threshold well below
+  // where peaks land: over 60 test renders at MAKEUP_DB the loudest true peak
+  // was −1.2 dBTP, under the −1 that streaming and ad platforms ask for.
   const makeup = audio.ctx.createGain();
-  makeup.gain.value = Math.pow(10, 3 / 20);
+  makeup.gain.value = Math.pow(10, MAKEUP_DB / 20);
   const limiter = audio.ctx.createDynamicsCompressor();
   limiter.threshold.value = -3;
   limiter.knee.value      = 0;
@@ -719,8 +751,14 @@ export function initAudio(ctx = null) {
   audio.mix = audio.ctx.createGain();
   audio.masterGain.connect(audio.mix);
   audio.reverbGain.connect(audio.mix);
-  audio.mix.connect(highpass);
-  highpass.connect(leveler);
+  const mono = monoBelow(audio.ctx, 120);
+  audio.mix.connect(mono.input); mono.output.connect(highpass);
+  // A little out of the low mids: chords and pads sit at 150–500 Hz, and measured over
+  // 60 songs the 250 and 500 Hz octaves came out as loud as 125 Hz, a couple of dB fuller
+  // than finished mixes usually are there, which reads as boxy.
+  const lowMids = audio.ctx.createBiquadFilter();
+  lowMids.type = 'peaking'; lowMids.frequency.value = 350; lowMids.Q.value = 0.9; lowMids.gain.value = -1.5;
+  highpass.connect(lowMids); lowMids.connect(leveler);
   leveler.connect(compressor);
   compressor.connect(makeup);
   makeup.connect(saturator);

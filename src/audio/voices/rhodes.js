@@ -56,7 +56,7 @@ function strike(t, b, lenBeats) {
       pcs = pcs.filter(pc => own.includes(pc) || harmony.fits(pc, seg));
     }
   }
-  const v = harmony.voice(pcs, prev, register(60, 28, 77));
+  const v = harmony.voice(pcs, prev, register(60, 28, 77), { name: 'rhodes', from: b, to: b + lenBeats });
   prev = v;
   for (const m of v) logNote('rhodes', t, m, lenBeats * beat(), 0.75);
 

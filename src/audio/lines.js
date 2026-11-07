@@ -68,6 +68,7 @@ let shift = 0;           // semitones the key is lifted from the song's own
 let restFrom = Infinity; // the beat they stop for what's left of the section
 let free = null;         // a loop's or an era's line, with no conductor to hand it out
 let trimmed = null;      // the voice brought up, whose bus has to go back
+let held = new Map();    // chord voice → the chord it's holding: { notes, from, to }
 
 function trim(name, at) {
   if (name === trimmed) return;
@@ -101,6 +102,7 @@ export const lines = {
     shift = keyShift;
     restFrom = rest;
     free = null;
+    held = new Map(); // each section voiced on its own, as from its top
     trim(playing.keys().next().value ?? null, at); // the first is the hook's; the other's under it
   },
 
@@ -132,10 +134,46 @@ export const lines = {
     shift = 0;
     restFrom = Infinity;
     trimmed = null;
+    held = new Map();
+  },
+
+  // A chord voice holds `notes` from beat `a` to `b`: the other chord voices voice round it.
+  hold(name, notes, a, b) { held.set(name, { notes, from: a, to: b }); },
+
+  // What the chord voices other than `name` hold between beats `a` and `b`, as `over` has it.
+  heldBy(name, a, b) {
+    const out = [];
+    for (const [other, h] of held) {
+      if (other === name || h.to <= a + 1e-6 || h.from >= b - 1e-6) continue;
+      for (const midi of h.notes) out.push({ midi, at: h.from, dur: h.to - h.from });
+    }
+    return out;
   },
 
   // Whether anyone has a line: a lead without one then stands back from it.
   get busy() { return playing.size > 0; },
+
+  // Every note the lines play that sounds between beats `a` and `b`, a note already
+  // ringing at `a` included: { midi, at, dur }, in beats. What a chord voice holding
+  // through those beats has to make room for (see harmony.voice).
+  over(a, b) {
+    const out = [];
+    const name7 = SCALE_NAMES[state.scaleIdx];
+    const end = Math.min(b, from + length, restFrom);
+    for (const [name, line] of playing) {
+      const base = place(name, line);
+      for (let n = Math.max(0, Math.floor((a - from) / line.beats) - 1); from + n * line.beats < end; n++) {
+        const lastTime = n === Math.floor((length - 1e-6) / line.beats);
+        const notes = line.fill && (n % 4 === 3 || lastTime) ? line.fill : line.notes;
+        for (const x of notes) {
+          const at = from + n * line.beats + x.at;
+          if (at >= end || at + x.len <= a + 1e-6) continue;
+          out.push({ midi: base + degreeSemis(x.deg, harmony.at(at).degree, name7) + (x.alt ?? 0), at, dur: x.len });
+        }
+      }
+    }
+    return out;
+  },
 
   // The note voice `name` plays at `beat`, or null if it has no line:
   // { midi, gap, dur, vel, i }, midi null for a rest, `i` the note's place in the line.

@@ -25,7 +25,7 @@ function play(t, b) {
   const len  = seg.end - b;
   const dur  = len * beat();
   const pcs  = harmony.voiced(seg);
-  const v    = harmony.voice(pcs, prev, register(66, 28, 83));
+  const v    = harmony.voice(pcs, prev, register(66, 28, 83), { bed: true, name: 'supersaw', from: b, to: seg.end });
   prev = v;
   for (const m of v) logNote('supersaw', t, m, dur, 0.6);
 

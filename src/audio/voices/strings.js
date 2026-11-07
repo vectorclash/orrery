@@ -17,7 +17,7 @@ function play(t, b) {
   const len  = seg.end - b;
   const dur  = len * beat();
   const pcs  = harmony.voiced(seg);
-  const v    = harmony.voice(pcs, prev, register(62, 28, 80));
+  const v    = harmony.voice(pcs, prev, register(62, 28, 80), { bed: true, name: 'strings', from: b, to: seg.end });
   prev = v;
   for (const m of v) logNote('strings', t, m, dur, 0.6);
 
