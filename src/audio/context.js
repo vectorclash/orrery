@@ -218,16 +218,20 @@ function makeSpace(name) {
   const roomIn = ctx.createGain(), hallIn = ctx.createGain();
   roomIn.gain.value = hallIn.gain.value = 0;
 
+  // Its outputs pass a gain stage at unity, for drain().
+  const roomOut = ctx.createGain(), hallOut = ctx.createGain();
+  roomOut.connect(audio.masterGain); hallOut.connect(audio.reverbGain);
+
   const room = ctx.createConvolver();
   room.normalize = false; // the impulse is already unit-energy (see buildRoom)
   room.buffer = ir.room;
-  session.roomBus.connect(roomIn); roomIn.connect(room); room.connect(audio.masterGain);
+  session.roomBus.connect(roomIn); roomIn.connect(room); room.connect(roomOut);
 
   const preDelay = ctx.createDelay(0.1);
   preDelay.delayTime.value = p.preDelay; // keeps the dry attack distinct from the tail
   const hall = ctx.createConvolver();
   hall.buffer = ir.hall;
-  session.hallBus.connect(hallIn); hallIn.connect(preDelay); preDelay.connect(hall); hall.connect(audio.reverbGain);
+  session.hallBus.connect(hallIn); hallIn.connect(preDelay); preDelay.connect(hall); hall.connect(hallOut);
   const shimmer = p.shimmer ? makeShimmer(hall, p.shimmer) : null;
 
   const fade = (param, to, at) => {
@@ -240,7 +244,12 @@ function makeSpace(name) {
     tail: Math.max(p.hall[0], p.rt60 * 1.3) * (shimmer ? 2 : 1) + p.preDelay, // shimmer octaves outlast the impulse
     open(at)  { fade(roomIn.gain, dbToGain(p.roomDb), at); fade(hallIn.gain, dbToGain(p.hallDb), at); },
     close(at) { fade(roomIn.gain, 0, at); fade(hallIn.gain, 0, at); },
-    disconnect() { roomIn.disconnect(); hallIn.disconnect(); room.disconnect(); hall.disconnect(); shimmer?.stop(); },
+    // Fades what it holds, from `at` with time constant `tau`, instead of letting it ring.
+    drain(at, tau) {
+      this.tail = Math.min(this.tail, at - audio.ctx.currentTime + 12 * tau);
+      for (const g of [roomOut.gain, hallOut.gain]) { g.setValueAtTime(1, at); g.setTargetAtTime(0, at, tau); }
+    },
+    disconnect() { roomIn.disconnect(); hallIn.disconnect(); room.disconnect(); hall.disconnect(); roomOut.disconnect(); hallOut.disconnect(); shimmer?.stop(); },
   };
 }
 
@@ -252,12 +261,33 @@ export function setRoom(name, at = audio.ctx.currentTime) {
   if (!session || !ROOMS[name] || session.space.name === name) return;
   const old = session.space;
   old.close(at);
+  enter(name, at);
+  retire(old, at);
+}
+
+// The space again, empty, from audio time `at`: Edit's loop changed for another
+// (a new key, mode or genre, live; see letGoOfChanges in scheduler.js), and the
+// old one's tail would hang on under it in the wrong key. New sound goes into a
+// fresh copy of the room, and every space before it fades what it holds within
+// a second or two.
+export function clearSpace(at) {
+  if (!session) return;
+  for (const sp of session.spaces) { sp.close(at); sp.drain(at, TAIL_DRAIN); retire(sp, at); }
+  enter(session.space.name, at);
+}
+const TAIL_DRAIN = 0.3; // seconds, time constant: -20 dB in 0.7 s, -60 dB in 2.1
+
+function enter(name, at) {
   session.space = makeSpace(name);
   session.space.open(at);
   session.spaces.push(session.space);
+}
+
+// Drops `old` once its tail has decayed.
+function retire(old, at) {
   const wait = (at - audio.ctx.currentTime + SPACE_FADE + old.tail) * 1000;
   setTimeout(() => {
-    if (!session?.spaces.includes(old)) return; // the session already ended
+    if (!session?.spaces.includes(old)) return; // the session already ended, or it went already
     old.disconnect();
     session.spaces.splice(session.spaces.indexOf(old), 1);
   }, Math.max(0, wait));
@@ -356,7 +386,50 @@ export function getVoiceBus(name) {
     bus = { dry, lowCut };
     voiceBuses.set(name, bus);
   }
-  return bus;
+  return { ...bus, dry: voiceIn(bus.dry) };
+}
+
+// ─── Letting go ───────────────────────────────────────────────────────────────
+// A voice's notes reach the mix through a gain stage of its own in front of each
+// place they go (its bus, the hall, the echo, the pump), at unity. What a voice
+// has scheduled can last: a pad's chord can be sixteen beats long, a shimmer four
+// seconds. Letting go of a voice fades its stages and gives it fresh ones, so
+// everything it has scheduled ends together with a release, wherever it had got
+// to, and what it plays next goes through the new ones untouched.
+let stages  = new Map(); // voice name → Map(destination → GainNode)
+let retired = [];        // stages faded out, disconnected once silent
+let playing = null;      // the voice whose notes are being scheduled
+
+// Runs `fn` as voice `name`: what it connects goes through its stages.
+export function asVoice(name, fn) {
+  const was = playing;
+  playing = name;
+  try { return fn(); } finally { playing = was; }
+}
+
+// Where the voice playing connects to reach `dest` (`dest` itself outside a voice).
+export function voiceIn(dest) {
+  if (!playing) return dest;
+  let mine = stages.get(playing);
+  if (!mine) stages.set(playing, mine = new Map());
+  let g = mine.get(dest);
+  if (!g) { g = audio.ctx.createGain(); g.connect(dest); mine.set(dest, g); }
+  return g;
+}
+
+// Fades everything voice `name` has scheduled from audio time `t`, falling with
+// time constant `tau`, and starts it on fresh stages.
+export function letGo(name, t, tau) {
+  const now = audio.ctx.currentTime;
+  retired = retired.filter(r => r.silentAt > now || (r.node.disconnect(), false));
+  const mine = stages.get(name);
+  if (!mine) return;
+  stages.delete(name);
+  for (const g of mine.values()) {
+    g.gain.setValueAtTime(1, t);
+    g.gain.setTargetAtTime(0, t, tau);
+    retired.push({ node: g, silentAt: t + 12 * tau }); // -104 dB
+  }
 }
 
 // ─── Session ──────────────────────────────────────────────────────────────────
@@ -367,6 +440,8 @@ export function beginSession() {
   const ctx = audio.ctx;
   if (session) for (const n of session.outputs) n.disconnect();
   voiceBuses = new Map();
+  stages = new Map();
+  retired = [];
 
   if (session) for (const sp of session.spaces) sp.disconnect();
 

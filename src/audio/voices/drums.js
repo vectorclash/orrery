@@ -1,4 +1,4 @@
-import { audio, getVoiceBus, noise } from '../context.js';
+import { audio, getVoiceBus, noise, voiceIn } from '../context.js';
 import { state, beat, rand, pick, fold, midiToHz, random } from '../../state.js';
 import { createVoice } from '../transport.js';
 import { seeded, hashSeed } from '../../random.js';
@@ -9,7 +9,7 @@ import { osc, gain, filter, send, perc, shaper } from '../synth.js';
 // ─── Kit ──────────────────────────────────────────────────────────────────────
 // Each piece takes (t, velocity). Kick/snare/clap sit centre; the rest are
 // spread across the stereo field the way a kit is miked.
-const out = piece => (piece ? getVoiceBus(`kit:${piece}`).dry : audio.dry);
+const out = piece => (piece ? getVoiceBus(`kit:${piece}`).dry : voiceIn(audio.dry));
 
 function kick(t, v) {
   const body = osc('sine', 160, t, t + 0.5);
@@ -260,7 +260,7 @@ function gateIn() {
     c.connect(audio.dry);
     gate = { dry: audio.dry, input: c };
   }
-  return gate.input;
+  return voiceIn(gate.input);
 }
 
 // Snare for the gated room: a deeper body than the acoustic one, longer

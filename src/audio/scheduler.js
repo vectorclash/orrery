@@ -1,4 +1,4 @@
-import { audio, beginSession, setEchoTime, setRoom, updateLowCuts, updateLevel, noteClock, gateGap } from './context.js';
+import { audio, beginSession, setEchoTime, setRoom, clearSpace, updateLowCuts, updateLevel, noteClock, gateGap } from './context.js';
 import { state, SCALE_NAMES, TICK_MS, LOOKAHEAD, ROOT_BASE_MIDI, rand, pick, beat, random, clamp } from '../state.js';
 import { seedStreams, reseedStreams, restream, newSeed, stream } from '../random.js';
 import { harmony } from './harmony.js';
@@ -161,6 +161,7 @@ function restart(t, from) {
   eraBegan = 0;
   songBeat = from;
   songBass = false;
+  heard = null;
   audio.level.holdsAt = song.current ? levelHoldsAt : null;
 }
 
@@ -214,6 +215,7 @@ export let eraBegan = 0;
 
 // Starts the new era exactly at beat `at` (a chord change).
 function advanceEra(at) {
+  for (const v of sounding(false).keys()) v.release(transport.timeAt(at));
   state.era++;
   eraBegan = at;
   // Move by a closely related interval (or stay), keeping the tonic within
@@ -376,6 +378,36 @@ export function rearrangeSong(plan) {
   songBass = sec.bass;
 }
 
+// ─── Letting go ───────────────────────────────────────────────────────────────
+// A change made between ticks -- Edit's controls, live -- can leave notes ringing
+// that no longer belong: a pad's sixteen-beat chord in the old key, a shimmer
+// from an instrument that has gone. Each tick compares what it plays with what
+// the last one left playing, and lets go (see voice.release) of any voice that
+// has left or changed style, and of all of them if the octave or chord length
+// moved. If the key, mode, genre or composer moved, it's another loop: the room
+// starts again empty as well, so the old one's tail doesn't hang on under it
+// (see clearSpace). The release falls where the last tick's scheduling stopped,
+// so nothing scheduled since the change is touched. The scheduler's own changes
+// (an era, a song's section) happen inside a tick, so this doesn't see them: an
+// era lets go itself (see advanceEra), and a song's sections end on their chords.
+let heard = null; // { key, grid, voices: Map(voice → style), to } as the last tick left them
+const keyOf  = () => [state.rootMidi, state.scaleIdx, state.language, state.composer].join();
+const gridOf = () => [state.octaveShift, state.chordBeats].join();
+
+function sounding(skipBass) {
+  const out = new Map(activeVoices.map(v => [v, v.style ?? null]));
+  if (!skipBass && (!song.current || songBass)) out.set(bassVoice, bassVoice.style);
+  return out;
+}
+
+function letGoOfChanges(now, skipBass) {
+  if (!heard) return;
+  const t = Math.max(now, heard.to), playing = sounding(skipBass);
+  const another = keyOf() !== heard.key, moved = another || gridOf() !== heard.grid;
+  for (const [v, style] of heard.voices) if (moved || playing.get(v) !== style) v.release(t);
+  if (another) clearSpace(t);
+}
+
 // ─── Tick ─────────────────────────────────────────────────────────────────────
 let lastTickTime = 0;
 
@@ -396,10 +428,16 @@ export function tick({ skipBass = false, skipEvolve = false } = {}) {
   noteClock();
   lastTickTime = now;
 
+  letGoOfChanges(now, skipBass);
   if (transport.tick(now)) setEchoTime(beat() * 0.75, now);
   harmony.tick(now);
 
-  if (song.current) { conduct(now, skipBass); return; }
+  if (song.current) conduct(now, skipBass);
+  else evolve(now, dt, skipBass, skipEvolve);
+  heard = { key: keyOf(), grid: gridOf(), voices: sounding(skipBass), to: now + LOOKAHEAD };
+}
+
+function evolve(now, dt, skipBass, skipEvolve) {
   if (!skipEvolve) {
     eraTimer += dt;
     drift();

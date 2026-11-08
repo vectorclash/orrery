@@ -1,4 +1,4 @@
-import { audio, noise } from '../context.js';
+import { audio, noise, voiceIn } from '../context.js';
 import { state, beat, rand, pick, lerp, currentScale, midiToHz, random } from '../../state.js';
 import { createVoice } from '../transport.js';
 import { logNote } from '../notes.js';
@@ -381,7 +381,7 @@ function subBass(t, midi, dur) {
   }
   const env = gain(0);
   ahr(env.gain, t, rand(0.09, 0.12), 0.03, dur - 0.06, 0.05);
-  lp.connect(env); env.connect(audio.pumped);
+  lp.connect(env); env.connect(voiceIn(audio.pumped));
 }
 
 // The two string basses. Each was a bare Karplus–Strong string behind a fixed
@@ -440,10 +440,10 @@ function stringOut(t, src, tone, dur, level, thumpHz, push) {
   env.gain.linearRampToValueAtTime(level, t + 0.004);
   env.gain.setTargetAtTime(0, t + dur, 0.03);
   const pre = gain(push), drive = shaper(1), post = gain(Math.tanh(1) / push);
-  src.connect(tone); tone.connect(env); env.connect(pre); pre.connect(drive); drive.connect(post); post.connect(audio.pumped);
+  src.connect(tone); tone.connect(env); env.connect(pre); pre.connect(drive); drive.connect(post); post.connect(voiceIn(audio.pumped));
   const th = noise(t, 0.03), thLp = filter('lowpass', thumpHz), thE = gain(0);
   perc(thE.gain, t, level * 0.5, 0.02, 0.001);
-  th.connect(thLp); thLp.connect(thE); thE.connect(audio.pumped);
+  th.connect(thLp); thLp.connect(thE); thE.connect(voiceIn(audio.pumped));
 }
 
 function synthBass(t, midi, dur) {
@@ -460,7 +460,7 @@ function synthBass(t, midi, dur) {
     env.gain.setValueAtTime(0, t);
     env.gain.linearRampToValueAtTime(peak, t + 0.006);
     env.gain.setTargetAtTime(0, t + dur, 0.02);
-    o.connect(lp); lp.connect(env); env.connect(audio.pumped);
+    o.connect(lp); lp.connect(env); env.connect(voiceIn(audio.pumped));
   }
 }
 
@@ -475,7 +475,7 @@ function rumbleBass(t, midi, dur) {
   ahr(env.gain, t, peak, 0.2, dur - 0.1, 0.5);
   const trem = osc('sine', rand(3, 6), t, end), tremG = gain(peak * 0.3);
   trem.connect(tremG); tremG.connect(env.gain);
-  lp.connect(env); env.connect(audio.pumped);
+  lp.connect(env); env.connect(voiceIn(audio.pumped));
 }
 
 // Organ bass (the M1 of deep house): a sine with its second and third harmonics,
@@ -495,7 +495,7 @@ function deepBass(t, midi, dur) {
   env.gain.linearRampToValueAtTime(peak, t + 0.004);
   env.gain.setTargetAtTime(peak * 0.55, t + 0.004, 0.08);
   env.gain.setTargetAtTime(0, t + dur, 0.025);
-  sum.connect(lp); lp.connect(env); env.connect(audio.pumped);
+  sum.connect(lp); lp.connect(env); env.connect(voiceIn(audio.pumped));
 }
 
 // TB-303: one sawtooth (sometimes square) through a resonant lowpass whose
@@ -523,7 +523,7 @@ function acidNote(t, midi, dur, accent, toMidi) {
   env.gain.linearRampToValueAtTime(peak, t + 0.003);
   env.gain.setTargetAtTime(peak * 0.7, t + 0.003, 0.1);
   env.gain.setTargetAtTime(0, t + dur, 0.015);
-  o.connect(lp); lp.connect(drive); drive.connect(env); env.connect(audio.pumped);
+  o.connect(lp); lp.connect(drive); drive.connect(env); env.connect(voiceIn(audio.pumped));
 }
 const lerpN = (a, b, x) => a + (b - a) * x;
 const transport_bars = t => t / (beat() * 4);
@@ -547,7 +547,7 @@ function discoBass(t, midi, dur) {
   env.gain.linearRampToValueAtTime(peak, t + 0.003);
   env.gain.setTargetAtTime(peak * 0.7, t + 0.003, 0.09);
   env.gain.setTargetAtTime(0, t + dur, 0.02);
-  sum.connect(lp); lp.connect(env); env.connect(audio.pumped);
+  sum.connect(lp); lp.connect(env); env.connect(voiceIn(audio.pumped));
 }
 
 // 808: a sine with a fast pitch drop (the punch), saturated so it is heard on
@@ -571,7 +571,7 @@ function bass808(t, midi, dur, fromMidi) {
   env.gain.linearRampToValueAtTime(peak, t + 0.004);
   env.gain.setTargetAtTime(peak * 0.7, t + 0.004, 0.35);
   env.gain.setTargetAtTime(0, t + dur, 0.04);
-  o.connect(drive); drive.connect(env); env.connect(audio.pumped);
+  o.connect(drive); drive.connect(env); env.connect(voiceIn(audio.pumped));
 }
 
 // Reese: two saws a few cents apart, beating slowly against each other (the
@@ -592,7 +592,7 @@ function reeseBass(t, midi, dur) {
   env.gain.setTargetAtTime(0, t + dur, 0.05);
   saws.connect(lp); lp.connect(env);
   sub.connect(subG); subG.connect(env);
-  env.connect(audio.pumped);
+  env.connect(voiceIn(audio.pumped));
 }
 
 // Log drum: the amapiano bass -- a hollow, pitched knock. A sine that drops
@@ -617,10 +617,10 @@ function logDrum(t, midi, dur) {
   env.gain.linearRampToValueAtTime(peak, t + 0.002);
   env.gain.setTargetAtTime(peak * 0.45, t + 0.002, 0.12);
   env.gain.setTargetAtTime(0, t + ring, 0.06);
-  sum.connect(lp); lp.connect(drive); drive.connect(env); env.connect(audio.pumped);
+  sum.connect(lp); lp.connect(drive); drive.connect(env); env.connect(voiceIn(audio.pumped));
   const knock = noise(t, 0.02), bp = filter('bandpass', 750, 1.5), kG = gain(0);
   perc(kG.gain, t, peak * 0.5, 0.015, 0.0005);
-  knock.connect(bp); bp.connect(kG); kG.connect(audio.pumped);
+  knock.connect(bp); bp.connect(kG); kG.connect(voiceIn(audio.pumped));
 }
 
 // ─── Scheduling ───────────────────────────────────────────────────────────────

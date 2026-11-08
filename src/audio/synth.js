@@ -1,4 +1,4 @@
-import { audio } from './context.js';
+import { audio, voiceIn } from './context.js';
 import { midiToHz, clamp, random } from '../state.js';
 import { seeded, hashSeed } from '../random.js';
 
@@ -33,7 +33,7 @@ export function send(node, dest, level) {
   if (!(level > 0)) return;
   const g = gain(level);
   node.connect(g);
-  g.connect(dest);
+  g.connect(voiceIn(dest));
 }
 
 // Percussive envelope: a short linear attack from silence (so no waveform

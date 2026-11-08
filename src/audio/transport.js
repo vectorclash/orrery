@@ -1,5 +1,6 @@
 import { state, LOOKAHEAD } from '../state.js';
 import { within, stream } from '../random.js';
+import { asVoice, letGo } from './context.js';
 
 // ─── Transport: the shared musical clock ──────────────────────────────────────
 // Voices schedule in *beats* and convert to audio time here, so bar lines,
@@ -55,7 +56,7 @@ export const transport = {
 //
 // A voice plays and resets in its own random stream (see random.js), so what
 // it draws doesn't depend on how its notes fall across ticks.
-export function createVoice(name, play, { entry = 1, role = null, onReset = null } = {}) {
+export function createVoice(name, play, { entry = 1, role = null, onReset = null, release = 0.2 } = {}) {
   let next = null; // beat position of the next event
   const voice = {
     name,
@@ -64,12 +65,20 @@ export function createVoice(name, play, { entry = 1, role = null, onReset = null
     tick(now, horizon = now + LOOKAHEAD) {
       if (next === null || transport.timeAt(next) < now) next = transport.nextBeat(now, entry);
       if (!(transport.timeAt(next) < horizon)) return;
-      within(stream(name), () => {
+      within(stream(name), () => asVoice(name, () => {
         while (transport.timeAt(next) < horizon) {
           const step = play(transport.timeAt(next), next);
           next += step > 0 ? step : 0.25; // a zero/NaN step would spin forever
         }
-      });
+      }));
+    },
+    // Lets go of everything the voice has scheduled, from audio time `t` (see
+    // letGo in context.js), with a release of time constant `release`. A voice
+    // that was holding a note past `t` -- a pad's chord -- comes back on its
+    // next `entry` line, as a voice joining then would.
+    release(t) {
+      letGo(name, t, release);
+      if (next !== null) next = Math.min(next, transport.nextBeat(t, entry));
     },
     // `atBeat` restarts the voice at a specific position (an era change);
     // voices holding long notes use it to release them at that moment.

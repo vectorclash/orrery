@@ -38,7 +38,7 @@ function play(t, b) {
 }
 
 export const droneVoice = createVoice('drone', play, {
-  entry: 4, role: 'bed',
+  entry: 4, role: 'bed', release: 0.8, // let go of as it fades at an era change
   onReset: atBeat => {
     // Era change: fade the old-key drone out as the new one fades in.
     if (held && atBeat !== null) {
