@@ -7,14 +7,15 @@ import { lines } from '../lines.js';
 import { gain, send, pluckBuffer, playBuffer } from '../synth.js';
 
 // Harp: a real plucked-string model (Karplus–Strong) with a soft, finger-like
-// excitation plucked mid-string for the round harp tone. Each chord change is
+// excitation plucked mid-string for the round harp tone, on a soundboard and
+// with both polarisations (see pluckBuffer). Each chord change is
 // marked by a rolled chord sweeping up (or down) through the new harmony;
 // between changes, occasional single chord tones keep the texture alive.
 function string(t, midi, vel) {
   const hz  = midiToHz(midi);
   const t60 = clamp(3.4 * Math.pow(200 / hz, 0.4), 1.0, 4.2);
   logNote('harp', t, midi, Math.min(t60, 3.2), vel);
-  const src = playBuffer(pluckBuffer(midi, { t60, bright: 0.28 + 0.2 * vel, pick: 0.42, stretch: 0.5, length: Math.min(t60, 3.2) }), t, t + 3.2);
+  const src = playBuffer(pluckBuffer(midi, { t60, bright: 0.28 + 0.2 * vel, pick: 0.42, stretch: 0.5, length: Math.min(t60, 3.2), body: 'harp', pol: { cents: 0.8, t60: 0.5, mix: 0.3 } }), t, t + 3.2);
   const g = gain(0.22 * vel);
   src.connect(g);
   g.connect(getVoiceBus('harp').dry);

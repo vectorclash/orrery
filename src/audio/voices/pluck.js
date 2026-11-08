@@ -3,19 +3,22 @@ import { beat, rand, fold, register, random } from '../../state.js';
 import { createVoice } from '../transport.js';
 import { logNote } from '../notes.js';
 import { harmony } from '../harmony.js';
-import { gain, send, pluckBuffer, playBuffer } from '../synth.js';
+import { gain, send, pluckBuffer, playBuffer, settle } from '../synth.js';
 
 // Fingerpicked steel-string guitar (Travis picking). The thumb alternates
 // root and fifth in the bass on each beat; the fingers pick upper chord tones
 // on the off-beats; beat one is sometimes a "pinch" (thumb + finger). Strings
-// are a Karplus–Strong model plucked near the bridge. (The old pluck was
-// band-passed white noise and measured ~25 dB quieter than everything else.)
+// are a Karplus–Strong model plucked near the bridge, in a flat-top's body,
+// with both polarisations (see pluckBuffer). (The old pluck was band-passed
+// white noise and measured ~25 dB quieter than everything else.)
 const FINGER_ORDER = [2, 1, 2, 0];
+const POL = { cents: 1.2, t60: 0.4, mix: 0.35 };
 let upperPrev = null;
 
 function string(t, midi, level, ring) {
   logNote('pluck', t, midi, ring, Math.min(1, level * 5));
-  const src = playBuffer(pluckBuffer(midi, { t60: ring, bright: 0.62, pick: 0.13, stretch: 0.45, length: ring }), t, t + ring);
+  const src = playBuffer(pluckBuffer(midi, { t60: ring, bright: 0.62, pick: 0.13, stretch: 0.45, length: ring, body: 'acoustic', pol: POL }), t, t + ring);
+  settle(src, t, 5, 0.05);
   const g = gain(level);
   src.connect(g);
   g.connect(getVoiceBus('pluck').dry);

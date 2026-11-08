@@ -1,16 +1,24 @@
-import { audio, getVoiceBus } from '../context.js';
+import { audio, getVoiceBus, noise } from '../context.js';
 import { state, beat, rand, lerp, register, midiToHz, random } from '../../state.js';
 import { createVoice } from '../transport.js';
 import { logNote } from '../notes.js';
 import { createPhraser } from '../phrase.js';
 import { harmony } from '../harmony.js';
-import { osc, gain, filter, send, lfo } from '../synth.js';
+import { osc, gain, filter, send, lfo, perc, wander } from '../synth.js';
 
 // Brass: the defining trait is that brightness follows loudness — a lowpass
 // opens as the note swells and closes as it settles ("bloom"). The pitch
 // scoops up from slightly flat as the lips lock onto the note, and vibrato
 // arrives late. Strong-beat notes are sometimes harmonised a third below,
 // the way a horn section voices a line.
+//
+// What a filtered saw lacks: the bell, which radiates the upper harmonics far
+// better than the lows and gives every brass instrument a formant of its own
+// (a broad peak near 1.2 kHz here, between a horn's and a trumpet's); the
+// tongue, a short burst of air that starts every note, so it speaks rather
+// than fades in; and a player's pitch, which wanders a few cents (see
+// wander) where an oscillator's never moves.
+const BELL = [['peaking', 1200, 1.1, 4], ['peaking', 350, 1, -2]];
 const phraser = createPhraser({ name: 'brass', base: () => register(58, 28, 75), lead: true, repeat: 0.65 });
 
 function horn(t, midi, dur, vel, level) {
@@ -28,12 +36,20 @@ function horn(t, midi, dur, vel, level) {
   lp.frequency.setTargetAtTime(hz * 1.1, t + dur, 0.06);
 
   const vib = lfo(rand(5, 5.6), 9, t, end, Math.min(0.35, dur * 0.5), 0.3);
+  const drift = wander(t, end, 4, midi);
   for (const d of [-5, 5]) {
     const o = osc('sawtooth', hz, t, end, d);
     o.detune.setValueAtTime(d - 28, t);
     o.detune.linearRampToValueAtTime(d, t + 0.07);
     vib.connect(o.detune);
+    drift.connect(o.detune);
     o.connect(lp);
+  }
+  let node = lp;
+  for (const [type, f, q, db] of BELL) {
+    const b = filter(type, f, q);
+    b.gain.value = db;
+    node.connect(b); node = b;
   }
 
   const env = gain(0);
@@ -41,8 +57,13 @@ function horn(t, midi, dur, vel, level) {
   env.gain.linearRampToValueAtTime(peak, t + 0.045);
   env.gain.setTargetAtTime(peak * 0.8, t + 0.045, 0.15);
   env.gain.setTargetAtTime(0, t + dur, 0.07);
-  lp.connect(env);
+  node.connect(env);
   env.connect(bus);
+
+  // The tongue: air through the lips before the tone locks in.
+  const tongue = noise(t, 0.05, (t * 0.618034 + midi * 0.1) % 1), tBp = filter('bandpass', 1600, 0.9), tEnv = gain(0);
+  perc(tEnv.gain, t, peak * 0.35, 0.025, 0.003);
+  tongue.connect(tBp); tBp.connect(tEnv); tEnv.connect(bus);
   send(env, audio.reverbSend, 0.32);
 }
 

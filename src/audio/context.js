@@ -464,11 +464,13 @@ export function setEchoTime(sec, at = audio.ctx.currentTime) {
 // ─── Shared noise ─────────────────────────────────────────────────────────────
 // One pre-rendered noise buffer, played from a random offset, instead of
 // allocating and filling a fresh buffer for every hi-hat, breath and pluck.
-export function noise(t, dur) {
+// `at` (0–1) fixes where in the buffer it starts, without taking a draw: for
+// sounds added to a voice later, which mustn't move the notes it plays.
+export function noise(t, dur, at = random()) {
   const src = audio.ctx.createBufferSource();
   src.buffer = audio.noise;
   src.loop   = true;
-  src.start(t, random() * NOISE_SECONDS);
+  src.start(t, at * NOISE_SECONDS);
   src.stop(t + dur);
   return src;
 }

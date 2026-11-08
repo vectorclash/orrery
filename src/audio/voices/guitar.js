@@ -3,7 +3,7 @@ import { state, beat, rand, pick, lerp, register, random } from '../../state.js'
 import { createVoice } from '../transport.js';
 import { logNote } from '../notes.js';
 import { harmony } from '../harmony.js';
-import { gain, filter, send, pluckBuffer, playBuffer } from '../synth.js';
+import { gain, filter, send, pluckBuffer, playBuffer, settle } from '../synth.js';
 
 // Disco rhythm guitar: the "chicken scratch" of Nile Rodgers and every
 // nu-disco record since -- a clean, bright guitar strummed in sixteenths, the
@@ -12,11 +12,16 @@ import { gain, filter, send, pluckBuffer, playBuffer } from '../synth.js';
 // hand never stops: down-strokes on the beat and the "and", up-strokes in
 // between, and a stroke that should be silent just passes over the strings.
 //
-// Each string is a Karplus–Strong model. A chop strums four chord tones a few
-// milliseconds apart (low to high going down, the top three high to low coming
-// up) and the mute cuts them together; a scratch is the same strings fully
-// muted, mostly pick noise. Voicings are the chord's four tones high on the
-// neck, voice-led from one chord to the next like a player's hand.
+// Each string is a Karplus–Strong model, heard as an electric guitar is:
+// through a single-coil pickup between the neck and the middle of the body (a
+// comb in the string model, see pluckBuffer) and the pickup's own resonance,
+// its coil and the cable forming a resonant lowpass around 4–5 kHz -- the
+// glassy "quack" of a clean Strat, where a plain lowpass sounded like a toy.
+// A chop strums four chord tones a few milliseconds apart (low to high going
+// down, the top three high to low coming up) and the mute cuts them together;
+// a scratch is the same strings fully muted, mostly pick noise. Voicings are
+// the chord's four tones high on the neck, voice-led from one chord to the
+// next like a player's hand.
 //
 // Sixteen steps a bar: X accented chop, x chop, g muted scratch, . nothing.
 // A pattern holds for a phrase (four bars) and a new phrase sometimes changes it.
@@ -48,15 +53,16 @@ function stroke(t, notes, down, kind) {
   const strings = down ? notes : notes.slice().reverse().slice(0, 3);
   const gap     = down ? 0.007 : 0.005;
   const gate    = scratch ? 0.03 : beat() * 0.25 * (accent ? 0.95 : 0.7);
-  const level   = 0.275 * (scratch ? 0.4 : accent ? 1 : 0.8) * lerp(0.82, 1, state.density) * rand(0.9, 1.05);
+  const level   = 0.18 * (scratch ? 0.4 : accent ? 1 : 0.8) * lerp(0.82, 1, state.density) * rand(0.9, 1.05);
   const span    = gap * (strings.length - 1);
 
-  const tone = filter('lowpass', lerp(3200, 7500, state.brightness), 0.7);
+  const tone = filter('lowpass', lerp(3800, 5600, state.brightness), 2.4);
   strings.forEach((midi, i) => {
     const at = t + i * gap;
     if (!scratch) logNote('guitar', at, midi, gate, accent ? 1 : 0.75);
     const ring = scratch ? 0.04 : 1.2;
-    const src  = playBuffer(pluckBuffer(midi, { t60: ring, bright: scratch ? 0.95 : 0.78, pick: 0.14, stretch: 0.35, length: gate + span + 0.06 }), at, at + gate + span + 0.06);
+    const src  = playBuffer(pluckBuffer(midi, { t60: ring, bright: scratch ? 0.95 : 0.78, pick: 0.14, stretch: 0.35, length: gate + span + 0.06, pickup: 0.22 }), at, at + gate + span + 0.06);
+    if (!scratch) settle(src, at, accent ? 6 : 4, 0.03);
     src.connect(tone);
   });
   // The pick dragging across muted strings.

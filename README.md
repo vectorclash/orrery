@@ -175,8 +175,8 @@ Twenty-nine instruments in four roles (the four dance voices are Manual mode's).
 | Instrument | Synthesis |
 |---|---|
 | **Pad** | Detuned saw pair per note into one lowpass that breathes on a slow LFO; attack scales with chord length; releases overlap the next chord |
-| **Strings** | Three detuned saws per note (ensemble), a lowpass that opens as bow pressure builds, and per-note vibrato at slightly different rates, faded in after the attack |
-| **Choir** | Formant synthesis: the chord's detuned saws (plus a breath of aspiration noise) feed one bank of three band-pass filters tuned to the formants F1–F3 of a vowel (alto tables), which glides from one vowel to another ("ooh" → "aah") over the chord. Vibrato from two slightly different LFOs |
+| **Strings** | Three players per note, each a sawtooth with a vibrato of their own (rate, depth and onset) and a pitch that wanders a few cents; a lowpass that opens as bow pressure builds; through a violin's body (resonance near 280 Hz, a dip near 1.5 kHz, the bridge hill near 2.5 kHz) |
+| **Choir** | Formant synthesis: the chord's detuned saws (plus a breath of aspiration noise), lifted above 1 kHz to the levels a voice is sung at, feed one bank of three band-pass filters tuned to the formants F1–F3 of a vowel (alto tables), which glides from one vowel to another ("ooh" → "aah") over the chord. Every singer has their own vibrato and wandering pitch |
 | **Organ** | Tonewheel drawbars at true organ footages (16′ 5⅓′ 8′ 4′ … = 0.5, 1.5, 1, 2 … × pitch), 3 dB per drawbar step, one of five classic registrations per session; one Leslie rotor for the whole chord (amplitude + Doppler pitch wobble, chorale or tremolo speed); percussion (decaying 2⅔′) and key click |
 | **Drone** | Tonic + perfect fifth pedal, detuned pairs, very slow filter sweep; successive drones cross-fade, and a key change releases the old one |
 | **Supersaw** | Roland JP-8000 style: seven saws per note on its uneven detune curve (inner pairs close, outer pair ±28 cents), side saws split left and right with one of every width on each side, each saw started at its own phase so they don't flange as they drift apart. A much brighter filter than the pad (1.5–7.5 kHz with Brightness) that swells open with the attack |
@@ -189,9 +189,9 @@ Twenty-nine instruments in four roles (the four dance voices are Manual mode's).
 | Instrument | Synthesis |
 |---|---|
 | **Melody** | Soft synth lead: triangle + quiet octave, delayed vibrato |
-| **Flute** | Near-sine with weak 2nd/3rd harmonics (thinning in the high register), breath noise through the whole note plus an attack "chiff", pitch settling from slightly flat, delayed pitch + amplitude vibrato |
-| **Brass** | Brightness follows loudness (lowpass "bloom"), pitch scoops up as the lips lock on, delayed vibrato; strong notes are sometimes harmonised a third below |
-| **Sitar** | Bright Karplus–Strong string plucked near the bridge, through an asymmetric waveshaper and presence band (the buzzing *jawari* bridge); *meend* glides from the previous note when it is close; sympathetic strings ring when the played pitch class matches |
+| **Flute** | Harmonics by register: in the low register the 2nd is nearly as strong as the fundamental, thinning to almost a sine above 1.2 kHz; breath noise through the whole note, swelling with the vibrato, plus an attack "chiff"; pitch settling from slightly flat and wandering a few cents; delayed pitch + amplitude vibrato |
+| **Brass** | Brightness follows loudness (lowpass "bloom"), through a bell formant near 1.2 kHz; a tongued attack; pitch scoops up as the lips lock on and wanders a few cents; delayed vibrato; strong notes are sometimes harmonised a third below |
+| **Sitar** | Bright Karplus–Strong string plucked near the bridge, in a gourd body (commuted synthesis), with both polarisations; the buzzing *jawari* bridge as an asymmetric waveshaper driven harder as the note decays, into a resonant band that falls from 4.5 to 1.3 kHz over the note; *meend* glides from the previous note when it is close; sympathetic (tarab) strings, modelled strings of their own, ring when the played pitch class matches |
 | **Vibraphone** | Tuned bar partials at 1 : 4 : ~10, motor tremolo (speed chosen per session, sometimes off), soft mallet contact, pedal-length ring |
 | **Mono lead** | The synthwave lead: saw and square a few cents apart through a resonant lowpass with its own envelope. Monophonic — a new note cuts the old one, and connected notes glide (portamento, up to 70 ms and never more than a quarter of the note). Delayed vibrato, Juno chorus, plenty of echo |
 
@@ -200,8 +200,8 @@ Twenty-nine instruments in four roles (the four dance voices are Manual mode's).
 | Instrument | Synthesis / playing |
 |---|---|
 | **Arpeggio** | Arpeggiator locked to the global grid (up, down, up-down, Alberti, broken thirds, pinky pedal), re-mapped onto each chord; saw through a snappy resonant lowpass into the tempo-synced echo |
-| **Harp** | Karplus–Strong strings with a soft finger-like excitation plucked mid-string; a rolled chord marks each chord change, with occasional single chord tones between |
-| **Pluck** | Fingerpicked steel-string guitar (Travis picking): thumb alternates root and fifth on the beat, fingers pick upper chord tones on the off-beats, occasional pinch on beat one |
+| **Harp** | Karplus–Strong strings with a soft finger-like excitation plucked mid-string, on a soundboard (commuted synthesis), with both polarisations; a rolled chord marks each chord change, with occasional single chord tones between |
+| **Pluck** | Fingerpicked steel-string guitar (Travis picking): thumb alternates root and fifth on the beat, fingers pick upper chord tones on the off-beats, occasional pinch on beat one. Karplus–Strong strings in a flat-top body (commuted synthesis), with both polarisations and the pitch settling after the pluck |
 | **Kalimba** | Near-sine tine with a brief ~6× inharmonic overtone and a woody box thump; ostinato figures, sometimes a second thumb a third below |
 | **Mallet** | Marimba bars at 1 : 4 : ~9.4 with pitch-dependent decay and a yarn-mallet thump; ostinato figures |
 | **Clavinet** | Very bright Karplus–Strong string struck near the bridge, damped on key-up, through a lowpass that snaps shut (the funk "quack"); repeating riffs with occasional double-stops |
@@ -209,7 +209,7 @@ Twenty-nine instruments in four roles (the four dance voices are Manual mode's).
 | **Chord stab** | House stab: the chord's four tones (minor 7ths in minor keys), voice-led, on off-beats and syncopations; detuned saw pairs plus a square an octave down through a lowpass that snaps shut, into the tempo echo |
 | **Saw pluck** | Trance / EDM pluck: three detuned saws through a fast-closing lowpass, chord tones in a gated sixteenth rhythm that holds for a phrase like a hook, heavy tempo echo |
 | **Vocal chop** | A synthesised sung syllable — a saw and a breath of noise through the three formant resonances of a soprano vowel (ah, oh, ee, oo, eh) — chopped into a two-bar hook on chord tones, some chops falling a step at the end like a pitched-down sample |
-| **Funk guitar** | Disco rhythm guitar, the "chicken scratch": Karplus–Strong strings strummed in sixteenths (down on the beat and the "and", up between, a few ms per string), the chord's four tones high on the neck, voice-led. Most strokes are muted scratches; a few ring out as short chops cut by the fretting hand. Patterns hold for a phrase |
+| **Funk guitar** | Disco rhythm guitar, the "chicken scratch": Karplus–Strong strings heard through a single-coil pickup (its place on the string, and its resonance near 4–5 kHz), strummed in sixteenths (down on the beat and the "and", up between, a few ms per string), the chord's four tones high on the neck, voice-led. Most strokes are muted scratches; a few ring out as short chops cut by the fretting hand. Patterns hold for a phrase |
 
 The four dance voices are chosen in Manual mode or by a genre; Infinite mode doesn't draw them into its eras.
 
