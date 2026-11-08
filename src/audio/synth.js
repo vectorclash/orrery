@@ -255,6 +255,21 @@ export function shaper(drive = 2, bias = 0) {
 //   pickup — a magnetic pickup's place along the string, 0–0.5: it hears the
 //            string as the difference of the two waves passing it, a comb
 //            that gives each pickup position its tone.
+//   damp   — how fast the overtones die, as { hz, t60 }: the partial at `hz`
+//            rings for `t60` seconds while the fundamental rings for the
+//            main t60. The two-point loop filter can't do this low down: it
+//            takes the same sliver of high end on every pass, and a bass
+//            string makes few passes a second, so a bass note stayed as
+//            bright as its pluck for as long as it rang -- a buzzy, flat
+//            tone that only a fixed lowpass could tame. A real bass string
+//            loses its brightness in a few hundred milliseconds and blooms
+//            into a round note. With `damp` the loop filter is a one-pole
+//            lowpass designed for exactly that (the loss filter of Välimäki
+//            et al.), and `stretch` is not used.
+//   soft   — a soft, wide pluck: a fingertip rather than a pick. The noise
+//            burst is as bright as a pick at any `bright`, so a finger's
+//            pluck rolls off at 12 dB an octave above this harmonic of the
+//            note, as the smooth shape a fingertip leaves on a string does.
 //
 // And the basics:
 //   t60    — seconds for the fundamental to decay by 60 dB
@@ -292,6 +307,14 @@ const BODIES = {
     modes: [[125, 14, 8], [232, 18, 7], [380, 18, 8], [560, 20, 5], [800, 22, 7], [1150, 24, 5],
             [1600, 24, 7], [2300, 24, 6], [3100, 22, 4]],
     air: [0.8, 6, 1500],
+  },
+  // Double bass: the violin family's shape an octave and a half down -- the air
+  // mode near 60 Hz, the main wood modes around 100 and 140, the bridge hill
+  // near 1 kHz -- deep and woody, nothing much above 1.5 kHz.
+  upright: {
+    modes: [[62, 10, 9], [104, 14, 8], [138, 15, 8], [196, 18, 5], [282, 20, 5], [395, 22, 4],
+            [560, 24, 3], [780, 24, 2], [1050, 26, 3], [1450, 28, 1]],
+    air: [0.35, 6, 700],
   },
   // Concert harp soundboard: soft and warm, little above 2 kHz.
   harp: {
@@ -356,8 +379,42 @@ function stringLoop(out, x, period, S, g, level) {
   }
 }
 
+// The same loop with a one-pole lowpass as its loss filter, H(z) = g(1−p)/(1 − p z⁻¹):
+// `p` sets how much faster the highs die than the fundamental, and the filter's own
+// delay at the fundamental comes off the line's, so the string stays in tune.
+function dampedLoop(out, x, f, sr, t60, damp, level) {
+  const len = out.length, xl = x.length, period = sr / f;
+  const w0 = 2 * Math.PI * f / sr, wh = 2 * Math.PI * Math.min(damp.hz, sr * 0.45) / sr;
+  // Per pass, the fundamental keeps r0 and the partial at damp.hz keeps rh; the
+  // filter takes their ratio at wh (the one-pole loss-filter design).
+  const r0 = Math.pow(0.001, 1 / (f * t60));
+  const rh = Math.pow(0.001, 1 / (f * Math.min(damp.t60, t60 * 0.999)));
+  const rho = rh / r0, c = Math.cos(wh);
+  const B = (1 - rho * rho * c) / (1 - rho * rho);
+  const p = clamp(B - Math.sqrt(Math.max(0, B * B - 1)), 0, 0.999);
+  const mag = w => (1 - p) / Math.sqrt(1 - 2 * p * Math.cos(w) + p * p);
+  const g = r0 / mag(w0);
+  const lag = Math.atan2(p * Math.sin(w0), 1 - p * Math.cos(w0)) / w0;
+  let N = Math.floor(period - lag);
+  let d = period - lag - N;
+  if (d < 0.1) { N -= 1; d += 1; }
+  N = Math.max(2, N);
+  const C = (1 - d) / (1 + d);
+  const line = new Float32Array(N);
+  let idx = 0, y = 0, apIn = 0, apOut = 0;
+  for (let n = 0; n < len; n++) {
+    const v = line[idx] + (n < xl ? x[n] : 0);
+    out[n] += level * v;
+    y = g * (1 - p) * v + p * y;
+    const ap = C * (y - apOut) + apIn;
+    apIn = y; apOut = ap;
+    line[idx] = ap;
+    idx = idx + 1 === N ? 0 : idx + 1;
+  }
+}
+
 export function pluckBuffer(midi, { t60 = 1.5, bright = 0.5, pick = 0.25, stretch = 0.5, length = t60,
-  body = null, pol = null, pickup = 0, seed = null } = {}) {
+  body = null, pol = null, pickup = 0, seed = null, damp = null, soft = 0 } = {}) {
   const ctx = audio.ctx;
   const sr  = ctx.sampleRate;
   const f   = midiToHz(midi);
@@ -408,7 +465,26 @@ export function pluckBuffer(midi, { t60 = 1.5, bright = 0.5, pick = 0.25, stretc
     for (let i = 0; i < N && i < x.length; i++) x[i] += 0.3 * line[i];
   }
 
-  if (!pol) {
+  if (soft) {
+    // Two one-pole lowpasses at `soft` × the note, energy kept.
+    const a = Math.exp(-2 * Math.PI * Math.min(f * soft, sr * 0.45) / sr);
+    let e0 = 0, e1 = 0;
+    for (let i = 0; i < x.length; i++) e0 += x[i] * x[i];
+    const y = Float32Array.from(x);
+    for (let pass = 0; pass < 2; pass++) {
+      let z = 0;
+      for (let i = 0; i < y.length; i++) { z = (1 - a) * y[i] + a * z; y[i] = z; }
+    }
+    for (let i = 0; i < y.length; i++) e1 += y[i] * y[i];
+    const s = Math.sqrt(e0 / (e1 || 1));
+    for (let i = 0; i < y.length; i++) y[i] *= s;
+    x = y;
+  }
+
+  if (damp) {
+    dampedLoop(out, x, f, sr, t60, damp, pol ? 1 - pol.mix : 1);
+    if (pol) dampedLoop(out, x, f * Math.pow(2, pol.cents / 1200), sr, t60 * pol.t60, damp, pol.mix);
+  } else if (!pol) {
     stringLoop(out, x, period, S, g, 1);
   } else {
     const p2 = sr / (f * Math.pow(2, pol.cents / 1200));

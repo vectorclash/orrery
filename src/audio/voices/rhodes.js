@@ -20,7 +20,75 @@ const COMPS = [
   [[0.5, 1], [2, 1], [3.5, 0.5]],     // off-beat stabs (last one anticipates)
   [[1, 0.5], [3, 0.5]],               // backbeat stabs
 ];
+// For the newer composers, each genre comps in its own rhythm (one bar of
+// [beat, length]): the jazz comps above were every genre's, a deep house track
+// and a lo-fi one comping the same Charleston.
+const GENRE_COMPS = {
+  jazz: COMPS,
+  // House: chords on the off-beats, or held like an organ with a push.
+  house: [
+    [[0.5, 0.5], [1.5, 0.5], [2.5, 0.5], [3.5, 0.5]],
+    [[0, 1.5], [1.75, 0.75], [3, 1]],
+    [[0.75, 0.5], [2.25, 0.75], [3.5, 0.5]],
+    [[0, 3.5]],
+  ],
+  // Amapiano: jazzy chords with room around them, pushed a sixteenth.
+  amapiano: [
+    [[0, 0.75], [1.5, 0.5], [2.75, 1.25]],
+    [[0.75, 0.75], [2.5, 0.5], [3.25, 0.75]],
+    [[0, 2], [2.75, 1.25]],
+    [[0.5, 1], [2, 0.5], [3, 1]],
+  ],
+  // Lo-fi: lazy, held, a late hit before the next bar.
+  lofi: [
+    [[0, 2.5], [3.5, 0.5]],
+    [[0, 4]],
+    [[0, 1.5], [2.5, 1.5]],
+    [[0.5, 3.5]],
+    [[0, 2], [2.5, 1.5]],
+  ],
+  // Liquid drum & bass: long chords over the breaks.
+  dnb: [
+    [[0, 4]],
+    [[0, 2], [2, 2]],
+    [[0, 3], [3.5, 0.5]],
+    [[0, 1.5], [1.5, 2.5]],
+  ],
+  // Funk: short sixteenth stabs, ghosting the groove.
+  funk: [
+    [[0, 0.25], [0.75, 0.25], [1.5, 0.5], [2.75, 0.25], [3.5, 0.5]],
+    [[0.25, 0.25], [1, 0.5], [2.25, 0.25], [3, 0.5]],
+    [[0, 0.5], [1.75, 0.25], [2.5, 0.5], [3.75, 0.25]],
+    [[0.5, 0.25], [1.5, 0.25], [2, 0.5], [3.25, 0.5]],
+  ],
+  // UK garage: 2-step stabs.
+  garage: [
+    [[0.75, 0.5], [2.25, 0.5], [3.5, 0.5]],
+    [[0, 0.5], [1.75, 0.5], [3, 0.5]],
+    [[0.5, 0.5], [1.75, 0.5], [3.25, 0.5]],
+  ],
+  // Nu-disco: sixteenth pushes into the beat, and the up-beat answer.
+  disco: [
+    [[0.5, 0.25], [1, 0.5], [2.5, 0.25], [3, 0.5]],
+    [[0, 0.5], [0.75, 0.5], [2, 0.5], [2.75, 0.5]],
+    [[0.25, 0.25], [0.75, 0.75], [2.25, 0.25], [2.75, 0.75]],
+  ],
+  // Afrobeats: the tresillo, twice a bar, or answering off-beats.
+  afro: [
+    [[0, 0.75], [0.75, 0.75], [1.5, 0.5], [2, 0.75], [2.75, 0.75], [3.5, 0.5]],
+    [[0.5, 0.5], [1.25, 0.5], [2.5, 0.5], [3.25, 0.5]],
+  ],
+};
+const COMPS_FOR = {
+  JAZZ: 'jazz', BLUES: 'jazz',
+  'DEEP HOUSE': 'house', 'AFRO HOUSE': 'house', AMAPIANO: 'amapiano', 'LO-FI': 'lofi',
+  'LIQUID DNB': 'dnb', FUNK: 'funk', 'UK GARAGE': 'garage', 'NU-DISCO': 'disco', AFROBEATS: 'afro',
+};
+// What a comp is drawn from: the old list for the first composer, note for note.
+const comps = () => (state.composer >= 2 ? GENRE_COMPS[COMPS_FOR[state.language] ?? 'jazz'] : COMPS);
+
 let comp = COMPS[0], curBar = -1, prev = null, panRate = 4.5;
+let compFor = null; // the language `comp` was drawn for
 
 function tine(t, hz, vel, dur, out) {
   const end = t + dur + 0.6;
@@ -75,8 +143,10 @@ function play(t, b) {
   const bar = Math.floor(b / 4 + 1e-9), pos = b - bar * 4;
   if (bar !== curBar) {
     curBar = bar;
-    if (bar % 2 === 0 && random() < 0.5) comp = pick(COMPS);
+    if (bar % 2 === 0 && random() < 0.5) comp = pick(comps());
   }
+  // A genre chosen while it plays: its comping from the next hit.
+  if (state.composer >= 2 && compFor !== state.language) { comp = pick(comps()); compFor = state.language; }
   const hit = comp.find(([p]) => Math.abs(p - pos) < 1e-6);
   if (hit) strike(t, b, hit[1]);
   const next = comp.find(([p]) => p > pos + 1e-6);
@@ -85,5 +155,5 @@ function play(t, b) {
 
 export const rhodesVoice = createVoice('rhodes', play, {
   entry: 4, role: 'motion',
-  onReset: () => { curBar = -1; prev = null; comp = pick(COMPS); panRate = rand(3.5, 5.5); },
+  onReset: () => { curBar = -1; prev = null; comp = pick(comps()); compFor = state.language; panRate = rand(3.5, 5.5); },
 });

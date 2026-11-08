@@ -33,7 +33,36 @@ const PATTERNS = [
   'X..xg.x.g.X.gxg.', // the "Good Times" lilt
 ];
 
+// For the newer composers, the guitar of each genre that uses it. Disco's scratch was
+// every genre's, the reggaeton and afrobeats guitars strumming like Nile Rodgers.
+// Two more strokes: p, one picked note, and d, a double-stop (the voicing's top two),
+// each left to ring. Picked notes walk the voicing top, second, third, second, as a
+// highlife or dembow picking hand does.
+const GENRE_PATTERNS = {
+  disco: PATTERNS,
+  // Highlife picking: interlocking single notes and double-stops in sixteenths.
+  afro: [
+    'p.pp.p.pp.p.pp.p',
+    'p..p.pd.p..p.pd.',
+    'd.p.p.d.p.p.d.pp',
+    '.p.p.pp..p.p.pp.',
+  ],
+  // Dembow: picked notes on the 3+3+2, a chop on the one.
+  reggaeton: [
+    'p..p..p.p..p..p.',
+    'X..p..p.X..p..p.',
+    'p..p..pp..p.p...',
+  ],
+};
+const PATTERNS_FOR = { AFROBEATS: 'afro', 'AFRO HOUSE': 'afro', AMAPIANO: 'afro', REGGAETON: 'reggaeton', TRAP: 'reggaeton' };
+const patterns = () => (state.composer >= 2 ? GENRE_PATTERNS[PATTERNS_FOR[state.language] ?? 'disco'] : PATTERNS);
+const PICK_ORDER = [3, 1, 2, 1];
+// One picked string has a fraction of a four-string chop's energy: level-matched
+// (BS.1770, gated) to the strummed guitar the genre had.
+const PICK_TRIM = { afro: 1.9, reggaeton: 2.4 };
+
 let pattern = null; // chosen on the first stroke, see onReset
+let patternFor = null; // the language it was chosen for
 let phrase  = -1;
 let prev    = null; // last voicing
 let segAt   = null; // start of the chord segment `prev` was voiced for
@@ -83,15 +112,44 @@ function stroke(t, notes, down, kind) {
   send(env, audio.reverbSend, lerp(0.06, 0.2, state.spaciousness));
 }
 
+// One picked note, or a double-stop, ringing on: no mute, no scrape.
+function picked(t, notes, kind, nth) {
+  const strings = kind === 'd' ? notes.slice(-2) : [notes[PICK_ORDER[nth % 4] % notes.length]];
+  const gate  = beat() * 0.6;
+  const level = 0.18 * 0.75 * (PICK_TRIM[PATTERNS_FOR[state.language]] ?? 1.9) * lerp(0.82, 1, state.density) * rand(0.9, 1.05);
+  const tone  = filter('lowpass', lerp(3800, 5600, state.brightness), 2.4);
+  strings.forEach((midi, i) => {
+    const at = t + i * 0.004;
+    logNote('guitar', at, midi, gate, 0.8);
+    const src = playBuffer(pluckBuffer(midi, { t60: 0.9, bright: 0.72, pick: 0.14, stretch: 0.35, length: gate + 0.1, pickup: 0.22 }), at, at + gate + 0.1);
+    settle(src, at, 4, 0.03);
+    src.connect(tone);
+  });
+  const env = gain(0);
+  env.gain.setValueAtTime(0, t);
+  env.gain.linearRampToValueAtTime(level, t + 0.002);
+  env.gain.setTargetAtTime(0, t + gate, 0.03);
+  tone.connect(env);
+  env.connect(getVoiceBus('guitar').dry);
+  send(env, audio.reverbSend, lerp(0.06, 0.2, state.spaciousness));
+}
+
 function play(t, b) {
   const p = Math.floor(b / 16);
   if (p !== phrase) {
     phrase = p;
-    if (!pattern || (state.composer < 2 && random() < 0.35)) pattern = pick(PATTERNS);
+    if (!pattern || (state.composer < 2 && random() < 0.35)) { pattern = pick(patterns()); patternFor = state.language; }
   }
+  // A genre chosen while it plays: its guitar straight away.
+  if (state.composer >= 2 && patternFor !== state.language) { pattern = pick(patterns()); patternFor = state.language; }
   const step = Math.round((b - Math.floor(b / 4) * 4) * 4) % 16;
   const kind = pattern[step];
   if (kind === '.') return 0.25;
+  if (kind === 'p' || kind === 'd') {
+    const nth = [...pattern.slice(0, step)].filter(c => c === 'p' || c === 'd').length;
+    picked(t + rand(-0.003, 0.003), voicing(b), kind, nth);
+    return 0.25;
+  }
   stroke(t + rand(-0.003, 0.003), voicing(b), step % 2 === 0, kind);
   return 0.25;
 }

@@ -23,7 +23,45 @@ const PATTERNS = [
   '...x...x..x...x.', // garage skip
 ];
 
+// For the newer composers, each genre's own stabs: these five were every
+// genre's, techno and afro house stabbing like deep house.
+const GENRE_PATTERNS = {
+  house: PATTERNS,
+  // Dub techno: few stabs, far apart, for the echo to fill.
+  techno: [
+    '..x.......x..x..',
+    '...x......x.....',
+    '.x....x....x....',
+    '......x.......x.',
+  ],
+  // UK garage: skippy, swung 2-step.
+  garage: [
+    '...x..x.x..x...x',
+    '.x..x...x.x..x..',
+    '..x.x...x..x.x..',
+    '...x...x..x.x...',
+  ],
+  // Nu-disco: up-beats and sixteenth pushes.
+  disco: [
+    '..x...x...x.x.x.',
+    'x..x..x.x..x..x.',
+    '..x.x.x...x.x.x.',
+  ],
+  // Afro house: the tresillo and its answers.
+  afro: [
+    'x..x..x...x..x..',
+    '..x..x....x..x..',
+    'x..x....x..x..x.',
+  ],
+};
+const PATTERNS_FOR = {
+  'DEEP HOUSE': 'house', TECHNO: 'techno', 'MELODIC TECHNO': 'techno', 'UK GARAGE': 'garage',
+  'NU-DISCO': 'disco', 'AFRO HOUSE': 'afro', AMAPIANO: 'afro', AFROBEATS: 'afro',
+};
+const patterns = () => (state.composer >= 2 ? GENRE_PATTERNS[PATTERNS_FOR[state.language] ?? 'house'] : PATTERNS);
+
 let pattern = null; // chosen on the first stab, see onReset
+let patternFor = null; // the language it was chosen for
 let phrase = -1;
 let prev = null;
 
@@ -31,8 +69,10 @@ function play(t, b) {
   const p = Math.floor(b / 16);
   if (p !== phrase) {
     phrase = p;
-    if (!pattern || (state.composer < 2 && random() < 0.35)) pattern = pick(PATTERNS);
+    if (!pattern || (state.composer < 2 && random() < 0.35)) { pattern = pick(patterns()); patternFor = state.language; }
   }
+  // A genre chosen while it plays: its stabs straight away.
+  if (state.composer >= 2 && patternFor !== state.language) { pattern = pick(patterns()); patternFor = state.language; }
   const step = Math.round((b - Math.floor(b / 4) * 4) * 4) % 16;
   if (pattern[step] === '.') return 0.25;
 

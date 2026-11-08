@@ -1,10 +1,10 @@
 import { audio, noise } from '../context.js';
-import { state, beat, rand, pick, currentScale, midiToHz, random } from '../../state.js';
+import { state, beat, rand, pick, lerp, currentScale, midiToHz, random } from '../../state.js';
 import { createVoice } from '../transport.js';
 import { logNote } from '../notes.js';
 import { harmony, bassRoot } from '../harmony.js';
 import { song } from '../song.js';
-import { osc, gain, filter, perc, ahr, lfo, pluckBuffer, playBuffer, shaper } from '../synth.js';
+import { osc, gain, filter, perc, ahr, lfo, pluckBuffer, playBuffer, shaper, settle } from '../synth.js';
 
 // ─── Bass ─────────────────────────────────────────────────────────────────────
 // Every style is tied to the harmonic rhythm: the chord root lands on the
@@ -31,6 +31,165 @@ const PLUCK_RHYTHMS = [
   [[2, 'R'], [1.5, 'F'], [0.5, 'A']],
   [[1.5, 'R'], [1.5, 'F'], [1, 'A']],
 ];
+// Plucked, for the newer composers: two-bar figures in each genre's bass language,
+// the second bar turning toward the next. The five cells above all said the same
+// thing -- root on one, fifth on three, an approach on four -- in every genre, and
+// with one held for a section, a funk bass and a folk bass played the same line.
+// Sixteenths, as the synth patterns below: a letter starts a note, '-' holds it, '.'
+// rests. R root, O octave, F fifth, 3 and 7 the chord's third and seventh, 6 the
+// sixth above the root (in the scale, or the fifth), A an approach into the next
+// chord (a chord tone if none is coming), x a dead note: the string muted under the
+// finger, a thump at the pitch before.
+const FIGURES = {
+  // Syncopated sixteenths, the one hit hard, octave pops and ghost notes.
+  funk: [
+    'R-.xR.O.x.R.7.O.' + 'R-.xR.O.x.F.3.A.',
+    'R..R..x.O..R.7x.' + 'R..R..x.O..F.A-.',
+    'R-xR.xO.R-xR.7O.' + 'R-xR.xO.F-x3.7A.',
+    'R-..R-.xO-..R-7.' + 'R-..R-.xO-..F-A.',
+  ],
+  // The tresillo (3+3+2) and lines that leave the downbeat to the kick.
+  afro: [
+    'R--R--F-R--O--F-' + 'R--R--F-3--A----',
+    '..R-..R-F-..R-..' + '..R-..R-3-..A-..',
+    'R-..O-.R..F-R-..' + 'R-..O-.R..3-A-..',
+    'R-.F..R-O-.R..7.' + 'R-.F..R-O-.3..A.',
+  ],
+  // Root and fifth on the beats, walking up into the changes.
+  folk: [
+    'R---F---R---F---' + 'R---F---R---3-A-',
+    'R---R-F-R---F---' + 'R---R-F-R-3-A---',
+    'R-------F-------' + 'R-------F---A---',
+    'R---F-R-R---F-O-' + 'R---F-R-3---A---',
+  ],
+  // Boom bap: sparse and behind the beat, long notes and a pickup or two.
+  lofi: [
+    'R-------..R.F---' + 'R-------..R.7-A-',
+    'R-----.R..F-----' + 'R-----.R..3---A-',
+    'R--.....R-.F-...' + 'R--.....3-.A-...',
+    'R-----R.....O-..' + 'R-----R...7-A-..',
+  ],
+  // Held roots and plain quarters: the orchestra's basses, and the slow genres.
+  held: [
+    'R---------------' + 'R-------F-------',
+    'R---R---F---R---' + 'R---R---3---A---',
+    'R-------R---F---' + 'R-------R---A---',
+    'R-----------F-A-' + 'R-------F-------',
+  ],
+  // The boogie: root, third, fifth, sixth, seventh and back, in shuffled eighths.
+  blues: [
+    'R-3-F-6-7-6-F-3-' + 'R-3-F-6-7-6-F-A-',
+    'R---F-6-R---F-6-' + 'R---F-6-7-6-F-A-',
+    'R-.R3-.3F-.F6-.6' + 'R-.R3-.3F-.F7-.A',
+    'R-------F---6---' + 'R---3---F---A---',
+  ],
+  // Anything else: the old cells' shapes and a few that move more.
+  any: [
+    'R-----R-F---A---' + 'R-----R-F---3-A-',
+    'R---R---F---A---' + 'R---R---O---F-A-',
+    'R--R--O-F---A---' + 'R--R--O-3---A---',
+    'R-------F-----A-' + 'R-------O---F-A-',
+    'R-----F-----A---' + 'R-----F---7-A---',
+    'R-.RO-.RF-.R3-.A' + 'R-.RO-.RF-.R7-.A',
+  ],
+};
+const FIGURES_FOR = {
+  FUNK: 'funk', 'NU-DISCO': 'funk',
+  AFROBEATS: 'afro', 'AFRO HOUSE': 'afro', AMAPIANO: 'afro', REGGAETON: 'afro',
+  FOLK: 'folk',
+  'LO-FI': 'lofi', TRAP: 'lofi',
+  ORCH: 'held', EPIC: 'held', AMBIENT: 'held', ZEN: 'held', DREAM: 'held', DARK: 'held',
+  BLUES: 'blues',
+};
+const figuresFor = language => FIGURES[FIGURES_FOR[language] ?? 'any'];
+let figure = FIGURES.any[0];
+let figureFor = null; // the language `figure` was drawn for
+
+// Synth bass, for the newer composers: the same, in the synth bass's languages. It
+// had four one-bar patterns for every genre that uses it, synthwave and techno,
+// nu-disco and garage alike.
+const SYNTH_FIGURES = {
+  // Driving eighths and sixteenths on the root, the gallop, octaves: outrun.
+  synthwave: [
+    'R-R-R-R-R-R-R-R-' + 'R-R-R-R-F-F-A-A-',
+    'RRRRRRRRRRRRRRRR' + 'RRRRRRRRFFFFRRRA',
+    'R-RRR-RRR-RRR-RR' + 'R-RRR-RRF-FFA-AA',
+    'R-O-R-O-R-O-R-O-' + 'R-O-R-O-F-O-A-O-',
+  ],
+  // One note, hypnotic, off the kick.
+  techno: [
+    '..R-..R-..R-..R-' + '..R-..R-..O-..A-',
+    '..RR..RR..RR..RR' + '..RR..RR..RR..RA',
+    '...R..R....R..R.' + '...R..R....O..A.',
+    'R..R..R...R..R..' + 'R..R..R...O..A..',
+  ],
+  // Rolling sixteenths that move between the chord's tones.
+  melodic: [
+    '.ROR.ROR.ROR.ROR' + '.ROR.ROR.F3F.RAR',
+    '..RO..RO..RO..RO' + '..RO..RO..F3..RA',
+    '.R.R.R.R.R.R.R.O' + '.R.R.R.R.F.F.A.O',
+  ],
+  // House and EDM: the off-beat bass between the kicks.
+  house: [
+    '..R-..R-..R-..R-' + '..R-..R-..F-..A-',
+    '..R...R...R...R.' + '..R...R...O...A.',
+    '..R.R.R...R.R.R.' + '..R.R.R...F.F.A.',
+  ],
+  // UK garage: long, swung notes with gaps, 2-step.
+  garage: [
+    'R-----.R..R-----' + 'R-----.R..F---A-',
+    'R--.R.....R-F-..' + 'R--.R.....3-A-..',
+    '..R---R...R-....' + '..R---R...F-A...',
+  ],
+  // Nu-disco: octaves and sixteenth pushes.
+  disco: [
+    'R..RO.R.R..RO.R.' + 'R..RO.R.F..FO.A.',
+    'R.O.R.O.R.O.R.O.' + 'R.O.R.O.F.O.A.O.',
+    'R-.R.OR-.R.OR-.O' + 'R-.R.OR-.F.3A-.O',
+  ],
+  // A Moog funk line.
+  funk: [
+    'R-.RR.O..RR.7.O.' + 'R-.RR.O..FF.3.A.',
+    'R..R..R.O..R.7R.' + 'R..R..R.O..F.A-.',
+  ],
+  afro: FIGURES.afro,
+  lofi: FIGURES.lofi,
+  // Electro and anything else: the four old patterns, each with a turn.
+  any: [
+    'R.O.R.O.R.O.R.O.' + 'R.O.R.O.F.O.A.O.',
+    '..R-..R-..R-..R-' + '..R-..R-..F-..A-',
+    'R-.R-.R-R-.R-.O-' + 'R-.R-.R-F-.3-.A-',
+    'R-R-R-R-R-R-F-A-' + 'R-R-R-R-O-O-F-A-',
+  ],
+};
+const SYNTH_FOR = {
+  SYNTHWAVE: 'synthwave', TECHNO: 'techno', 'MELODIC TECHNO': 'melodic',
+  EDM: 'house', TRANCE: 'house', 'FUTURE BASS': 'house', 'DEEP HOUSE': 'house',
+  'UK GARAGE': 'garage', 'NU-DISCO': 'disco', FUNK: 'funk',
+  AFROBEATS: 'afro', 'AFRO HOUSE': 'afro', AMAPIANO: 'afro', REGGAETON: 'afro',
+  'LO-FI': 'lofi', TRAP: 'lofi',
+};
+const synthFiguresFor = language => SYNTH_FIGURES[SYNTH_FOR[language] ?? 'any'];
+let synthFigure = SYNTH_FIGURES.any[0];
+let synthFor = null;
+
+// One sixteenth of a two-bar figure: `sound(t, midi, seconds)` plays a note; a dead
+// note (x) goes to `dead(t, midi)`. Bars are counted from the section's first, so a
+// figure's turn falls on its second.
+function figureStep(fig, t, b, pos, sound, dead = null) {
+  const from = song.current ? song.sectionAt(b).start : 0;
+  const half = Math.floor((b - from) / 4 + 1e-9) % 2;
+  const i = Math.round(pos * 4) % 16, k = half * 16 + i, ch = fig[k];
+  if (ch === '.' || ch === '-') return 0.25;
+  let n = 1;
+  while (i + n < 16 && fig[k + n] === '-') n++;
+  if (ch === 'x') { dead?.(t, prev ?? root(harmony.at(b))); return 0.25; }
+  const midi = resolve(ch, b, n / 4);
+  prev = midi;
+  sound(t, midi, room(b, n / 4) * beat());
+  return 0.25;
+}
+
 // Synth: sixteenth-note patterns. Letters start a note, '-' holds it, '.' rests.
 const SYNTH_PATTERNS = [
   'R.O.R.O.R.O.R.O.', // octave bounce (disco / electro)
@@ -158,6 +317,11 @@ function resolve(code, b, len) {
   if (code === 'A') return b + len >= seg.end - 1e-6 ? approach(nextRoot(seg), prev ?? r) : fifthOf(seg, r);
   if (code === 'F') return fifthOf(seg, r);
   if (code === 'O') return r + 12 <= HI + 5 ? r + 12 : r;
+  if (code === '3' || code === '7') return resolveAcid(code, b);
+  if (code === '6') {
+    for (const up of [9, 8]) if (inScale(r + up) && r + up <= HI + 5) return r + up;
+    return fifthOf(seg, r);
+  }
   return r;
 }
 
@@ -220,17 +384,64 @@ function subBass(t, midi, dur) {
   lp.connect(env); env.connect(audio.pumped);
 }
 
-function stringBass(t, midi, dur, { bright, pick: pos, t60, level }) {
+// The two string basses. Each was a bare Karplus–Strong string behind a fixed
+// 1.8 kHz lowpass: a low string makes so few passes a second that its overtones
+// barely died, so every note stayed as bright as its pluck, and the lowpass that
+// tamed it left one flat tone. A real bass string loses its brightness within a
+// few hundred milliseconds and blooms into a round note, which `damp` gives
+// (see pluckBuffer); then each gets what makes it an instrument.
+
+// Electric bass, played with the fingers: a long roundwound string heard through
+// a magnetic pickup a fifth of the way from the bridge (the comb that gives the
+// midrange its growl), whose coil and cable resonate around 2.5–4 kHz with the
+// TONE control. Two polarisations for the two-stage decay of a real string, and
+// the pluck stretches it a few cents sharp for a moment.
+const FINGER_POL = { cents: 0.6, t60: 0.6, mix: 0.3 };
+const FINGER_TRIM = 0.55; // each level-matched (K-weighted) to the old string bass
+const FINGER_PUSH = 2.5;
+function fingerBass(t, midi, dur, { level, t60 = 2.4 }) {
   logNote('bass', t, midi, dur, 0.85);
-  const src = playBuffer(pluckBuffer(midi, { t60, bright, pick: pos, stretch: 0.5, length: Math.min(t60, dur + 0.2) }), t, t + dur + 0.2);
-  const lp = filter('lowpass', 1800, 0.7);
+  const ring = dur + 0.2;
+  const src = playBuffer(pluckBuffer(midi, {
+    t60, bright: 0.45, pick: 0.2, length: ring, damp: { hz: 1100, t60: 0.38 }, pol: FINGER_POL, pickup: 0.2, soft: 7,
+  }), t, t + ring);
+  settle(src, t, 6, 0.04);
+  stringOut(t, src, filter('lowpass', lerp(2400, 3800, state.brightness), 1.3), dur, level, 300, FINGER_PUSH);
+}
+
+// Double bass, pizzicato: a gut-toned string plucked over the end of the
+// fingerboard, its pluck the body's response (the air mode near 60 Hz, the wood
+// around 100–140, see BODIES), losing its highs fast into the woody "thoom" of a
+// jazz bass. The pluck pulls it sharper than a bass guitar's, and it settles
+// more slowly. Heard through a microphone, so only a gentle lowpass.
+const UPRIGHT_POL = { cents: 1, t60: 0.45, mix: 0.35 };
+const UPRIGHT_TRIM = 1.22;
+const UPRIGHT_PUSH = 2.4;
+function uprightBass(t, midi, dur, { level, t60 = 1.6 }) {
+  logNote('bass', t, midi, dur, 0.85);
+  const ring = dur + 0.2;
+  const src = playBuffer(pluckBuffer(midi, {
+    t60, bright: 0.3, pick: 0.32, length: ring, damp: { hz: 700, t60: 0.26 }, body: 'upright', pol: UPRIGHT_POL, soft: 9,
+  }), t, t + ring);
+  settle(src, t, 12, 0.06);
+  stringOut(t, src, filter('lowpass', lerp(2600, 4200, state.brightness), 0.7), dur, level, 180, UPRIGHT_PUSH);
+}
+
+// A string bass's note: its tone filter, cut when the note ends, and the
+// finger's thump under the attack (lowpassed at `thumpHz`). Then into the desk
+// the way recorded basses go, through a little tube-style saturation, unity gain
+// for quiet signals: a round bass carries its weight in the fundamental, whose
+// peaks used the master's headroom up (the old buzz had none to round off), and
+// the harmonics the saturation adds are what lets a bass be heard on a phone.
+// `push` is how hard a note's peaks drive it.
+function stringOut(t, src, tone, dur, level, thumpHz, push) {
   const env = gain(0);
   env.gain.setValueAtTime(0, t);
   env.gain.linearRampToValueAtTime(level, t + 0.004);
   env.gain.setTargetAtTime(0, t + dur, 0.03);
-  src.connect(lp); lp.connect(env); env.connect(audio.pumped);
-  // Finger/string thump under the attack.
-  const th = noise(t, 0.03), thLp = filter('lowpass', 220), thE = gain(0);
+  const pre = gain(push), drive = shaper(1), post = gain(Math.tanh(1) / push);
+  src.connect(tone); tone.connect(env); env.connect(pre); pre.connect(drive); drive.connect(post); post.connect(audio.pumped);
+  const th = noise(t, 0.03), thLp = filter('lowpass', thumpHz), thE = gain(0);
   perc(thE.gain, t, level * 0.5, 0.02, 0.001);
   th.connect(thLp); thLp.connect(thE); thE.connect(audio.pumped);
 }
@@ -431,7 +642,8 @@ function pedal(t, b, sec) {
   else if (style === '808') bass808(t, midi, dur, null);
   else if (style === 'sub') subBass(t, midi, dur);
   else if (style === 'rumble') rumbleBass(t, midi, dur);
-  else if (style === 'plucked' || style === 'walking') stringBass(t, midi, dur, { bright: 0.4, pick: 0.18, t60: 1.2, level: off ? 0.46 : 0.38 });
+  else if (style === 'plucked') fingerBass(t, midi, dur, { t60: 1.2, level: (off ? 0.46 : 0.38) * FINGER_TRIM });
+  else if (style === 'walking') uprightBass(t, midi, dur, { t60: 1.2, level: (off ? 0.46 : 0.38) * UPRIGHT_TRIM });
   else synthBass(t, midi, dur);
   return 0.5;
 }
@@ -524,8 +736,22 @@ function play(t, b) {
 
   if (style === 'walking') {
     prev = walkNote(b);
-    stringBass(t, prev, beat() * 0.95, { bright: 0.22, pick: 0.28, t60: 1.2, level: 0.5 });
+    uprightBass(t, prev, beat() * 0.95, { level: 0.5 * UPRIGHT_TRIM });
     return 1;
+  }
+
+  if (style === 'plucked' && state.composer >= 2) {
+    // A genre chosen while a loop plays brings its own bass line straight away.
+    if (figureFor !== state.language) { figure = pick(figuresFor(state.language)); figureFor = state.language; }
+    return figureStep(figure, t, b, pos,
+      (at, midi, sec) => fingerBass(at, midi, sec * 0.9, { level: 0.42 * FINGER_TRIM }),
+      // A dead note: the finger lands on a muted string.
+      (at, midi) => fingerBass(at, midi, beat() * 0.12, { level: 0.42 * FINGER_TRIM * 0.45, t60: 0.08 }));
+  }
+
+  if (style === 'synth' && state.composer >= 2) {
+    if (synthFor !== state.language) { synthFigure = pick(synthFiguresFor(state.language)); synthFor = state.language; }
+    return figureStep(synthFigure, t, b, pos, (at, midi, sec) => synthBass(at, midi, sec * 0.9));
   }
 
   if (style === 'plucked') {
@@ -534,7 +760,7 @@ function play(t, b) {
       if (Math.abs(acc - pos) < 1e-6) {
         const midi = resolve(code, b, len);
         prev = midi;
-        stringBass(t, midi, room(b, len) * beat() * 0.9, { bright: 0.4, pick: 0.18, t60: 1.6, level: 0.42 });
+        fingerBass(t, midi, room(b, len) * beat() * 0.9, { level: 0.42 * FINGER_TRIM });
         return len;
       }
       if (acc > pos) return acc - pos;
@@ -572,7 +798,8 @@ export const bassVoice = {
   // plays the same every time.
   newSection() {
     voice.draw(() => {
-      cell = pick(PLUCK_RHYTHMS); pattern = pick(SYNTH_PATTERNS);
+      if (state.composer >= 2) { figure = pick(figuresFor(state.language)); figureFor = state.language; } else cell = pick(PLUCK_RHYTHMS);
+      if (state.composer >= 2) { synthFigure = pick(synthFiguresFor(state.language)); synthFor = state.language; } else pattern = pick(SYNTH_PATTERNS);
       deepPattern = pick(DEEP_PATTERNS); rollPattern = pick(ROLLING_PATTERNS);
     });
   },
