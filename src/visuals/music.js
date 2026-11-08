@@ -23,10 +23,10 @@ const ROLE = {
 };
 const HIT = {
   kick: 'kick', k808: 'kick', k909: 'kick', taiko: 'kick',
-  snare: 'snare', clap: 'snare', rim: 'snare', btap: 'snare',
+  snare: 'snare', clap: 'snare', rim: 'snare', btap: 'snare', brush: 'snare',
   tomLo: 'snare', tomHi: 'snare', congaLo: 'snare', congaHi: 'snare', bell: 'snare',
   gsnare: 'snare', simLo: 'snare', simMid: 'snare', simHi: 'snare',
-  hat: 'hat', ohat: 'hat', ride: 'hat', shaker: 'hat', swish: 'hat', tamb: 'hat', crash: 'crash',
+  hat: 'hat', ohat: 'hat', ride: 'hat', shaker: 'hat', swish: 'hat', sweep: 'hat', chick: 'hat', tamb: 'hat', crash: 'crash',
 };
 const HIT_DECAY = { kick: 0.14, snare: 0.12, hat: 0.06, crash: 0.8 };
 const MAX_RIPPLES = 24;

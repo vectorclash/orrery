@@ -202,21 +202,59 @@ function cowbell(t, v) {
   bp.connect(env); env.connect(out('perc'));
 }
 
-// Brushes: a swish is a filtered-noise swell stirred across the head; a tap
-// is a soft, short hit.
-function swish(t, v) {
-  const len = beat() * 0.9;
-  const n = noise(t, len + 0.05), bp = filter('bandpass', 4200, 0.6), env = gain(0);
-  env.gain.setValueAtTime(0, t);
-  env.gain.linearRampToValueAtTime(v, t + len * 0.45);
-  env.gain.linearRampToValueAtTime(0, t + len);
-  n.connect(bp); bp.connect(env); env.connect(out('hat'));
+// Brushes. The left hand stirs the brush round the snare's coated head without
+// lifting it, so the sweep never stops: one stroke a beat, each crossfading into
+// the next (equal power, so the hiss holds steady through the join), swelling
+// and brightening a little as the brush speeds up through the middle of its
+// arc. The bristles' scratch is broad, from about 1 kHz up, and the wires under
+// the head buzz with it. One noise draw a stroke, as the old swish took.
+const curve = (n, f) => Float32Array.from({ length: n }, (_, i) => f(i / (n - 1)));
+function sweep(t, v) {
+  const len = beat(), xf = Math.min(0.08, len * 0.2), dur = len + xf, at = random();
+  const speed = x => Math.sin(Math.PI * Math.min(1, x * dur / len)); // 0 → 1 → 0 across the stroke
+  const env = gain(0);
+  env.gain.setValueCurveAtTime(curve(64, x => {
+    const s = x * dur;
+    return v * Math.sin(Math.PI / 2 * Math.min(1, s / xf)) * Math.cos(Math.PI / 2 * Math.max(0, (s - len) / xf)) * (0.7 + 0.3 * speed(x));
+  }), t, dur);
+  const scratch = noise(t, dur + 0.02, at), hp = filter('highpass', 900, 0.6), bp = filter('bandpass', 3000, 0.45);
+  bp.frequency.setValueCurveAtTime(curve(32, x => 2300 + 1700 * speed(x)), t, dur);
+  scratch.connect(hp); hp.connect(bp); bp.connect(env);
+  const wires = noise(t, dur + 0.02, (at + 0.5) % 1), wBp = filter('bandpass', 5200, 0.9), wG = gain(0.3);
+  wires.connect(wBp); wBp.connect(wG); wG.connect(env);
+  env.connect(out());
+  send(env, audio.reverbSend, 0.12);
 }
+
+// A tap: the brush laid onto the head, so the bristles land over a few
+// milliseconds instead of at once, the head itself barely moved (a little of
+// its low note), and the wires answering a moment longer.
 function brushTap(t, v) {
-  const n = noise(t, 0.15), bp = filter('bandpass', 2800, 0.5), env = gain(0);
-  perc(env.gain, t, v, 0.12, 0.002);
-  n.connect(bp); bp.connect(env); env.connect(out());
-  send(env, audio.reverbSend, 0.2);
+  const at = random();
+  const land = noise(t, 0.12, at), hp = filter('highpass', 800), bp = filter('bandpass', 3600, 0.5), e = gain(0);
+  perc(e.gain, t, v, 0.07, 0.004);
+  land.connect(hp); hp.connect(bp); bp.connect(e); e.connect(out());
+  const head = osc('triangle', 215, t, t + 0.12), hE = gain(0);
+  head.frequency.setValueAtTime(230, t);
+  head.frequency.exponentialRampToValueAtTime(200, t + 0.03);
+  perc(hE.gain, t, v * 0.12, 0.06, 0.003);
+  head.connect(hE); hE.connect(out());
+  const wires = noise(t, 0.2, (at + 0.5) % 1), wBp = filter('bandpass', 5000, 0.8), wE = gain(0);
+  perc(wE.gain, t, v * 0.3, 0.14, 0.006);
+  wires.connect(wBp); wBp.connect(wE); wE.connect(out());
+  send(e, audio.reverbSend, 0.15);
+  send(wE, audio.reverbSend, 0.15);
+}
+
+// The hi-hat closed with the foot, as a brush player keeps 2 and 4: the plates
+// meeting, a soft "chick", duller and shorter than a hat struck with a stick.
+function chick(t, v) {
+  const bp = filter('bandpass', 5000, 0.8), hp = filter('highpass', 2400), env = gain(0);
+  perc(env.gain, t, v, 0.05, 0.003);
+  metal(t, 0.1).connect(bp); bp.connect(hp); hp.connect(env); env.connect(out('hat'));
+  const n = noise(t, 0.04), nBp = filter('bandpass', 1300, 1.1), nE = gain(0);
+  perc(nE.gain, t, v * 0.4, 0.018, 0.001);
+  n.connect(nBp); nBp.connect(nE); nE.connect(out('hat'));
 }
 
 // ─── 80s pieces ───────────────────────────────────────────────────────────────
@@ -314,8 +352,9 @@ const KIT = {
   ohat:    [(t, v) => hat(t, v, true), 0.08],        ride:    [ride,    0.55],
   crash:   [crash,   0.08],  tomLo: [tomLo,   0.26], tomHi:   [tomHi,   0.22],
   congaLo: [congaLo, 0.2],   congaHi: [congaHi, 0.18], taiko: [taiko,   0.3],
-  shaker:  [shaker,  0.06],  bell:  [cowbell, 0.07], swish:   [swish,   0.3],
-  btap:    [brushTap, 0.34],
+  shaker:  [shaker,  0.06],  bell:  [cowbell, 0.07],
+  sweep:   [sweep,   0.1],   brush: [brushTap, 0.5],  chick:   [chick,   0.24],
+  swish:   [sweep,   0.1],   btap:  [brushTap, 0.5],  // ORIGINAL's brushes, the same sounds
   gsnare:  [gatedSnare, 0.2], simLo: [simLo,   0.26], simMid:  [simMid,  0.24],
   simHi:   [simHi,   0.22],  gtomLo: [gtomLo, 0.26], gtomMid: [gtomMid, 0.24],
   gtomHi:  [gtomHi,  0.22],
@@ -414,11 +453,15 @@ const STYLES = {
     taiko: 'X.......x.......',
     tomLo: 'x..x..x...x..x..',
     tomHi: '....o.......o.o.' } },
-  brushes: { bpm: [50, 110], swing: 0.66, human: true, tracks: {
-    swish: 'x...x...x...x...',
-    btap:  '....x.......x...',
-    kick:  'f.......f.......',
-    hat:   '....o.......o...' } },
+  // Jazz brushes, in triplets: the sweep through every beat; the right hand
+  // tapping the ride pattern on the snare (1, 2 and its skip note, 3, 4 and its
+  // skip, now and then the "let" before 2 or 4), slapped on 2 and 4 with the
+  // foot's hi-hat; the kick feathered. ORIGINAL plays ORIGINAL_BRUSHES.
+  brushes: { steps: 12, bpm: [50, 110], human: true, tracks: {
+    sweep: 'x..x..x..x..',
+    brush: 'o.?x.go.?x.g',
+    chick: '...o.....o..',
+    kick:  'f..f..f..f..' } },
   garage: { bpm: [118, 140], swing: 0.62, tracks: {
     kick:   'x.........x.....',
     snare:  '....x.......x...',
@@ -524,6 +567,15 @@ const STYLES = {
     hat:   'x..x..x.x..x..x.' } },
 };
 
+// The brushes as ORIGINAL plays them, note for note: a sweep on each beat, a tap
+// and the hi-hat on 2 and 4, in sixteenths.
+const ORIGINAL_BRUSHES = { bpm: [50, 110], swing: 0.66, human: true, tracks: {
+  swish: 'x...x...x...x...',
+  btap:  '....x.......x...',
+  kick:  'f.......f.......',
+  hat:   '....o.......o...' } };
+const styleNow = () => (style === 'brushes' && state.composer < 2 ? ORIGINAL_BRUSHES : STYLES[style]);
+
 // Fills replace snare/toms/cymbals over the last beat (or two, every 8th bar).
 const FILLS = {
   16: {
@@ -552,14 +604,14 @@ const FILL_REPLACES = ['snare', 'gsnare', 'tomHi', 'tomLo', 'hat', 'ohat', 'ride
 // section's last bar and a crash after it, a build's roll through its last
 // bars, faster and louder as it goes, played on the kit's own backbeat, kick
 // or percussion, and nothing at all in the silent beat before a drop.
-const PULSE   = new Set(['kick', 'k808', 'k909', 'taiko', 'hat', 'ride', 'shaker']);
+const PULSE   = new Set(['kick', 'k808', 'k909', 'taiko', 'hat', 'ride', 'shaker', 'sweep', 'chick']);
 const PART_LEVEL = { pulse: 0.75, light: 0.85, full: 1, roll: 1 }; // played softer in a verse, opened up in a chorus
 const ACCENTS = new Set(['ohat', 'crash', 'tamb', 'swish', 'bell', 'congaLo', 'congaHi']);
 const KICKS   = ['kick', 'k808', 'k909', 'taiko'];
-const SNARES  = ['snare', 'gsnare', 'clap', 'rim'];
+const SNARES  = ['snare', 'gsnare', 'clap', 'rim', 'brush'];
 // What each kind of roll stops while it plays: the parts it takes over.
 const ROLLED  = {
-  backbeat: ['snare', 'gsnare', 'clap', 'rim', 'tomHi', 'tomLo', 'simLo', 'simMid', 'simHi', 'gtomLo', 'gtomMid', 'gtomHi'],
+  backbeat: ['snare', 'gsnare', 'clap', 'rim', 'brush', 'tomHi', 'tomLo', 'simLo', 'simMid', 'simHi', 'gtomLo', 'gtomMid', 'gtomHi'],
   kick:     KICKS,
   perc:     ['congaLo', 'congaHi', 'tomLo', 'tomHi', 'bell'],
 };
@@ -626,7 +678,7 @@ function startBar(bar, p, steps) {
 }
 
 function play(t, b) {
-  const p     = STYLES[style];
+  const p     = styleNow();
   const steps = p.steps || 16;
   const unit  = 4 / steps;
   const bar   = Math.floor(b / 4 + 1e-6);
@@ -675,7 +727,7 @@ function play(t, b) {
     if (!v) continue;
     if (track !== 'crash' && sec) v *= PART_LEVEL[part];
     const [fn, level] = KIT[track];
-    const scale = ['hat', 'ohat', 'ride', 'shaker', 'crash', 'swish', 'tamb'].includes(track) ? bright : density;
+    const scale = ['hat', 'ohat', 'ride', 'shaker', 'crash', 'swish', 'sweep', 'chick', 'tamb'].includes(track) ? bright : density;
     let at = st;
     if (p.human) { at += rand(-0.004, 0.004); v *= rand(0.9, 1.07); }
     if (track === 'hat' && rollSteps.has(i)) {
