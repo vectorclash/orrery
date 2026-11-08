@@ -1,4 +1,4 @@
-import { state, rootName, scaleName, START_DELAY, ROOT_BASE_MIDI, LATEST_COMPOSER, pick } from './state.js';
+import { state, rootName, START_DELAY, ROOT_BASE_MIDI, LATEST_COMPOSER, pick } from './state.js';
 import { audio, ensureAudioRunning, audioStopped, setRoom, ROOMS, heardTime } from './audio/context.js';
 import { everyTick } from './audio/ticker.js';
 import {
@@ -196,7 +196,6 @@ const voiceLabel = ({ key, label }) => label ?? key.toUpperCase();
 // ─── UI refs ──────────────────────────────────────────────────────────────────
 const startBtn        = document.getElementById('start-btn');
 const nextBtn         = document.getElementById('next-btn');
-const infoEl          = document.getElementById('info');
 const stateEl         = document.getElementById('state-line');
 const infiniteUi      = document.getElementById('infinite-ui');
 const manualUi        = document.getElementById('manual-ui');
@@ -309,7 +308,7 @@ Object.entries(ROOMS).forEach(([key, r]) => {
   roomSelect.appendChild(o);
 });
 
-const fmt2 = x => (+x).toFixed(2);
+const pct = x => `${Math.round(x * 100)}%`;
 const signed = x => (x >= 0 ? '+' : '') + x;
 
 // Writes every FEEL control from `state`. All programmatic changes (genre,
@@ -323,19 +322,19 @@ function showFeel() {
   octaveSlider.value     = state.octaveShift;
   octaveVal.textContent  = signed(state.octaveShift);
   densitySlider.value    = state.density;
-  densityVal.textContent = fmt2(state.density);
+  densityVal.textContent = pct(state.density);
   brightSlider.value     = state.brightness;
-  brightVal.textContent  = fmt2(state.brightness);
+  brightVal.textContent  = pct(state.brightness);
   spaceSlider.value      = state.spaciousness;
-  spaceVal.textContent   = fmt2(state.spaciousness);
+  spaceVal.textContent   = pct(state.spaciousness);
   harmonySlider.value    = state.harmonyLock;
-  harmonyVal.textContent = fmt2(state.harmonyLock);
+  harmonyVal.textContent = pct(state.harmonyLock);
   chordSlider.value      = state.chordBeats;
   chordVal.textContent   = state.chordBeats;
   pumpSlider.value       = state.pump;
-  pumpVal.textContent    = fmt2(state.pump);
+  pumpVal.textContent    = pct(state.pump);
   sweepSlider.value      = state.sweep;
-  sweepVal.textContent   = fmt2(state.sweep);
+  sweepVal.textContent   = pct(state.sweep);
   roomSelect.value       = state.room;
   showComposer();
   refreshSummaries();
@@ -743,51 +742,24 @@ function updatePlayEnabled() {
 updatePlayEnabled();
 
 // ─── Live slider / select updates (take effect mid-playback) ─────────────────
-bpmSlider.addEventListener('input', () => {
-  state.tempo = parseInt(bpmSlider.value, 10);
-  bpmValue.textContent = bpmSlider.value;
-  clearGenreHighlight();
-});
-octaveSlider.addEventListener('input', () => {
-  state.octaveShift = parseInt(octaveSlider.value, 10);
-  octaveVal.textContent = signed(state.octaveShift);
-  clearGenreHighlight();
-});
-densitySlider.addEventListener('input', () => {
-  state.density = parseFloat(densitySlider.value);
-  densityVal.textContent = state.density.toFixed(2);
-  clearGenreHighlight();
-});
-brightSlider.addEventListener('input', () => {
-  state.brightness = parseFloat(brightSlider.value);
-  brightVal.textContent = state.brightness.toFixed(2);
-  clearGenreHighlight();
-});
-spaceSlider.addEventListener('input', () => {
-  state.spaciousness = parseFloat(spaceSlider.value);
-  spaceVal.textContent = state.spaciousness.toFixed(2);
-  clearGenreHighlight();
-});
-harmonySlider.addEventListener('input', () => {
-  state.harmonyLock = parseFloat(harmonySlider.value);
-  harmonyVal.textContent = state.harmonyLock.toFixed(2);
-  clearGenreHighlight();
-});
-pumpSlider.addEventListener('input', () => {
-  state.pump = parseFloat(pumpSlider.value);
-  pumpVal.textContent = state.pump.toFixed(2);
-  clearGenreHighlight();
-});
-sweepSlider.addEventListener('input', () => {
-  state.sweep = parseFloat(sweepSlider.value);
-  sweepVal.textContent = state.sweep.toFixed(2);
-  clearGenreHighlight();
-});
-chordSlider.addEventListener('input', () => {
-  state.chordBeats = parseInt(chordSlider.value, 10);
-  chordVal.textContent = chordSlider.value;
-  clearGenreHighlight();
-});
+// Each slider, the state it sets, and how its value reads beside it.
+for (const [slider, out, key, show] of [
+  [bpmSlider,     bpmValue,   'tempo',        String],
+  [octaveSlider,  octaveVal,  'octaveShift',  signed],
+  [densitySlider, densityVal, 'density',      pct],
+  [brightSlider,  brightVal,  'brightness',   pct],
+  [spaceSlider,   spaceVal,   'spaciousness', pct],
+  [harmonySlider, harmonyVal, 'harmonyLock',  pct],
+  [pumpSlider,    pumpVal,    'pump',         pct],
+  [sweepSlider,   sweepVal,   'sweep',        pct],
+  [chordSlider,   chordVal,   'chordBeats',   String],
+]) {
+  slider.addEventListener('input', () => {
+    state[key] = parseFloat(slider.value);
+    out.textContent = show(state[key]);
+    clearGenreHighlight();
+  });
+}
 lengthInput.addEventListener('input', () => {
   if (manualForm === 'song') songLength = parseInt(lengthInput.value, 10);
   else loopLength = parseInt(lengthInput.value, 10);
@@ -805,11 +777,10 @@ scaleSelect.addEventListener('change', () => {
 });
 roomSelect.addEventListener('change', () => { applyFeel({ room: roomSelect.value }); clearGenreHighlight(); });
 
-// Carry the settings infinite mode was playing into the edit panel's controls.
-// Infinite mode has already been stopped by the time this runs — this only
-// transfers the snapshot of root/scale/sliders/instruments, it doesn't resume
-// playback, since infinite's own era evolution must not keep mutating them
-// once we're in edit mode.
+// Carry what Infinite mode was playing into the edit panel's controls: a song
+// whole (see showSong), an era as a LOOP of its key, feel and instruments.
+// Infinite's ticks have stopped by the time this runs, so its era evolution
+// can't go on changing them.
 function syncManualFromInfinite() {
   if (infiniteKind === 'songs' && songPlan) {
     showSong(songPlan);
@@ -821,6 +792,34 @@ function syncManualFromInfinite() {
     `bass:${bassVoice.style}`,
     ...activeVoices.map(v => v.name === 'drums' ? `drums:${v.style}` : v.name),
   ].filter(k => k in manualEnabled)));
+  setForm('loop');
+}
+
+// The state's settings, not its getters (rootBase), which can't be set back.
+const settingsOf = s => Object.fromEntries(
+  Object.entries(Object.getOwnPropertyDescriptors(s)).filter(([, d]) => 'value' in d).map(([k, d]) => [k, d.value]));
+
+// Switching to EDIT doesn't stop the music: what plays carries on, now Edit's,
+// with the controls describing it. A song goes on from where it has got to,
+// and still stops at its end; an era goes on as a LOOP, no longer evolving, as
+// Edit's loops don't. Paused, it stays paused, and PLAY carries on.
+function handOverToEdit() {
+  // Mid-fade into another song, which hasn't started yet: stop, as before.
+  if (switching) { stopInfinite(); syncManualFromInfinite(); return; }
+  releaseInfinite();
+  // The controls take the song's own feel; what plays keeps its section's (a
+  // lifted key, the energy), set only as each section starts. So the shared
+  // state comes through the sync as it was.
+  const playing = settingsOf(state);
+  syncManualFromInfinite();
+  Object.assign(state, playing);
+  manualPlaying = true;
+  manualStopBtn.disabled = false;
+  manualStatus.classList.add('active');
+  showManualPlaying(!paused);
+  showManualStatus();
+  updatePlayEnabled();
+  if (!paused) manualTicks = everyTick(manualEveryTick);
 }
 
 // A song comes across whole -- its genre, its own feel (not a section's) and
@@ -847,7 +846,6 @@ modeTabs.forEach(tab => {
     if (mode === currentMode) return;
 
     const wasInfinitePlaying = currentMode === 'infinite' && infiniteRunning;
-    if (wasInfinitePlaying) stopInfinite();
     if (currentMode === 'manual' && manualPlaying) stopManualPlayback();
 
     currentMode = mode;
@@ -856,7 +854,7 @@ modeTabs.forEach(tab => {
     manualUi.classList.toggle('active', mode === 'manual');
     if (mode === 'manual') {
       if (wasInfinitePlaying) {
-        syncManualFromInfinite();
+        handOverToEdit();
       } else if (!Object.values(manualEnabled).some(v => v)) {
         randomizeAll();
       }
@@ -895,25 +893,63 @@ window.addEventListener('keydown', e => {
   if (mirrors.on && ['1', '2', '3'].includes(key)) useSymmetry(+key - 1);
 });
 
+// Space plays and pauses, as in any player. A control reached with Tab keeps
+// Space for itself (that's how a keyboard presses it); one last clicked lets go
+// of focus, or Space would press it again. A slider has no use for Space, and a
+// select or a text field keeps it. (Not :focus-visible, which a key pressed on a
+// clicked button turns on before this can ask.)
+let tabbing = false;
+window.addEventListener('pointerdown', () => { tabbing = false; }, true);
+window.addEventListener('keydown', e => { if (e.key === 'Tab') tabbing = true; }, true);
+window.addEventListener('keydown', e => {
+  if (e.key !== ' ' || e.metaKey || e.ctrlKey || e.altKey || e.repeat) return;
+  const t = e.target;
+  if (t.closest?.('select, textarea, [contenteditable], input:not([type="range"], [type="checkbox"])')) return;
+  if (t !== document.body && tabbing && t.type !== 'range') return;
+  e.preventDefault();
+  t.blur?.();
+  (currentMode === 'manual' ? manualPlayBtn : startBtn).click();
+});
+
 // ─── Infinite mode ────────────────────────────────────────────────────────────
 // Two ways to go on forever: ERAS, where everything -- key, tempo, instruments --
 // changes every 38 seconds, and SONGS, one composed song after another, each
 // from a genre's kit, with an intro, an outro and its sections in between
 // (see src/audio/song.js).
 
+// What's playing, in the words the controls use: a title, the key and tempo,
+// where it has got to, and who's playing. Written every tick, so a line is
+// only touched when it changes.
+const nowPlaying = [...stateEl.children];
+function showNowPlaying(...lines) {
+  nowPlaying.forEach((el, i) => {
+    const text = lines[i] ?? '';
+    if (el.textContent !== text) el.textContent = text;
+  });
+}
+
+// A line of names, broken only between them: RUMBLE BASS never splits.
+const nameLine = names => names.map(n => n.replace(/ /g, '\u00a0')).join(' · ');
+
+// An instrument by the name its button has in Edit.
+function partName(name, style) {
+  if (name === 'bass')  return `${BASS_LABELS[style] ?? style} BASS`;
+  if (name === 'drums') return `${DRUMS_LABELS[style] ?? style} DRUMS`;
+  return voiceLabel(voiceByKey.get(name) ?? { key: name });
+}
+
 // The line describes what's heard: a new era's key and voices wait until the
-// era reaches the speakers, and until then the old one reads 100%.
+// era reaches the speakers, and until then the old one reads full time.
 let shownEra = 0;
 function updateInfiniteDisplay() {
   if (state.era !== shownEra && heardTime() < transport.timeAt(eraBegan)) return;
   shownEra = state.era;
-  const prog       = Math.min(100, Math.round((eraTimer / ERA_DURATION) * 100));
-  const voiceNames = [
-    `bass(${bassVoice.style})`,
-    ...activeVoices.map(v => v.style ? `${v.name}(${v.style})` : v.name),
-  ].join(' · ');
-  const oct = state.octaveShift;
-  stateEl.textContent = `${rootName()} ${scaleName()}  ·  ${Math.round(state.tempo)} bpm  ·  oct ${oct >= 0 ? '+' : ''}${oct}  ·  ${ROOMS[state.room].label.toLowerCase()}  ·  era ${state.era}  [${prog}%]\n${voiceNames}`;
+  showNowPlaying(
+    `ERA ${state.era + 1}`,
+    nameLine([`${rootName()} ${SCALE_LABELS[state.scaleIdx]}`, `${Math.round(state.tempo)} BPM`, `OCT ${signed(state.octaveShift)}`, ROOMS[state.room].label]),
+    `${clock(Math.min(eraTimer, ERA_DURATION))} / ${clock(ERA_DURATION)}`,
+    nameLine([partName('bass', bassVoice.style), ...activeVoices.map(v => partName(v.name, v.style))]),
+  );
 }
 
 const clock = sec => `${Math.floor(sec / 60)}:${String(Math.floor(sec % 60)).padStart(2, '0')}`;
@@ -928,17 +964,20 @@ function songPosition() {
   return { sec, label, at: clock(b * 60 / s.tempo), of: clock(songSeconds(s)) };
 }
 
+// Who plays in a section names the drums' level when it isn't the full kit:
+// PULSE, LIGHT…
 function updateSongDisplay() {
   const p = songPosition();
   if (!p) return;
   const { sec } = p;
-  const voiceNames = [
-    ...(sec.bass ? [`bass(${bassVoice.style})`] : []),
-    ...sec.voices.map(n => n === 'drums' ? `drums(${drumsVoice.style}${sec.drums === 'full' ? '' : ', ' + sec.drums})` : n),
-  ].join(' · ');
+  const drums = () => partName('drums', drumsVoice.style) + (sec.drums && sec.drums !== 'full' ? ` (${sec.drums.toUpperCase()})` : '');
   const key = ROOT_NAMES[(song.base.rootMidi - ROOT_BASE_MIDI + sec.shift) % 12];
-  stateEl.textContent = `${songPlan.genre.toLowerCase()}  ·  ${key} ${scaleName()}  ·  ${Math.round(state.tempo)} bpm  ·  ${ROOMS[state.room].label.toLowerCase()}\n` +
-    `${p.label.toLowerCase()}  ·  ${p.at} / ${p.of}\n${voiceNames}`;
+  showNowPlaying(
+    songEntry?.variation ? `${songPlan.genre} · VARIATION` : songPlan.genre,
+    nameLine([`${key} ${SCALE_LABELS[state.scaleIdx]}`, `${Math.round(state.tempo)} BPM`, ROOMS[state.room].label]),
+    `${p.label.toUpperCase()} · ${p.at} / ${p.of}`,
+    nameLine([...(sec.bass ? [partName('bass', bassVoice.style)] : []), ...sec.voices.map(n => n === 'drums' ? drums() : partName(n))]),
+  );
 }
 
 function showNext(shown) {
@@ -955,18 +994,23 @@ function showInfinitePlaying(on) {
   startBtn.classList.toggle('playing', on);
 }
 
-function stopInfinite() {
+// Infinite lets go: its ticks stop and its controls reset, and the music is
+// left as it is, for STOP to silence or EDIT to take on (see handOverToEdit).
+function releaseInfinite() {
   infiniteTicks?.();
   infiniteTicks    = null;
   infiniteRunning  = false;
-  paused           = false;
-  muteAudio();
   showNext(false);
   showInfinitePlaying(false);
-  infoEl.classList.remove('active');
   stateEl.classList.remove('active');
-  stateEl.textContent = '';
+  showNowPlaying();
   updateKindUI();
+}
+
+function stopInfinite() {
+  releaseInfinite();
+  paused = false;
+  muteAudio();
 }
 
 function startEras() {
@@ -1187,7 +1231,6 @@ const startInfinite = oneStart(async () => {
   if (!await startAudio()) return;
 
   showInfinitePlaying(true);
-  infoEl.classList.add('active');
   stateEl.classList.add('active');
 
   if (infiniteKind === 'songs') startSong((startOn ?? (() => played(composeInfiniteSong())))());
@@ -1858,7 +1901,7 @@ manualExportBtn.addEventListener('click', async () => {
 songExportBtn.addEventListener('click', async () => {
   if (exporting) {
     if (exportBtn !== songExportBtn) return;
-    stopExport(); songExportBtn.textContent = 'EXPORT SONG';
+    stopExport(); songExportBtn.textContent = 'EXPORT';
     return;
   }
   if (!songPlan || !window.OfflineAudioContext) return;
@@ -1871,7 +1914,7 @@ songExportBtn.addEventListener('click', async () => {
   if (done === 'cancelled') return;
   songExportBtn.classList.remove('recording');
   songExportBtn.textContent = done === 'saved' ? 'SAVED' : 'FAILED';
-  setTimeout(() => { if (!exporting) songExportBtn.textContent = 'EXPORT SONG'; }, 1600);
+  setTimeout(() => { if (!exporting) songExportBtn.textContent = 'EXPORT'; }, 1600);
 });
 
 // ─── Form: a loop, or a song ──────────────────────────────────────────────────
@@ -1974,14 +2017,23 @@ clearInstrumentsBtn.addEventListener('click', () => setInstruments(new Set()));
 
 // ─── Collapsible sections ─────────────────────────────────────────────────────
 // An accordion: opening one section closes the others, which keeps the panel
-// short (the collapsed ones still show their summary line).
+// short (the collapsed ones still show their summary line). A closed section's
+// controls are inert, so Tab doesn't wander into what can't be seen.
 const sections = document.querySelectorAll('.collapsible-section');
+function openSection(open) {
+  sections.forEach(s => {
+    const shut = s !== open;
+    s.classList.toggle('collapsed', shut);
+    s.querySelector('.section-toggle').setAttribute('aria-expanded', String(!shut));
+    s.querySelector('.section-body').inert = shut;
+  });
+}
+openSection(null);
 document.querySelectorAll('.section-header').forEach(header => {
   header.addEventListener('click', e => {
     if (e.target.closest('.header-btn')) return;
     const section = header.closest('.collapsible-section');
-    const opening = section.classList.contains('collapsed');
-    sections.forEach(s => s.classList.toggle('collapsed', !(opening && s === section)));
+    openSection(section.classList.contains('collapsed') ? section : null);
   });
 });
 

@@ -52,6 +52,7 @@ async function main() {
   const bundleFilename = path.basename(jsOutput);
 
   await cp(path.join(ROOT, 'images'), path.join(DIST, 'images'), { recursive: true });
+  await cp(path.join(ROOT, 'fonts'), path.join(DIST, 'fonts'), { recursive: true });
   await cp(path.join(ROOT, '.htaccess'), path.join(DIST, '.htaccess'));
 
   const html = await readFile(path.join(ROOT, 'index.html'), 'utf8');

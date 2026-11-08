@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Orrery — Generative Music</title>
+  <link rel="preload" href="fonts/courier-prime-400.woff2" as="font" type="font/woff2" crossorigin>
   <script type="importmap">
   {
     "imports": {
@@ -14,13 +15,45 @@
   </script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    /* Courier Prime: Courier redrawn for screens, with the strokes Courier New
+       lacks at small sizes. Hosted here (SIL Open Font License, fonts/OFL.txt),
+       so every browser shows the same letters; Courier New stands in until it
+       loads, at the same widths. */
+    @font-face {
+      font-family: 'Courier Prime';
+      src: url('fonts/courier-prime-400.woff2') format('woff2');
+      font-weight: 400;
+      font-style: normal;
+      font-display: swap;
+    }
+
+    /* ─── Palette ────────────────────────────────────────────────────────────
+       Three inks for text. The dimmest, --ink-3, is the floor: about 7:1 on
+       the panels, so a label over a bright star still reads. Controls sit on
+       --chip over the scene and --panel in the sheets, dark enough that the
+       stars behind them don't break up their letters. */
+    :root {
+      --ink-1: #e4edf6;   /* selected, pressed, playing */
+      --ink-2: #b4c5d6;   /* values, and the controls' own text */
+      --ink-3: #8a9db0;   /* labels, and controls not selected */
+      --line-1: #7f9fbe;  /* the edge of what's hovered or playing */
+      --line-sel: #a3bdd6; /* the edge of what's chosen */
+      --line-2: #4a5e72;  /* a control's edge */
+      --line-3: #243241;  /* dividers */
+      --sel: rgba(110, 150, 210, 0.24);
+      --chip: rgba(5, 7, 12, 0.74);
+      --panel: rgba(5, 7, 12, 0.92);
+      /* Text straight on the scene: a dark halo for contrast, then the glow. */
+      --halo: 0 1px 2px #000, 0 0 6px #000, 0 0 16px rgba(100, 140, 200, 0.35);
+    }
     html {
       overflow: hidden;
     }
     body {
       background: #0a0a0f;
       color: #ccc;
-      font-family: 'Courier New', monospace;
+      font-family: 'Courier Prime', 'Courier New', monospace;
       height: 100vh;
       overflow: hidden;
       display: flex;
@@ -35,6 +68,9 @@
       z-index: 0;
     }
     #three-container canvas { display: block; }
+
+    /* Keyboard focus shows everywhere, the sliders and selects included. */
+    :focus-visible { outline: 2px solid var(--line-1); outline-offset: 2px; }
 
     /* ─── Root UI wrapper ──────────────────────────────────────────────────── */
     #ui {
@@ -52,7 +88,8 @@
     #mode-tabs {
       pointer-events: all;
       display: flex;
-      border: 1px solid #4a5a6a;
+      border: 1px solid var(--line-2);
+      background: var(--chip);
       position: fixed;
       top: 20px;
       left: 50%;
@@ -62,8 +99,8 @@
     .mode-tab {
       background: transparent;
       border: none;
-      border-right: 1px solid #4a5a6a;
-      color: #7a8a9a;
+      border-right: 1px solid var(--line-2);
+      color: var(--ink-3);
       font-family: inherit;
       font-size: 11px;
       padding: 8px 22px;
@@ -77,8 +114,8 @@
     .mode-tab:last-child { border-right: none; }
     /* Hover styles only where there is hover: on a touch screen :hover sticks to
        the last thing tapped, so a toggle tapped away from still looked selected. */
-    @media (hover: hover) { .mode-tab:hover { color: #aabece; } }
-    .mode-tab.active { color: #d0dde8; background: rgba(100,140,200,0.12); }
+    @media (hover: hover) { .mode-tab:hover { color: var(--ink-1); } }
+    .mode-tab.active { color: var(--ink-1); background: var(--sel); }
 
     /* ─── Kaleidoscope toggle ─────────────────────────────────────────────── */
     /* A view setting for both modes, so it sits outside them: level with the
@@ -90,9 +127,9 @@
       top: 20px;
       left: calc(20px + env(safe-area-inset-left, 0px));
       z-index: 2;
-      background: transparent;
-      border: 1px solid #4a5a6a;
-      color: #7a8a9a;
+      background: var(--chip);
+      border: 1px solid var(--line-2);
+      color: var(--ink-3);
       font-family: inherit;
       font-size: 11px;
       padding: 8px 22px;
@@ -105,15 +142,12 @@
     /* Its negative margins keep the icon from heightening the line, so the
        button stays as tall as the tabs beside it. */
     #kaleido-btn svg { display: none; width: 1.6em; height: 1.6em; margin: -0.3em 0; vertical-align: middle; }
-    @media (hover: hover) { #kaleido-btn:hover { color: #aabece; } }
-    #kaleido-btn.active { color: #d0dde8; background: rgba(100,140,200,0.12); }
+    @media (hover: hover) { #kaleido-btn:hover { color: var(--ink-1); } }
+    #kaleido-btn.active { color: var(--ink-1); background: var(--sel); }
     @media (max-width: 759px) {
       #kaleido-btn { left: calc(16px + env(safe-area-inset-left, 0px)); padding: 8px 12px; }
       #kaleido-btn svg { display: inline-block; }
       #kaleido-btn .lbl { display: none; }
-    }
-    @media (max-width: 600px) {
-      #kaleido-btn { font-size: 12px; padding: 12px; } /* as the tabs' bigger tap targets */
     }
 
     /* ─── Infinite mode UI ────────────────────────────────────────────────── */
@@ -122,7 +156,7 @@
        animating desyncs on mobile. */
     #infinite-ui {
       position: fixed;
-      bottom: calc(36px + env(safe-area-inset-bottom, 0px));
+      bottom: calc(32px + env(safe-area-inset-bottom, 0px));
       left: 0;
       right: 0;
       padding: 0 16px;
@@ -135,12 +169,12 @@
     }
     #start-btn {
       pointer-events: all;
-      background: rgba(8, 8, 14, 0.5);
-      border: 1px solid #555;
-      color: #999;
+      background: var(--chip);
+      border: 1px solid var(--line-2);
+      color: var(--ink-2);
       font-family: inherit;
       font-size: clamp(18px, 5vw, 28px);
-      padding: clamp(16px, 4vw, 22px) clamp(40px, 10vw, 72px);
+      padding: clamp(14px, 3.6vw, 20px) clamp(40px, 10vw, 72px);
       cursor: pointer;
       letter-spacing: 4px;
       text-transform: uppercase;
@@ -148,19 +182,20 @@
       -webkit-tap-highlight-color: transparent;
       touch-action: manipulation;
     }
-    @media (hover: hover) { #start-btn:hover           { border-color: #aaa; color: #eee; } }
-    #start-btn:active          { border-color: #ccc; color: #fff; }
-    #start-btn.playing         { border-color: #556; color: #778; }
-    @media (hover: hover) { #start-btn.playing:hover   { border-color: #99aacc; color: #bbccdd; } }
+    @media (hover: hover) { #start-btn:hover           { border-color: var(--line-1); color: var(--ink-1); } }
+    #start-btn:active          { border-color: var(--ink-2); color: #fff; }
+    /* Playing, it steps back for the scene, but stays readable. */
+    #start-btn.playing         { color: var(--ink-3); }
+    @media (hover: hover) { #start-btn.playing:hover   { border-color: var(--line-1); color: var(--ink-1); } }
 
     /* Grow out of PLAY's edges while playing; collapsed to nothing (and out
        of the tab order) while stopped. PREV is for songs alone: eras have no
        history to go back through. */
     #next-btn, #prev-btn {
       pointer-events: none;
-      background: rgba(8, 8, 14, 0.5);
+      background: var(--chip);
       border: 1px solid transparent;
-      color: #8899aa;
+      color: var(--ink-2);
       font-family: inherit;
       font-size: clamp(12px, 3.2vw, 15px);
       letter-spacing: 3px;
@@ -182,11 +217,11 @@
       max-width: 160px;
       padding: 0 clamp(16px, 4vw, 26px);
       opacity: 1;
-      border-color: #556;
+      border-color: var(--line-2);
     }
     #next-btn.shown { margin-left: 10px; }
     #prev-btn.shown { margin-right: 10px; }
-    @media (hover: hover) { #next-btn.shown:hover, #prev-btn.shown:hover { border-color: #99aacc; color: #d0dde8; } }
+    @media (hover: hover) { #next-btn.shown:hover, #prev-btn.shown:hover { border-color: var(--line-1); color: var(--ink-1); } }
     #next-btn.shown:active, #prev-btn.shown:active { border-color: #aabece; color: #e0ecf6; }
     /* All three have to fit the narrowest phones. */
     @media (max-width: 380px) {
@@ -218,25 +253,30 @@
     @keyframes landed {
       from { color: #fff; border-color: #d0e0f0; }
     }
-    #info {
-      font-size: 16px;
-      letter-spacing: 2px;
-      color: #778899;
-      line-height: 1.8;
-      transition: color 1s;
-      text-shadow: 0 1px 4px #000, 0 0 18px rgba(100,140,200,0.6);
-    }
-    #info.active { color: #ccd8e8; }
+
+    /* What's playing, under the controls: a title, then the key and tempo,
+       where it has got to, and who's playing. Shown once something plays. */
     #state-line {
-      font-size: 14px;
-      color: #556677;
-      letter-spacing: 2px;
-      transition: color 2s;
-      text-shadow: 0 1px 4px #000, 0 0 14px rgba(100,140,200,0.5);
-      white-space: pre-line;
-      line-height: 1.8;
+      width: fit-content;
+      max-width: 100%;
+      margin: 0 auto;
+      padding: 2px 10px;
+      font-size: 12px;
+      letter-spacing: 0.1em;
+      line-height: 1.65;
+      color: var(--ink-2);
+      text-shadow: var(--halo);
+      /* A soft-edged shade behind the lines: a bright star passing behind
+         them would otherwise take a word out. */
+      background: rgba(3, 4, 9, 0.42);
+      box-shadow: 0 0 22px 16px rgba(3, 4, 9, 0.42);
+      border-radius: 24px;
+      opacity: 0;
+      transition: opacity 1.5s;
     }
-    #state-line.active { color: #99b0c8; }
+    #state-line.active { opacity: 1; }
+    #state-line .np-title { font-size: 13px; letter-spacing: 0.2em; color: var(--ink-1); }
+    #state-line .np-players { color: var(--ink-3); }
 
     /* The hidden attribute wins over a display set here (.ctrl-row's flex). */
     [hidden] { display: none !important; }
@@ -247,47 +287,48 @@
       justify-content: center;
       align-items: center;
       gap: 10px;
-      margin-bottom: 10px;
+      margin-bottom: 12px;
     }
     .kind-toggle {
       pointer-events: all;
       display: inline-flex;
-      border: 1px solid #3a4a5a;
-      background: rgba(8, 8, 14, 0.5);
+      border: 1px solid var(--line-2);
+      background: var(--chip);
     }
     .kind-btn, .kind-action {
       pointer-events: all;
       background: transparent;
       border: none;
-      color: #6a7a8a;
+      color: var(--ink-3);
       font-family: inherit;
-      font-size: 10px;
-      letter-spacing: 2.5px;
-      padding: 6px 14px;
+      font-size: 11px;
+      letter-spacing: 0.14em;
+      padding: 7px 14px;
       cursor: pointer;
       text-transform: uppercase;
       transition: color 0.2s, background 0.2s, border-color 0.2s;
       -webkit-tap-highlight-color: transparent;
       touch-action: manipulation;
     }
-    .kind-btn + .kind-btn { border-left: 1px solid #3a4a5a; }
-    @media (hover: hover) { .kind-btn:hover, .kind-action:hover:not(:disabled) { color: #aabece; } }
-    .kind-btn.active { color: #d0dde8; background: rgba(100,140,200,0.12); }
+    .kind-btn + .kind-btn { border-left: 1px solid var(--line-2); }
+    @media (hover: hover) { .kind-btn:hover, .kind-action:hover:not(:disabled) { color: var(--ink-1); } }
+    .kind-btn.active { color: var(--ink-1); background: var(--sel); }
     .kind-action {
-      border: 1px solid #3a4a5a;
-      background: rgba(8, 8, 14, 0.5);
+      border: 1px solid var(--line-2);
+      background: var(--chip);
     }
-    .kind-action.recording { border-color: #8a6a6a; color: #c8a8a8; }
+    @media (hover: hover) { .kind-action:hover:not(:disabled) { border-color: var(--line-1); } }
+    .kind-action.recording { border-color: #8a6a6a; color: #dcbcbc; }
     .kind-action:disabled { opacity: 0.5; cursor: not-allowed; }
-    .kind-action.on { color: #d0dde8; background: rgba(100,140,200,0.12); }
+    .kind-action.on { color: var(--ink-1); background: var(--sel); border-color: var(--line-sel); }
 
-    /* KEEP · MORE LIKE THIS · EXPORT SONG: what can be done with the song playing */
+    /* KEEP · MORE LIKE THIS · EXPORT: what can be done with the song playing */
     #song-actions {
       display: flex;
       flex-wrap: wrap;
       justify-content: center;
       gap: 8px 10px;
-      margin-bottom: 10px;
+      margin-bottom: 16px;
     }
 
     /* ─── Library ─────────────────────────────────────────────────────────── */
@@ -299,25 +340,25 @@
       position: fixed;
       left: 0;
       right: 0;
-      bottom: calc(36px + env(safe-area-inset-bottom, 0px));
+      bottom: calc(32px + env(safe-area-inset-bottom, 0px));
       margin: 0 auto;
-      width: min(500px, 92vw);
-      max-height: calc(100dvh - 36px - env(safe-area-inset-bottom, 0px) - 76px);
-      background: rgba(4, 5, 10, 0.97);
-      border: 1px solid #4a5a6a;
+      width: min(520px, 92vw);
+      max-height: calc(100dvh - 32px - env(safe-area-inset-bottom, 0px) - 76px);
+      background: var(--panel);
+      border: 1px solid var(--line-2);
       text-align: left;
     }
     /* The sheet sits over these, so they step back rather than show through; the
        transport above stays, for a short list. */
     .library-open #infinite-kind, .library-open #song-actions,
-    .library-open #info, .library-open #state-line { visibility: hidden; }
+    .library-open #state-line { visibility: hidden; }
     #library-head {
       display: flex;
       justify-content: space-between;
       align-items: center;
       gap: 10px;
       padding: 12px clamp(14px, 3.5vw, 22px);
-      border-bottom: 1px solid #2a3a4a;
+      border-bottom: 1px solid var(--line-3);
     }
     #library-head .kind-toggle { background: transparent; }
     #library-list {
@@ -333,71 +374,90 @@
       align-items: center;
       gap: 8px 14px;
       padding: 12px 0;
-      border-bottom: 1px solid #1c2733;
+      border-bottom: 1px solid var(--line-3);
     }
     .library-row:last-child { border-bottom: none; }
     .library-about { flex: 1 1 200px; min-width: 0; }
     .library-name {
-      font-size: 11px;
-      letter-spacing: 2.5px;
-      color: #aabbcc;
+      font-size: 12px;
+      letter-spacing: 0.14em;
+      color: var(--ink-2);
     }
-    .library-row.current .library-name { color: #e0ecf6; }
-    .library-row.current .library-name::after { content: ' · PLAYING'; color: #7a9aba; }
+    .library-row.current .library-name { color: var(--ink-1); }
+    .library-row.current .library-name::after { content: ' · PLAYING'; color: var(--line-1); }
     .library-meta {
-      font-size: 9px;
-      letter-spacing: 1px;
-      color: #667788;
-      margin-top: 4px;
+      font-size: 11px;
+      letter-spacing: 0.04em;
+      color: var(--ink-3);
+      margin-top: 5px;
     }
     .library-actions { display: flex; gap: 6px; flex-shrink: 0; }
-    .library-actions .header-btn:last-child { min-width: 72px; } /* KEEP, REMOVE and SURE? line up */
+    .library-actions .header-btn:last-child { min-width: 80px; } /* KEEP, REMOVE and SURE? line up */
     .library-none {
       padding: 32px 0;
       text-align: center;
-      font-size: 10px;
-      letter-spacing: 2px;
-      color: #667788;
+      font-size: 11px;
+      letter-spacing: 0.12em;
+      color: var(--ink-3);
     }
     #form-row .kind-toggle, #composer-row .kind-toggle { background: transparent; }
-    #form-row .ctrl-label, #song-row .ctrl-label, #composer-row .ctrl-label, #length-row .ctrl-label { min-width: 72px; }
     @media (max-width: 359px) { #song-row .ctrl-label { display: none; } }
 
     /* ─── Collapsible sections ──────────────────────────────────────────────── */
+    /* One rhythm for every section: 16px from the divider to the header's
+       buttons (the tallest thing in it), 8px from them to the summary, and
+       16px from the summary to the next divider. */
     .collapsible-section {
-      border-top: 1px solid #2a3a4a;
-      padding-top: 10px;
+      border-top: 1px solid var(--line-3);
+      padding-top: 12px;
     }
     .collapsible-section:first-child { border-top: none; padding-top: 0; }
+    /* The section's name is its toggle (a button, so it can be reached from
+       the keyboard), but the whole header opens it; RANDOM and the other
+       buttons beside the name do their own thing. */
     .section-header {
-      display: flex;
-      flex-wrap: wrap;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
       align-items: center;
-      justify-content: space-between;
+      column-gap: 10px;
       cursor: pointer;
-      padding: 4px 6px;
-      margin: 0 -6px 6px;
+      padding: 4px 8px;
+      margin: 0 -8px 6px;
       user-select: none;
       -webkit-tap-highlight-color: transparent;
       touch-action: manipulation;
       transition: background 0.15s;
       border-radius: 2px;
     }
+    .section-toggle {
+      background: none;
+      border: none;
+      color: inherit;
+      font: inherit;
+      text-align: left;
+      padding: 4px 0; /* no taller than the buttons beside it, which set the row */
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+    }
     @media (hover: hover) { .section-header:hover { background: rgba(100,150,200,0.07); } }
-    @media (hover: hover) { .section-header:hover .section-label { color: #aabece; } }
-    @media (hover: hover) { .section-header:hover .section-chevron { color: #7a9fc0; border-color: #4a6a8a; } }
-    .section-header .section-label { margin-bottom: 0; }
+    @media (hover: hover) { .section-header:hover .section-label { color: var(--ink-1); } }
+    @media (hover: hover) { .section-header:hover .section-chevron { color: var(--ink-2); border-color: var(--line-1); } }
+    .section-label {
+      font-size: 12px;
+      letter-spacing: 0.2em;
+      color: var(--ink-2);
+      text-transform: uppercase;
+    }
     .section-header-right {
       display: flex;
       align-items: center;
-      gap: 10px;
+      gap: 8px;
     }
     .section-chevron {
-      font-size: 10px;
-      color: #4a6a80;
-      border: 1px solid #2a3a4a;
-      padding: 1px 7px;
-      letter-spacing: 1px;
+      font-size: 11px;
+      color: var(--ink-3);
+      border: 1px solid var(--line-2);
+      padding: 2px 8px;
       transition: color 0.15s, border-color 0.15s;
       flex-shrink: 0;
     }
@@ -405,11 +465,11 @@
     /* One-line readout of the section's settings, shown only while it's
        collapsed, so a section's RANDOM can be used without opening it. */
     .section-summary {
-      flex-basis: 100%;
+      grid-column: 1 / -1;
       text-align: left;
-      font-size: 9px;
-      letter-spacing: 2px;
-      color: #5a7088;
+      font-size: 11px;
+      letter-spacing: 0.05em;
+      color: var(--ink-3);
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -418,11 +478,12 @@
       transition: max-height 0.3s ease, opacity 0.2s, margin 0.3s ease, color 0.6s;
     }
     .collapsible-section.collapsed .section-summary {
-      max-height: 16px;
-      margin-top: 6px;
+      max-height: 18px;
+      margin-top: 8px;
+      margin-bottom: 6px;
       opacity: 1;
     }
-    .collapsible-section.flash .section-summary { color: #d0e0f0; transition: color 0s; }
+    .collapsible-section.flash .section-summary { color: var(--ink-1); transition: color 0s; }
     .collapsible-section.collapsed .section-chevron::before { content: '+'; }
     /* Folds with grid-template-rows 1fr → 0fr, like the panel body, so it
        opens to the content's own height whatever that is -- a max-height
@@ -445,33 +506,33 @@
     /* ─── Section header buttons (random / clear) ───────────────────────────── */
     .header-btn {
       background: transparent;
-      border: 1px solid #3a4a5a;
-      color: #6a7a8a;
+      border: 1px solid var(--line-2);
+      color: var(--ink-3);
       font-family: inherit;
-      font-size: 9px;
-      padding: 4px 10px;
+      font-size: 11px;
+      padding: 5px 12px;
       cursor: pointer;
-      letter-spacing: 2px;
+      letter-spacing: 0.1em;
       text-transform: uppercase;
       transition: border-color 0.15s, color 0.15s;
       -webkit-tap-highlight-color: transparent;
     }
-    @media (hover: hover) { .header-btn:hover { border-color: #6a8aaa; color: #aabece; } }
+    @media (hover: hover) { .header-btn:hover { border-color: var(--line-1); color: var(--ink-1); } }
     .header-btn:active { border-color: #aabece; color: #e0ecf6; }
 
     /* ─── Manual panel ────────────────────────────────────────────────────── */
-    /* A bottom sheet whose top bar is the HIDE/SHOW toggle. Collapsing
-       shrinks the sheet into that bar: the body's height folds to zero
-       (grid-template-rows 1fr → 0fr) and the width narrows to a pill, with
-       the bottom edge pinned — so the same box that said HIDE ends up as
-       the SHOW pill, resting where infinite mode's PLAY sits.
+    /* A sheet in three parts: its top bar, the HIDE/SHOW toggle; the
+       settings, which scroll, with RANDOMIZE ALL pinned under them; and the
+       transport, always in view, so PLAY is never scrolled away. HIDE folds
+       the settings to nothing (grid-template-rows 1fr → 0fr) and leaves the
+       bar and the transport, as Infinite mode leaves its own.
        Positioned with bottom/left/right + auto margins rather than a
        translate(-50%, -50%): a %-transform on a box whose size is animating
        desyncs on mobile, and bottom-anchoring needs no centring maths for
        short (landscape) viewports either. */
     #manual-ui {
-      --pad: clamp(14px, 3.5vw, 26px);
-      --bottom: calc(36px + env(safe-area-inset-bottom, 0px));
+      --pad: clamp(14px, 3.5vw, 24px);
+      --bottom: calc(32px + env(safe-area-inset-bottom, 0px));
       --top-clear: 76px; /* below the fixed #mode-tabs */
       --open-w: min(500px, 92vw);
       pointer-events: none;
@@ -485,23 +546,21 @@
       width: var(--open-w);
       max-height: calc(100dvh - var(--bottom) - var(--top-clear));
       overflow: hidden;
-      background: rgba(4, 5, 10, 0.8);
-      border: 1px solid #4a5a6a;
+      background: var(--panel);
+      border: 1px solid var(--line-2);
+      text-align: left;
       visibility: hidden;
       opacity: 0;
       transform: translateY(16px);
-      transition: opacity 0.3s ease, transform 0.3s ease, visibility 0s linear 0.3s,
-                  width 0.4s cubic-bezier(0.5, 0, 0.2, 1);
+      transition: opacity 0.3s ease, transform 0.3s ease, visibility 0s linear 0.3s;
     }
     #manual-ui.active {
       visibility: visible;
       opacity: 1;
       transform: none;
       pointer-events: all;
-      transition: opacity 0.3s ease, transform 0.3s ease, visibility 0s linear 0s,
-                  width 0.4s cubic-bezier(0.5, 0, 0.2, 1);
+      transition: opacity 0.3s ease, transform 0.3s ease, visibility 0s linear 0s;
     }
-    #manual-ui.collapsed { width: 140px; }
 
     #manual-ui-body {
       display: grid;
@@ -512,31 +571,39 @@
     }
     #manual-ui.collapsed #manual-ui-body { grid-template-rows: 0fr; }
 
-    /* Keeps its open width while the sheet narrows (centred, clipped by the
-       sheet) so the controls don't reflow mid-collapse — they just fade. */
-    #manual-ui-scroll {
+    /* The settings and RANDOMIZE ALL. The settings shrink and scroll when the
+       sheet is full; RANDOMIZE ALL stays put under them. */
+    #manual-ui-fold {
       min-height: 0;
-      width: var(--open-w);
-      margin-left: calc((100% - var(--open-w)) / 2);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      opacity: 1;
+      transition: opacity 0.25s ease 0.15s;
+    }
+    #manual-ui.collapsed #manual-ui-fold { opacity: 0; transition: opacity 0.15s ease; }
+    #manual-ui-scroll {
+      flex: 0 1 auto;
+      min-height: 0;
       overflow-x: hidden;
       overflow-y: auto;
-      padding: var(--pad);
-      padding-top: 8px;
+      overscroll-behavior: contain;
+      padding: 12px var(--pad) 0;
       -webkit-overflow-scrolling: touch;
       scrollbar-width: thin;
-      scrollbar-color: #3a4a5a transparent;
-      scrollbar-gutter: stable both-edges;
-      opacity: 1;
-      transition: opacity 0.25s ease 0.15s, padding 0.4s cubic-bezier(0.5, 0, 0.2, 1);
+      scrollbar-color: var(--line-2) transparent;
     }
     #manual-ui-scroll::-webkit-scrollbar { width: 3px; }
-    #manual-ui-scroll::-webkit-scrollbar-thumb { background: #3a4a5a; }
-    /* Padding would hold the folded body open, so it folds too. */
-    #manual-ui.collapsed #manual-ui-scroll {
-      opacity: 0;
-      padding-top: 0;
-      padding-bottom: 0;
-      transition: opacity 0.15s ease, padding 0.4s cubic-bezier(0.5, 0, 0.2, 1);
+    #manual-ui-scroll::-webkit-scrollbar-thumb { background: var(--line-2); }
+    #randomize-wrap {
+      flex: none;
+      padding: 16px var(--pad) 0;
+      border-top: 1px solid var(--line-3);
+    }
+    #randomize-all-btn { width: 100%; }
+    #manual-footer {
+      flex: none;
+      padding: 12px var(--pad) 8px;
     }
 
     /* Short viewports (landscape phones): sit closer to the bottom edge. */
@@ -548,8 +615,8 @@
     }
 
     /* Wide viewports: dock top-right at full height instead, and fold up
-       into a SHOW pill in that corner. Starts below the centred mode tabs
-       unless the viewport is wide enough for both side by side (below). */
+       into that corner. Starts below the centred mode tabs unless the
+       viewport is wide enough for both side by side (below). */
     @media (min-aspect-ratio: 5/4) and (min-width: 760px) {
       #manual-ui {
         --open-w: min(440px, 46vw);
@@ -577,256 +644,45 @@
       display: flex;
       align-items: center;
       gap: 12px;
-      margin-bottom: 16px;
+      margin-bottom: 14px;
     }
+    /* One width for every label, wide enough for COMPOSER, so the controls
+       line up from section to section. */
     .ctrl-label {
-      font-size: 10px;
-      letter-spacing: 3px;
-      color: #8899aa;
-      min-width: 58px;
+      font-size: 11px;
+      letter-spacing: 0.12em;
+      color: var(--ink-3);
+      min-width: 6.3em;
       text-align: right;
-      flex-shrink: 0;
-    }
-    .ctrl-unit {
-      font-size: 10px;
-      letter-spacing: 3px;
-      color: #8899aa;
       flex-shrink: 0;
     }
     .ctrl-value {
       font-size: 12px;
-      color: #aabece;
-      min-width: 3ch;
-    }
-
-    /* ─── BPM slider ─────────────────────────────────────────────────────────── */
-    #manual-bpm-slider {
-      -webkit-appearance: none;
-      appearance: none;
-      flex: 1;
-      height: 40px;
-      background: transparent;
-      outline: none;
-      cursor: pointer;
-      -webkit-tap-highlight-color: transparent;
-      touch-action: manipulation;
-    }
-    #manual-bpm-slider::-webkit-slider-runnable-track {
-      height: 4px;
-      border-radius: 2px;
-      background: #4a6a80;
-    }
-    #manual-bpm-slider::-moz-range-track {
-      height: 4px;
-      border-radius: 2px;
-      background: #4a6a80;
-    }
-    #manual-bpm-slider::-webkit-slider-thumb {
-      -webkit-appearance: none;
-      width: clamp(26px, 6vw, 34px);
-      height: clamp(26px, 6vw, 34px);
-      border-radius: 50%;
-      background: #8aafc8;
-      cursor: pointer;
-      margin-top: -13px;
-    }
-    #manual-bpm-slider::-moz-range-thumb {
-      width: clamp(26px, 6vw, 34px);
-      height: clamp(26px, 6vw, 34px);
-      border-radius: 50%;
-      background: #8aafc8;
-      cursor: pointer;
-      border: none;
-    }
-
-
-    /* instruments */
-    .section-label {
-      font-size: 9px;
-      letter-spacing: 4px;
-      color: #6a7a8a;
-      text-transform: uppercase;
-      margin-bottom: 12px;
-    }
-    #voice-groups {
-      margin-bottom: 22px;
-    }
-
-    /* instrument groups: a heading over its toggles, like the genre groups */
-    .inst-group {
-      display: flex;
-      flex-direction: column;
-      gap: 7px;
-      margin-bottom: 14px;
-    }
-    .inst-group:last-child { margin-bottom: 0; }
-    .inst-group .group-label { text-align: left; }
-    .group-label {
-      font-size: 9px;
-      letter-spacing: 3px;
-      color: #6a7a8a;
-      text-transform: uppercase;
-      min-width: 46px;
+      color: var(--ink-2);
+      min-width: 4.5ch;
       text-align: right;
       flex-shrink: 0;
     }
-    .subtype-row {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 6px 14px;
-    }
 
-    /* divider between groups and grid */
-    .voices-divider {
-      border-top: 1px solid #2a3040;
-      margin: 12px 0;
-    }
-
-    /* simple voices grid */
-    .inst-grid {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 8px 6px;
-    }
-
-    /* shared toggle style */
-    .inst-toggle {
-      display: flex;
-      align-items: center;
-      gap: 7px;
-      cursor: pointer;
-      -webkit-tap-highlight-color: transparent;
-      user-select: none;
-    }
-    .inst-toggle input[type="checkbox"] {
-      -webkit-appearance: none;
-      appearance: none;
-      width: 13px;
-      height: 13px;
-      border: 1px solid #5a6a7a;
-      background: transparent;
-      cursor: pointer;
-      flex-shrink: 0;
-      position: relative;
-    }
-    .inst-toggle input[type="checkbox"]:checked {
-      background: #7a9fc0;
-      border-color: #7a9fc0;
-    }
-    .inst-toggle input[type="checkbox"]:checked::after {
-      content: '';
-      position: absolute;
-      left: 2px;
-      top: -1px;
-      width: 5px;
-      height: 8px;
-      border: 2px solid #0a0a0f;
-      border-top: none;
-      border-left: none;
-      transform: rotate(45deg);
-    }
-    .inst-name {
-      font-size: 9px;
-      letter-spacing: 2px;
-      color: #7a8a9a;
-      text-transform: uppercase;
-    }
-    .inst-toggle input:checked ~ .inst-name { color: #aabece; }
-
-    /* action buttons */
-    #manual-actions {
-      display: flex;
-      gap: 10px;
-      margin-bottom: 14px;
-    }
-    .action-btn {
-      flex: 1;
-      background: transparent;
-      border: 1px solid #4a5a6a;
-      color: #8899aa;
-      font-family: inherit;
-      font-size: 11px;
-      padding: 11px 8px;
-      cursor: pointer;
-      letter-spacing: 3px;
-      text-transform: uppercase;
-      transition: border-color 0.2s, color 0.2s;
-      -webkit-tap-highlight-color: transparent;
-      touch-action: manipulation;
-    }
-    @media (hover: hover) { .action-btn:hover:not(:disabled) { border-color: #8899aa; color: #d0dde8; } }
-    .action-btn:active:not(:disabled) { border-color: #aabece; color: #e0ecf6; }
-    .action-btn.playing { border-color: #7a8fa8; color: #aabbc8; }
-    .action-btn.recording { border-color: #8a6a6a; color: #c8a8a8; cursor: default; }
-    .action-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-
-    /* genre preset buttons */
-    .genre-groups {
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-      flex: 1;
-    }
-    .genre-group { display: flex; flex-direction: column; gap: 6px; }
-    .genre-group .group-label, #genre-hint { text-align: left; }
-    #genre-hint { margin-bottom: 12px; color: #8899aa; line-height: 1.5; }
-    .genre-row {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 6px;
-      flex: 1;
-    }
-    .genre-btn {
-      background: transparent;
-      border: 1px solid #3a4a5a;
-      color: #6a7a8a;
-      font-family: inherit;
-      font-size: 9px;
-      padding: 5px 11px;
-      cursor: pointer;
-      letter-spacing: 2px;
-      text-transform: uppercase;
-      transition: border-color 0.15s, color 0.15s, background 0.15s;
-      -webkit-tap-highlight-color: transparent;
-    }
-    @media (hover: hover) { .genre-btn:hover { border-color: #6a8aaa; color: #aabece; } }
-    .genre-btn.active { border-color: #7a9fc0; color: #ccdde8; background: rgba(100,150,200,0.1); }
-
-    /* root / scale dropdowns */
-    .ctrl-select {
-      background: rgba(255,255,255,0.04);
-      border: 1px solid #4a5a6a;
-      color: #aabece;
-      font-family: inherit;
-      font-size: 10px;
-      letter-spacing: 1px;
-      padding: 5px 6px;
-      outline: none;
-      cursor: pointer;
-    }
-    .ctrl-select option { background: #0a0a18; color: #aabece; }
-    #manual-root  { width: 56px; }
-    #manual-scale { flex: 1; }
-    #manual-room  { flex: 1; }
-
-    /* ─── Feel sliders (density / tone / space / length) ────────────────────── */
-    .feel-slider {
+    /* ─── Sliders ───────────────────────────────────────────────────────────── */
+    #manual-bpm-slider, .feel-slider {
       -webkit-appearance: none;
       appearance: none;
       flex: 1;
+      min-width: 0;
       height: 32px;
       background: transparent;
-      outline: none;
       cursor: pointer;
       -webkit-tap-highlight-color: transparent;
       touch-action: manipulation;
     }
-    .feel-slider::-webkit-slider-runnable-track {
+    #manual-bpm-slider { height: 40px; }
+    #manual-bpm-slider::-webkit-slider-runnable-track, .feel-slider::-webkit-slider-runnable-track {
       height: 4px;
       border-radius: 2px;
       background: #4a6a80;
     }
-    .feel-slider::-moz-range-track {
+    #manual-bpm-slider::-moz-range-track, .feel-slider::-moz-range-track {
       height: 4px;
       border-radius: 2px;
       background: #4a6a80;
@@ -848,12 +704,146 @@
       cursor: pointer;
       border: none;
     }
+    #manual-bpm-slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: clamp(26px, 6vw, 34px);
+      height: clamp(26px, 6vw, 34px);
+      border-radius: 50%;
+      background: #8aafc8;
+      cursor: pointer;
+      margin-top: -13px;
+    }
+    #manual-bpm-slider::-moz-range-thumb {
+      width: clamp(26px, 6vw, 34px);
+      height: clamp(26px, 6vw, 34px);
+      border-radius: 50%;
+      background: #8aafc8;
+      cursor: pointer;
+      border: none;
+    }
+
+    /* ─── Instruments ─────────────────────────────────────────────────────── */
+    #voice-groups {
+      margin-bottom: 8px;
+    }
+    /* instrument groups: a heading over its toggles, like the genre groups */
+    .inst-group {
+      display: flex;
+      flex-direction: column;
+      gap: 7px;
+      margin-bottom: 14px;
+    }
+    .inst-group:last-child { margin-bottom: 0; }
+    .group-label {
+      font-size: 11px;
+      letter-spacing: 0.14em;
+      color: var(--ink-3);
+      text-transform: uppercase;
+      text-align: left;
+    }
+    .subtype-row, .inst-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    /* divider between the rhythm section and the instruments */
+    .voices-divider {
+      border-top: 1px solid var(--line-3);
+      margin: 14px 0;
+    }
+
+    /* Genres and instruments are both chips, lit when chosen. An instrument
+       keeps its checkbox, for the keyboard and screen readers, out of sight. */
+    .genre-btn, .inst-toggle {
+      background: transparent;
+      border: 1px solid var(--line-2);
+      color: var(--ink-3);
+      font-family: inherit;
+      font-size: 11px;
+      padding: 6px 10px;
+      cursor: pointer;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      transition: border-color 0.15s, color 0.15s, background 0.15s;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+    }
+    @media (hover: hover) { .genre-btn:hover, .inst-toggle:hover { border-color: var(--line-1); color: var(--ink-1); } }
+    .genre-btn.active, .inst-toggle:has(input:checked) { border-color: var(--line-sel); color: var(--ink-1); background: var(--sel); }
+    .inst-toggle { position: relative; display: inline-flex; align-items: center; }
+    .inst-toggle input {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      opacity: 0;
+      pointer-events: none;
+    }
+    .inst-toggle:has(input:focus-visible) { outline: 2px solid var(--line-1); outline-offset: 2px; }
+
+    /* action buttons */
+    #manual-actions {
+      display: flex;
+      gap: 8px;
+    }
+    .action-btn {
+      flex: 1;
+      background: transparent;
+      border: 1px solid var(--line-2);
+      color: var(--ink-2);
+      font-family: inherit;
+      font-size: 12px;
+      padding: 12px 6px;
+      cursor: pointer;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      transition: border-color 0.2s, color 0.2s;
+      -webkit-tap-highlight-color: transparent;
+      touch-action: manipulation;
+    }
+    @media (hover: hover) { .action-btn:hover:not(:disabled) { border-color: var(--line-1); color: var(--ink-1); } }
+    .action-btn:active:not(:disabled) { border-color: #aabece; color: #e0ecf6; }
+    .action-btn.playing { border-color: var(--line-1); color: var(--ink-1); }
+    .action-btn.recording { border-color: #8a6a6a; color: #dcbcbc; cursor: default; }
+    .action-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+    /* genre groups */
+    .genre-groups {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      flex: 1;
+    }
+    .genre-group { display: flex; flex-direction: column; gap: 7px; }
+    #genre-hint { margin-bottom: 12px; color: var(--ink-2); line-height: 1.5; }
+    .genre-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      flex: 1;
+    }
+
+    /* root / scale dropdowns */
+    .ctrl-select {
+      background: rgba(255,255,255,0.05);
+      border: 1px solid var(--line-2);
+      color: var(--ink-2);
+      font-family: inherit;
+      font-size: 11px;
+      letter-spacing: 1px;
+      padding: 6px;
+      cursor: pointer;
+      min-width: 0;
+    }
+    .ctrl-select option { background: #0a0a18; color: var(--ink-2); }
+    #manual-root  { width: 64px; flex: none; }
+    #manual-scale { flex: 1; }
+    #manual-room  { flex: 1; }
 
     /* ─── Export progress ─────────────────────────────────────────────────────── */
     #export-progress-wrap {
       height: 2px;
       background: rgba(100,140,200,0.08);
-      margin: 6px 0 12px;
+      margin: 8px 0 6px;
       overflow: hidden;
       opacity: 0;
       transition: opacity 0.4s;
@@ -867,163 +857,113 @@
     }
 
     #manual-status {
-      font-size: 10px;
-      letter-spacing: 2px;
-      color: #5a6a7a;
+      font-size: 11px;
+      letter-spacing: 0.1em;
+      color: var(--ink-3);
       text-align: center;
-      min-height: 14px;
+      min-height: 1.4em;
       transition: color 0.5s;
     }
-    #manual-status.active { color: #aabece; }
+    #manual-status.active { color: var(--ink-2); }
 
-    /* ─── Mobile overrides ──────────────────────────────────────────────────── */
-    @media (max-width: 600px) {
-      #manual-ui {
-        --open-w: calc(100vw - 20px);
-        --bottom: calc(16px + env(safe-area-inset-bottom, 0px));
-        --pad: 16px;
-      }
-
-      #manual-ui-scroll {
-        padding-left: 14px;
-        padding-right: 14px;
-      }
-
-      /* bigger mode tab tap targets */
-      .mode-tab {
-        font-size: 12px;
-        padding: 12px 18px;
-        letter-spacing: 2px;
-      }
-
-      /* sliders need more room to breathe so thumbs don't overlap */
-      .ctrl-row {
-        gap: 10px;
-        margin-bottom: 22px;
-      }
-
-      /* readable labels */
-      .ctrl-label  { font-size: 11px; letter-spacing: 1.5px; min-width: 50px; }
-      .section-label { font-size: 11px; letter-spacing: 2px; }
-      .group-label { font-size: 11px; letter-spacing: 2px; }
-      .ctrl-unit   { font-size: 11px; }
-      .ctrl-value  { font-size: 13px; min-width: 3.5ch; text-align: right; }
-
-      /* bigger slider thumbs — easier to grab with a thumb (the finger kind) */
-      .feel-slider::-webkit-slider-thumb {
-        width: 30px;
-        height: 30px;
-        margin-top: -13px;
-      }
-      .feel-slider::-moz-range-thumb {
-        width: 30px;
-        height: 30px;
-      }
-      #manual-bpm-slider::-webkit-slider-thumb,
-      #manual-bpm-slider::-moz-range-thumb {
-        width: 32px;
-        height: 32px;
-      }
-      #manual-bpm-slider::-webkit-slider-thumb { margin-top: -14px; }
-
-      /* section headers: bigger tap target */
-      .section-header { padding: 8px 6px; margin-bottom: 8px; }
-      .section-chevron { font-size: 12px; padding: 2px 9px; }
-
-      /* genre buttons: bigger tap area + font */
-      .genre-btn {
-        font-size: 11px;
-        padding: 9px 14px;
-        letter-spacing: 1.5px;
-      }
-
-      /* header buttons: bigger tap area */
-      .header-btn {
-        font-size: 11px;
-        padding: 8px 14px;
-        letter-spacing: 1.5px;
-      }
-
-      .kind-btn, .kind-action { font-size: 11px; padding: 9px 14px; letter-spacing: 2px; }
-      #song-actions { gap: 8px; }
-      #song-actions .kind-action { padding-left: 10px; padding-right: 10px; }
-
-      /* action buttons: four to a row, so tighter than on a desktop */
-      #manual-actions { gap: 8px; }
-      .action-btn {
-        font-size: 13px;
-        padding: 14px 4px;
-        letter-spacing: 1.5px;
-      }
-
-      /* instrument grid: 2 columns so labels aren't cramped */
-      .inst-grid {
-        grid-template-columns: repeat(2, 1fr);
-        gap: 6px 8px;
-      }
-
-      /* checkboxes: larger visual + extended tap target via padding */
-      .inst-toggle {
-        padding: 7px 4px;
-        gap: 10px;
-      }
-      .inst-toggle input[type="checkbox"] {
-        width: 18px;
-        height: 18px;
-        flex-shrink: 0;
-      }
-      .inst-toggle input[type="checkbox"]:checked::after {
-        left: 3px;
-        top: 0px;
-        width: 7px;
-        height: 11px;
-      }
-      .inst-name {
-        font-size: 11px;
-        letter-spacing: 1.5px;
-      }
-    }
-
-    /* The sheet's top bar. Collapsed, it grows into the SHOW pill: its
-       divider fades and the label crossfades HIDE → SHOW in place. */
+    /* The sheet's top bar: HIDE folds the settings away, SHOW brings them
+       back. The label crossfades in place. */
     #panel-hide-btn {
       display: grid;
       flex-shrink: 0;
       width: 100%;
-      background: rgba(6, 8, 15, 0.92);
+      background: rgba(255, 255, 255, 0.025);
       border: none;
-      border-bottom: 1px solid #2a3540;
-      color: #6a7a8a;
+      border-bottom: 1px solid var(--line-3);
+      color: var(--ink-3);
       font-family: inherit;
-      font-size: 10px;
-      padding: 12px 0;
+      font-size: 11px;
+      padding: 11px 0;
       cursor: pointer;
-      letter-spacing: 3px;
+      letter-spacing: 0.24em;
       text-transform: uppercase;
-      transition: color 0.15s, border-color 0.4s ease, font-size 0.4s ease, padding 0.4s ease;
+      transition: color 0.15s;
       -webkit-tap-highlight-color: transparent;
       touch-action: manipulation;
     }
-    @media (hover: hover) { #panel-hide-btn:hover { color: #d0dde8; } }
+    @media (hover: hover) { #panel-hide-btn:hover { color: var(--ink-1); } }
     #panel-hide-btn > span {
       grid-area: 1 / 1;
       transition: opacity 0.25s ease;
     }
     #panel-hide-btn .lbl-show { opacity: 0; }
-    #manual-ui.collapsed #panel-hide-btn {
-      font-size: 13px;
-      padding: 16px 0;
-      border-bottom-color: transparent;
-      color: #8899aa;
-    }
-    @media (hover: hover) { #manual-ui.collapsed #panel-hide-btn:hover { color: #d0dde8; } }
+    #manual-ui.collapsed #panel-hide-btn { color: var(--ink-2); }
     #manual-ui.collapsed #panel-hide-btn .lbl-hide { opacity: 0; }
     #manual-ui.collapsed #panel-hide-btn .lbl-show { opacity: 1; }
-    @media (hover: hover) { #manual-ui.collapsed:hover { border-color: #8899aa; } }
 
-    #randomize-all-btn {
-      width: 100%;
-      margin: 18px 0 18px;
+    /* ─── Narrow screens: layout ────────────────────────────────────────────── */
+    @media (max-width: 600px) {
+      #manual-ui {
+        --open-w: calc(100vw - 20px);
+        --bottom: calc(14px + env(safe-area-inset-bottom, 0px));
+        --pad: 14px;
+      }
+      #infinite-ui { bottom: calc(24px + env(safe-area-inset-bottom, 0px)); }
+      #library { bottom: calc(24px + env(safe-area-inset-bottom, 0px)); }
+      .ctrl-row { gap: 10px; }
+    }
+
+    /* ─── Touch screens: bigger targets ───────────────────────────────────────
+       By the pointer, not the width: a phone held sideways or a tablet is as
+       wide as a laptop and still driven by a finger. */
+    @media (pointer: coarse) {
+      .mode-tab { font-size: 12px; padding: 12px 18px; letter-spacing: 2px; }
+      #kaleido-btn { font-size: 12px; padding: 12px; }
+      #kaleido-btn .lbl { letter-spacing: 2px; padding: 0 6px; }
+
+      .ctrl-row { margin-bottom: 18px; }
+      .ctrl-label, .group-label { font-size: 12px; letter-spacing: 0.08em; }
+      .ctrl-value { font-size: 13px; }
+      .section-label { font-size: 13px; letter-spacing: 0.16em; }
+      .section-summary { font-size: 11px; }
+      .section-header { margin-bottom: 6px; }
+      .section-chevron { font-size: 12px; padding: 4px 10px; }
+
+      .header-btn { font-size: 12px; padding: 9px 14px; letter-spacing: 0.08em; }
+      .genre-btn, .inst-toggle { font-size: 12px; padding: 10px 12px; letter-spacing: 0.06em; }
+      .kind-btn, .kind-action { font-size: 12px; padding: 10px 14px; letter-spacing: 0.1em; }
+      #song-actions { gap: 8px; }
+      #song-actions .kind-action { padding-left: 11px; padding-right: 11px; letter-spacing: 0.08em; }
+      .ctrl-select { font-size: 12px; padding: 8px 6px; }
+
+      /* four to a row, so tighter than on a desktop */
+      .action-btn { font-size: 13px; padding: 14px 4px; letter-spacing: 0.08em; }
+      #panel-hide-btn { font-size: 12px; padding: 13px 0; }
+
+      /* thumbs that a thumb (the finger kind) can find */
+      .feel-slider::-webkit-slider-thumb { width: 30px; height: 30px; margin-top: -13px; }
+      .feel-slider::-moz-range-thumb { width: 30px; height: 30px; }
+      #manual-bpm-slider::-webkit-slider-thumb { width: 32px; height: 32px; margin-top: -14px; }
+      #manual-bpm-slider::-moz-range-thumb { width: 32px; height: 32px; }
+
+      .library-meta { letter-spacing: 0.04em; }
+    }
+
+    /* ─── Short screens (phones held sideways) ─────────────────────────────── */
+    /* Infinite's stack would otherwise reach the top of the screen: a smaller
+       PLAY, tighter rows, and the players' line left out. */
+    @media (max-height: 480px) {
+      #infinite-ui { bottom: calc(10px + env(safe-area-inset-bottom, 0px)); }
+      #infinite-controls { margin-bottom: 8px; }
+      #start-btn { font-size: 16px; padding: 10px 40px; }
+      #next-btn, #prev-btn { font-size: 12px; }
+      #infinite-kind, #song-actions { margin-bottom: 6px; }
+      #state-line { line-height: 1.5; }
+      #state-line .np-players { display: none; }
+      #library { bottom: calc(10px + env(safe-area-inset-bottom, 0px)); max-height: calc(100dvh - 74px); }
+
+      /* The sheet's bars and buttons tighter, so the settings get the height. */
+      #panel-hide-btn { padding: 8px 0; }
+      #manual-ui-scroll { padding-top: 4px; }
+      #randomize-wrap { padding-top: 8px; }
+      #manual-footer { padding-top: 8px; padding-bottom: 4px; }
+      .action-btn { padding-top: 9px; padding-bottom: 9px; }
+      #export-progress-wrap { margin: 5px 0 3px; }
     }
   </style>
 </head>
@@ -1047,7 +987,7 @@
     <div id="infinite-ui">
       <div id="infinite-controls">
         <button id="prev-btn" tabindex="-1" aria-hidden="true" title="Back to the top of this song, or just after it starts, to the one before">PREV</button>
-        <button id="start-btn">PLAY</button>
+        <button id="start-btn" title="Play or pause (Space)">PLAY</button>
         <button id="next-btn" tabindex="-1" aria-hidden="true" title="Move on to the next era">NEXT</button>
       </div>
       <div id="infinite-kind">
@@ -1060,10 +1000,14 @@
       <div id="song-actions" hidden>
         <button id="keep-btn" class="kind-action" aria-pressed="false">KEEP</button>
         <button id="like-btn" class="kind-action" title="The same hook, with new instruments">MORE LIKE THIS</button>
-        <button id="song-export-btn" class="kind-action" title="Save the whole of this song as a WAV">EXPORT SONG</button>
+        <button id="song-export-btn" class="kind-action" title="Save the whole of this song as a WAV">EXPORT</button>
       </div>
-      <div id="info"></div>
-      <div id="state-line"></div>
+      <div id="state-line">
+        <div class="np-title"></div>
+        <div class="np-meta"></div>
+        <div class="np-where"></div>
+        <div class="np-players"></div>
+      </div>
       <div id="library" role="dialog" aria-label="Library" hidden>
         <div id="library-head">
           <div class="kind-toggle" role="group" aria-label="Which songs">
@@ -1083,18 +1027,19 @@
       </button>
 
       <div id="manual-ui-body">
+      <div id="manual-ui-fold">
       <div id="manual-ui-scroll">
       <!-- Genre presets -->
       <div class="collapsible-section collapsed" id="section-genre">
         <div class="section-header">
-          <span class="section-label">GENRE</span>
+          <button class="section-toggle" aria-expanded="false" aria-controls="genre-body"><span class="section-label">GENRE</span></button>
           <div class="section-header-right">
-            <button class="header-btn" id="genre-random-btn">RANDOM</button>
-            <span class="section-chevron"></span>
+            <button class="header-btn" id="genre-random-btn" title="Another genre">RANDOM</button>
+            <span class="section-chevron" aria-hidden="true"></span>
           </div>
           <span class="section-summary" id="genre-summary"></span>
         </div>
-        <div class="section-body"><div class="section-inner">
+        <div class="section-body" id="genre-body"><div class="section-inner">
           <div class="group-label" id="genre-hint" hidden>A GENRE KEEPS THIS HOOK. NEW SONG LETS IT GO.</div>
           <div class="ctrl-row" style="margin-bottom:12px">
             <div id="genre-btns" class="genre-groups"></div>
@@ -1105,68 +1050,68 @@
       <!-- Feel: key, scale, BPM, sliders -->
       <div class="collapsible-section collapsed" id="section-feel">
         <div class="section-header">
-          <span class="section-label">FEEL</span>
+          <button class="section-toggle" aria-expanded="false" aria-controls="feel-body"><span class="section-label">FEEL</span></button>
           <div class="section-header-right">
-            <button class="header-btn" id="feel-random-btn">RANDOM</button>
-            <span class="section-chevron"></span>
+            <button class="header-btn" id="feel-random-btn" title="A new feel, inside the genre if one is chosen">RANDOM</button>
+            <span class="section-chevron" aria-hidden="true"></span>
           </div>
           <span class="section-summary" id="feel-summary"></span>
         </div>
-        <div class="section-body"><div class="section-inner">
+        <div class="section-body" id="feel-body"><div class="section-inner">
           <div class="ctrl-row">
             <span class="ctrl-label">ROOT</span>
-            <select id="manual-root" class="ctrl-select"></select>
-            <span class="ctrl-label" style="min-width:auto;padding:0 4px">SCALE</span>
-            <select id="manual-scale" class="ctrl-select"></select>
+            <select id="manual-root" class="ctrl-select" aria-label="Root"></select>
+            <span class="ctrl-label" style="min-width:auto;padding:0 2px">SCALE</span>
+            <select id="manual-scale" class="ctrl-select" aria-label="Scale"></select>
           </div>
-          <div class="ctrl-row">
+          <div class="ctrl-row" title="Tempo, in beats per minute">
             <span class="ctrl-label">BPM</span>
-            <input id="manual-bpm-slider" type="range" min="40" max="180" step="1" value="90">
+            <input id="manual-bpm-slider" type="range" min="40" max="180" step="1" value="90" aria-label="BPM">
             <span id="manual-bpm-value" class="ctrl-value">90</span>
           </div>
-          <div class="ctrl-row">
+          <div class="ctrl-row" title="Every instrument up or down an octave">
             <span class="ctrl-label">OCTAVE</span>
-            <input type="range" class="feel-slider" id="manual-octave-slider" min="-1" max="1" step="1" value="0">
+            <input type="range" class="feel-slider" id="manual-octave-slider" min="-1" max="1" step="1" value="0" aria-label="Octave">
             <span class="ctrl-value" id="manual-octave-val">0</span>
           </div>
-          <div class="ctrl-row">
+          <div class="ctrl-row" title="How much plays, and how loud">
             <span class="ctrl-label">DENSITY</span>
-            <input type="range" class="feel-slider" id="density-slider" min="0" max="1" step="0.01" value="0.60">
-            <span class="ctrl-value" id="density-val">0.60</span>
+            <input type="range" class="feel-slider" id="density-slider" min="0" max="1" step="0.01" value="0.60" aria-label="Density">
+            <span class="ctrl-value" id="density-val">60%</span>
           </div>
-          <div class="ctrl-row">
+          <div class="ctrl-row" title="Brightness: how far the filters open, and how loud the cymbals are">
             <span class="ctrl-label">TONE</span>
-            <input type="range" class="feel-slider" id="bright-slider" min="0" max="1" step="0.01" value="0.50">
-            <span class="ctrl-value" id="bright-val">0.50</span>
+            <input type="range" class="feel-slider" id="bright-slider" min="0" max="1" step="0.01" value="0.50" aria-label="Tone">
+            <span class="ctrl-value" id="bright-val">50%</span>
           </div>
-          <div class="ctrl-row">
+          <div class="ctrl-row" title="How much reverb the sustained instruments get">
             <span class="ctrl-label">SPACE</span>
-            <input type="range" class="feel-slider" id="space-slider" min="0" max="1" step="0.01" value="0.50">
-            <span class="ctrl-value" id="space-val">0.50</span>
+            <input type="range" class="feel-slider" id="space-slider" min="0" max="1" step="0.01" value="0.50" aria-label="Space">
+            <span class="ctrl-value" id="space-val">50%</span>
           </div>
-          <div class="ctrl-row">
+          <div class="ctrl-row" title="The reverb's room">
             <span class="ctrl-label">ROOM</span>
-            <select id="manual-room" class="ctrl-select"></select>
+            <select id="manual-room" class="ctrl-select" aria-label="Room"></select>
           </div>
-          <div class="ctrl-row">
+          <div class="ctrl-row" title="How closely the tunes keep to the chord's notes: low roams the scale, high stays on the chord">
             <span class="ctrl-label">HARMONY</span>
-            <input type="range" class="feel-slider" id="harmony-slider" min="0" max="1" step="0.01" value="0.78">
-            <span class="ctrl-value" id="harmony-val">0.78</span>
+            <input type="range" class="feel-slider" id="harmony-slider" min="0" max="1" step="0.01" value="0.78" aria-label="Harmony">
+            <span class="ctrl-value" id="harmony-val">78%</span>
           </div>
-          <div class="ctrl-row">
+          <div class="ctrl-row" title="Beats per chord: low changes chords quickly, high holds each one long">
             <span class="ctrl-label">CHORD</span>
-            <input type="range" class="feel-slider" id="chord-slider" min="2" max="8" step="1" value="4">
+            <input type="range" class="feel-slider" id="chord-slider" min="2" max="8" step="1" value="4" aria-label="Beats per chord">
             <span class="ctrl-value" id="chord-val">4</span>
           </div>
           <div class="ctrl-row" title="Sidechain: everything but the drums ducks on every beat, the breathing of house and EDM">
             <span class="ctrl-label">PUMP</span>
-            <input type="range" class="feel-slider" id="pump-slider" min="0" max="1" step="0.01" value="0">
-            <span class="ctrl-value" id="pump-val">0.00</span>
+            <input type="range" class="feel-slider" id="pump-slider" min="0" max="1" step="0.01" value="0" aria-label="Pump">
+            <span class="ctrl-value" id="pump-val">0%</span>
           </div>
           <div class="ctrl-row" style="margin-bottom:4px" title="Filter sweep: everything but the drums closes down and opens back up over sixteen bars, the French house filter">
             <span class="ctrl-label">SWEEP</span>
-            <input type="range" class="feel-slider" id="sweep-slider" min="0" max="1" step="0.01" value="0">
-            <span class="ctrl-value" id="sweep-val">0.00</span>
+            <input type="range" class="feel-slider" id="sweep-slider" min="0" max="1" step="0.01" value="0" aria-label="Sweep">
+            <span class="ctrl-value" id="sweep-val">0%</span>
           </div>
         </div></div>
       </div>
@@ -1174,15 +1119,15 @@
       <!-- Instruments -->
       <div class="collapsible-section collapsed" id="section-instruments">
         <div class="section-header">
-          <span class="section-label">INSTRUMENTS</span>
+          <button class="section-toggle" aria-expanded="false" aria-controls="instruments-body"><span class="section-label">INSTRUMENTS</span></button>
           <div class="section-header-right">
-            <button class="header-btn" id="instruments-random-btn">RANDOM</button>
-            <button class="header-btn" id="clear-instruments-btn">CLEAR</button>
-            <span class="section-chevron"></span>
+            <button class="header-btn" id="instruments-random-btn" title="A new kit, from the genre if one is chosen">RANDOM</button>
+            <button class="header-btn" id="clear-instruments-btn" title="Turn every instrument off">CLEAR</button>
+            <span class="section-chevron" aria-hidden="true"></span>
           </div>
           <span class="section-summary" id="instruments-summary"></span>
         </div>
-        <div class="section-body"><div class="section-inner">
+        <div class="section-body" id="instruments-body"><div class="section-inner">
           <div id="voice-groups"></div>
         </div></div>
       </div>
@@ -1190,14 +1135,14 @@
       <!-- Song: form, composer, length -->
       <div class="collapsible-section collapsed" id="section-song">
         <div class="section-header">
-          <span class="section-label">SONG</span>
+          <button class="section-toggle" aria-expanded="false" aria-controls="song-body"><span class="section-label">SONG</span></button>
           <div class="section-header-right">
             <button class="header-btn" id="new-song-btn" hidden title="Compose a different song from the same settings">NEW SONG</button>
-            <span class="section-chevron"></span>
+            <span class="section-chevron" aria-hidden="true"></span>
           </div>
           <span class="section-summary" id="song-summary"></span>
         </div>
-        <div class="section-body"><div class="section-inner">
+        <div class="section-body" id="song-body"><div class="section-inner">
           <div class="ctrl-row" id="form-row">
             <span class="ctrl-label">FORM</span>
             <div class="kind-toggle" role="group" aria-label="Form">
@@ -1222,23 +1167,28 @@
 
           <div class="ctrl-row" id="length-row" style="margin-bottom:4px">
             <span class="ctrl-label">LENGTH</span>
-            <input type="range" class="feel-slider" id="manual-length" min="5" max="300" step="5" value="10" title="How long a loop exports for, or how long a song is">
+            <input type="range" class="feel-slider" id="manual-length" min="5" max="300" step="5" value="10" title="How long a loop exports for, or how long a song is" aria-label="Length">
             <span class="ctrl-value" id="manual-length-value">10s</span>
           </div>
         </div></div>
       </div>
-
-      <button class="action-btn" id="randomize-all-btn">RANDOMIZE ALL</button>
-
-      <div id="manual-actions">
-        <button class="action-btn" id="manual-play-btn" disabled>PLAY</button>
-        <button class="action-btn" id="manual-stop-btn" disabled title="Back to the top">STOP</button>
-        <button class="action-btn" id="manual-export-btn" disabled>EXPORT</button>
-        <button class="action-btn" id="manual-share-btn">SHARE</button>
       </div>
-      <div id="export-progress-wrap"><div id="export-progress-bar"></div></div>
-      <div id="manual-status"></div>
+
+      <div id="randomize-wrap">
+        <button class="action-btn" id="randomize-all-btn" title="A new genre, feel and instruments: in SONG form, a new song">RANDOMIZE ALL</button>
       </div>
+      </div>
+      </div>
+
+      <div id="manual-footer">
+        <div id="manual-actions">
+          <button class="action-btn" id="manual-play-btn" disabled title="Play or pause (Space)">PLAY</button>
+          <button class="action-btn" id="manual-stop-btn" disabled title="Back to the top">STOP</button>
+          <button class="action-btn" id="manual-export-btn" disabled title="Save it as a WAV">EXPORT</button>
+          <button class="action-btn" id="manual-share-btn" title="Copy a link to these settings">SHARE</button>
+        </div>
+        <div id="export-progress-wrap"><div id="export-progress-bar"></div></div>
+        <div id="manual-status"></div>
       </div>
     </div>
 
