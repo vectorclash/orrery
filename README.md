@@ -4,7 +4,7 @@ A self-contained, browser-based generative music system. Built entirely with the
 
 The name: an orrery is a clockwork model of the heavens. This one is driven by the music — the harmony it composes sets the halo, sphere and chord constellation in motion.
 
-Live at [vectorclash.com/orrery](https://vectorclash.com/orrery/).
+Live at [orrery.vectorclash.com](https://orrery.vectorclash.com/). The old address, vectorclash.com/orrery/, sends visitors on with their library (`src/move.js`).
 
 Run `npm install && npm run dev` and open `http://localhost:8000/` (ES modules need to be served over HTTP, not opened via `file://`).
 

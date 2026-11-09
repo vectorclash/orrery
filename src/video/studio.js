@@ -28,14 +28,16 @@ const screen = $('screen'), stageBox = $('stage');
 const defaults = {
   look: 'song', style: 'AUTO', camera: 'directed', intensity: null, grade: 'auto',
   allow: {}, strength: {}, solo: [],
-  titles: { on: false, opening: { title: 'Orrery', about: '' }, closing: { title: 'Orrery', about: 'vectorclash.com/orrery' } },
+  titles: { on: false, opening: { title: 'Orrery', about: '' }, closing: { title: 'Orrery', about: 'orrery.vectorclash.com' } },
   size: '1920x1080', fps: 30, motionBlur: false, link: '', loopSeconds: 60,
 };
 // `v`: the settings' version. Before 2, titles were on by default and saved
 // as on with everything else, so that one is forgotten: off is the default now.
-const SETTINGS_VERSION = 2;
+// Before 3, the closing card's default named Orrery's old address.
+const SETTINGS_VERSION = 3;
 const saved = JSON.parse(localStorage.getItem(STORE) || '{}');
 if ((saved.v ?? 1) < 2 && saved.titles) delete saved.titles.on;
+if ((saved.v ?? 1) < 3 && saved.titles?.closing?.about === 'vectorclash.com/orrery') saved.titles.closing.about = 'orrery.vectorclash.com';
 const settings = { ...defaults, ...saved, titles: { ...defaults.titles, ...saved.titles }, v: SETTINGS_VERSION };
 const save = () => localStorage.setItem(STORE, JSON.stringify(settings));
 

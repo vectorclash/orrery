@@ -1,3 +1,4 @@
+import './move.js'; // first: Orrery's old address sends visitors to its new one, with their library
 import { state, rootName, START_DELAY, ROOT_BASE_MIDI, LATEST_COMPOSER, pick } from './state.js';
 import { audio, ensureAudioRunning, audioStopped, setRoom, ROOMS, heardTime } from './audio/context.js';
 import { everyTick } from './audio/ticker.js';
