@@ -28,10 +28,15 @@ const screen = $('screen'), stageBox = $('stage');
 const defaults = {
   look: 'song', style: 'AUTO', camera: 'directed', intensity: null, grade: 'auto',
   allow: {}, strength: {}, solo: [],
-  titles: { on: true, opening: { title: 'Orrery', about: '' }, closing: { title: 'Orrery', about: 'vectorclash.com/orrery' } },
+  titles: { on: false, opening: { title: 'Orrery', about: '' }, closing: { title: 'Orrery', about: 'vectorclash.com/orrery' } },
   size: '1920x1080', fps: 30, motionBlur: false, link: '', loopSeconds: 60,
 };
-const settings = { ...defaults, ...JSON.parse(localStorage.getItem(STORE) || '{}') };
+// `v`: the settings' version. Before 2, titles were on by default and saved
+// as on with everything else, so that one is forgotten: off is the default now.
+const SETTINGS_VERSION = 2;
+const saved = JSON.parse(localStorage.getItem(STORE) || '{}');
+if ((saved.v ?? 1) < 2 && saved.titles) delete saved.titles.on;
+const settings = { ...defaults, ...saved, titles: { ...defaults.titles, ...saved.titles }, v: SETTINGS_VERSION };
 const save = () => localStorage.setItem(STORE, JSON.stringify(settings));
 
 // ─── State ────────────────────────────────────────────────────────────────────

@@ -508,6 +508,8 @@ So the picture is exactly in step with the sound (a screen recording would be on
 | SQUARE 1080×1080, PORTRAIT 1080×1350 | the Instagram feed |
 | VERTICAL 1080×1920 | Reels, Stories, Shorts, TikTok |
 
+At 24, 30 or 60 frames a second (24 is film's rate: with MOTION BLUR, or fast motion judders). Title cards are off unless TITLES is ticked.
+
 ---
 
 ## Dependencies

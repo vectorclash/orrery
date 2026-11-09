@@ -257,9 +257,9 @@ async function encode({ width, height, fps = 30, motionBlur = false, tags = {} }
     }
   };
 
-  // Steps at 60 a second or more, a whole number to a frame; with motion
-  // blur, the scene drawn at each of several moments centred on the frame's
-  // and averaged.
+  // Steps at 60 a second or more, a whole number to a frame (72 at 24 fps);
+  // with motion blur, the scene drawn at each of several moments centred on
+  // the frame's and averaged.
   const sub = motionBlur ? BLUR_SUBFRAMES : 1;
   const rate = fps * (motionBlur ? sub : Math.ceil(60 / fps));
   seek(0);
