@@ -475,11 +475,47 @@ Export path (EDIT's EXPORT, and Infinite's for the song playing)
 
 ---
 
+## Music video studio (`video.html`, `src/video/`)
+
+A local tool, not part of the site: `npm run video` serves the repo and opens `video.html`, and the build ships `index.html` alone, so it is never deployed. Paste a SHARE link (Edit mode's, or a song's from the library), watch the preview with the song playing, choose the look, style and effects, and MAKE VIDEO saves an MP4 (H.264 and 320 kbps AAC). It needs WebCodecs and an `OfflineAudioContext` that can suspend: Chrome or Safari on a desktop.
+
+**Rendered, not recorded.** A video is drawn frame by frame from the song, in two passes, each in an iframe of its own (a *stage*, `stage.js`) with its own copy of every module:
+
+1. The audio, exactly as EXPORT renders it (`renderTake` in `src/render.js`), with what the visuals hear written down as it plays: the note log as each tick wrote it, the chord, key and beat 240 times a second, and the mix in front of the master chain (which the spectrum analyser hears). A song's level is measured first, as EXPORT does.
+2. The visuals, stepped on the video's clock rather than the audio context's: the log written again as the ticks wrote it, the chord and key set from the capture, and the spectrum and waveform analysers stood in for by ones reading the rendered audio (`analyser.js`, the Web Audio spec's algorithm). Everything that moved by the frame moves by the frame's length (`animate.js`), so 30 and 60 fps move as the live view does.
+
+So the picture is exactly in step with the sound (a screen recording would be one output latency behind it — two seconds over AirPlay), any size, never short of a frame, and faster than real time on a Mac (90 s of 1080p30 in about 30 s; 4K with motion blur at about real time). The preview is a stage drawing the moment being heard as the page plays the rendered audio, from the same capture and plan, so it is the video; MAKE VIDEO opens a fresh stage, its `Math.random` seeded from the song, so the same link and settings make the same video. The file is written as it's encoded, interleaving a second of audio ahead of the frames, into a list of chunks (a 4K file never needs one buffer the size of it), with the index reserved at the start for fast start, and the share link in its comment tag.
+
+**The director** (`director.js`) plans the whole video before the first frame from the song's sections: each section's role (intro, low, mid, rise, peak, break, outro) decides its camera shots, look and how hard the effects work. The styles that cut split sections into shots on bar lines (CLUB every 4 bars in a drop); the ones that glide make each section one long move and blend between them. Shots are camera moves — the live orbit, wide, close, through the ring plane, top-down (the circle of fifths laid flat), from below, a Dutch angle, a drift, and an arrival, a push in (a build) and a leaving. Things land on the beat: the build's own filter (`buildClosed` in `sweep.js`) softens the picture while it's shut (eased in over the build's first beat, and never so far the orrery can't be seen), the world slows almost to a stop through the silence before a drop while the camera glides on (the scene runs on its own clock, `sceneTime`, worked out from the gaps so the preview can still jump anywhere), a drop lands at full speed with a flash of the chord's colour and a punch in, the video fades in and out with its title cards. Flashes are kept to big moments, never closer than half a second (full-frame flashing three or more times a second can trigger seizures, WCAG 2.3.1).
+
+| Style | For (AUTO picks by the drums) | What it does |
+|---|---|---|
+| DRIFT | no drums, or very sparse | no cuts, slow glides, long light trails, no flashes |
+| CLUB | house, techno, trance, garage, D&B… | cuts on the bar, shockwaves on the kick, builds blur and push in |
+| DISCO | disco, funk, afro, amapiano, dembow… | mirrorball glints on the hats, tiles in the chorus, warm |
+| RETRO | synthwave, outrun | neon CRT, anamorphic streaks, mirrors and tunnels |
+| FILM | boom bap, swing, brushes, shuffle | grain, warmth and worn tape, long takes |
+| CINEMA | cinematic, ghost, or strings and choir | widescreen, slow dolly moves, lens flares |
+| GLITCH | trap, drill, halftime | glitches on the snare, the lens on the 808, fast cuts |
+
+**Looks** (`fx.js`, the fold): the orrery, a kaleidoscope (the live one's), square or hexagonal tiles (mirror-symmetric cells that meet without seams, each a slice of the cages sized to the planet on screen), a mirror, a tunnel (log-polar, falling faster through a build), or the 3D mirrors; FOLLOW THE SONG lets the director choose, or one holds all video.
+
+**Effects** (`fx.js`), each a pass skipped at zero: trails (the brighter of the frame and its fading, outward-flowing memory, so it never burns out), a gravitational lens (the stars and nebulae drawn on their own and bent round the planet, with a shadow inside the Einstein ring), a shockwave per kick, the filter blur, glints and anamorphic streaks (from the points of light only, not the core), chromatic aberration, glitch, CRT, VHS, film, a grade, a letterbox, the flash and slow motion. The bench beside them ticks what the director may use, sets each one's strength, and SOLO shows one alone.
+
+| Size | For |
+|---|---|
+| 1080p, 1440p, 4K (16:9) | YouTube |
+| SQUARE 1080×1080, PORTRAIT 1080×1350 | the Instagram feed |
+| VERTICAL 1080×1920 | Reels, Stories, Shorts, TikTok |
+
+---
+
 ## Dependencies
 
 | Dependency | Version | Purpose |
 |---|---|---|
 | [Three.js](https://threejs.org/) | r183 | 3D rendering (loaded from CDN) |
+| [Mediabunny](https://mediabunny.dev/) | 1.65.2 | MP4 writing over WebCodecs, for the music video studio only (loaded from CDN; `@mediabunny/aac-encoder` where a browser has no AAC encoder) |
 | Web Audio API | — | Sound synthesis (built into browser) |
 | [Courier Prime](https://github.com/quoteunquoteapps/CourierPrime) | 400, Latin (Fontsource 5.3.0) | The UI's typeface: Courier redrawn for screens, sturdier than Courier New at small sizes. Hosted in `fonts/` under the SIL Open Font License (`fonts/OFL.txt`) |
 

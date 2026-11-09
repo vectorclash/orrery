@@ -24,13 +24,15 @@ export const waveform = {
 const slice = new Float32Array(COLS), tmp = new Float32Array(COLS);
 let gain = 4;
 
-export function updateWaveform() {
-  waveform.live = readSlice();
+// `dt`: seconds since the last frame. The easing below was set per 60th of a
+// second, so it's worked out for the frame's length.
+export function updateWaveform(dt = 1 / 60) {
+  waveform.live = readSlice(dt);
   if (!waveform.live) waveform.shown.fill(0);
 }
 
 // Fills `slice` with one loop of the waveform; returns false if there's no audio.
-function readSlice() {
+function readSlice(dt) {
   if (!audio.started || !audio.scope) return false;
   const x = audio.scopeData, N = x.length, sr = audio.ctx.sampleRate;
   audio.scope.getFloatTimeDomainData(x);
@@ -78,7 +80,8 @@ function readSlice() {
   // Slow automatic gain, so quiet passages still read but loud ones don't clip.
   const rms = Math.sqrt(sumSq / COLS);
   const want = Math.min(8, 0.3 / Math.max(rms, 0.01));
-  gain += (want - gain) * (want < gain ? 0.08 : 0.01);
+  const frames = dt * 60;
+  gain += (want - gain) * (1 - Math.pow(want < gain ? 0.92 : 0.99, frames));
   // Two passes of a circular 7-column box: what's left is the waveform's
   // shape (fundamentals and low partials), not hiss. Then ease toward it, so
   // consecutive frames agree where the sound is steady.
@@ -91,6 +94,7 @@ function readSlice() {
     }
   }
   const shown = waveform.shown;
-  for (let c = 0; c < COLS; c++) shown[c] += (slice[c] * gain - shown[c]) * 0.5;
+  const ease = 1 - Math.pow(0.5, frames);
+  for (let c = 0; c < COLS; c++) shown[c] += (slice[c] * gain - shown[c]) * ease;
   return true;
 }

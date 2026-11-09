@@ -295,6 +295,7 @@ const smallMat = new THREE.ShaderMaterial({
 });
 const smallStars = new THREE.Points(smallGeo, smallMat);
 smallStars.frustumCulled = false; // positions come from the shader
+smallStars.userData.sky = true;   // behind everything: a video's lens bends it (video/fx.js)
 scene.add(smallStars);
 
 // ─── Large star layer (camera-facing quads) ───────────────────────────────────
@@ -347,6 +348,7 @@ const largeMat = new THREE.ShaderMaterial({
 });
 const largeStars = new THREE.Mesh(largeGeo, largeMat);
 largeStars.frustumCulled = false;
+largeStars.userData.sky = true;
 scene.add(largeStars);
 
 // ─── What the stars hear ──────────────────────────────────────────────────────

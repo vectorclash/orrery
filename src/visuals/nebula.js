@@ -122,17 +122,18 @@ for (let i = 0; i < NEBULA_COUNT; i++) {
     lit:        p.lit,
   };
 
+  sprite.userData.sky = true; // behind everything: a video's lens bends it (video/fx.js)
   scene.add(sprite);
   nebulae.push(sprite);
 }
 
 // ─── Update (called each animation frame) ────────────────────────────────────
-export function updateNebulae(energy, bass, hue, t) {
+export function updateNebulae(energy, bass, hue, dt, t) {
   const baseH = ((hue + 30) % 360) / 360;
   for (const neb of nebulae) {
     const ud = neb.userData;
 
-    ud.angle += ud.orbitSpeed;
+    ud.angle += ud.orbitSpeed * dt * 60; // per 60th of a second, as it was set
     const nx = Math.cos(ud.angle) * ud.baseR;
     const ny = ud.yBase + Math.sin(t * ud.ySpeed + ud.yPhase) * ud.yAmp;
     const nz = Math.sin(ud.angle) * ud.baseR;

@@ -100,7 +100,25 @@ function resize() {
 resize();
 resizeHandlers.push(resize);
 
-export const post = { bloom: true, kaleido: false };
+// `chain`: a video's post-processing (see video/fx.js), which takes over from
+// the bloom: given `drawScene` and `addBloom` below, it makes the frame and
+// draws it to the screen. The live view has none.
+export const post = { bloom: true, kaleido: false, chain: null };
+
+// The scene, drawn to the screen and copied into `frame` (see above).
+export function drawScene() {
+  renderer.setRenderTarget(null);
+  renderer.render(scene, camera);
+  renderer.copyFramebufferToTexture(frame.texture);
+}
+export { frame as sceneFrame };
+
+// The glow, added into `frame`; the kick swells it.
+export function addBloom(dt) {
+  if (!post.bloom) return;
+  bloom.strength = STRENGTH * (1 + 0.35 * music.hits.kick + 0.2 * music.hits.crash);
+  bloom.render(renderer, null, frame, dt, false);
+}
 
 let drift = 0, root = 0; // the mirrored slice: its steady sweep, and the chord's offset
 let changes = 0;          // music.changes as last seen
@@ -117,14 +135,11 @@ export function render(dt) {
   }
   u.dissolve.value = Math.min(1, u.dissolve.value + dt / DISSOLVE);
 
-  renderer.render(scene, camera);
-  if (!post.bloom && !post.kaleido) return;
+  if (post.chain) return post.chain.render(dt);
+  if (!post.bloom && !post.kaleido) return renderer.render(scene, camera);
 
-  renderer.copyFramebufferToTexture(frame.texture);
-  if (post.bloom) {
-    bloom.strength = STRENGTH * (1 + 0.35 * music.hits.kick + 0.2 * music.hits.crash);
-    bloom.render(renderer, null, frame, dt, false); // adds the glow into `frame`
-  }
+  drawScene();
+  addBloom(dt);
   renderer.setRenderTarget(null);
   if (!post.kaleido) return copy.render(renderer);
 

@@ -31,6 +31,11 @@ export function logChange(t) {
   log[written++ % SIZE] = { kind: 'change', t };
 }
 
+// A music video replays an export's log (see video/stage.js): emptied, then each event
+// written again as the export's ticks wrote it.
+export function clearLog() { written = 0; log.fill(undefined); }
+export function replayLog(e) { log[written++ % SIZE] = e; }
+
 // Calls `fn` for every event written since position `since`; returns the new
 // position. If the reader fell more than SIZE events behind, it skips ahead.
 export function readLog(since, fn) {

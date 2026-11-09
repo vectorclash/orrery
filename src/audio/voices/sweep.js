@@ -42,7 +42,7 @@ export function closedAt(b) {
 // the depth: shut as far as the build says (0.7 is about 850 Hz, 0.9 about
 // 350) at the start and opening, slowly and then in a rush, until it is fully
 // open where the build ends -- the music brightening into the drop.
-function buildClosed(b) {
+export function buildClosed(b) {
   const sec = song.sectionAt(b);
   if (!sec?.build?.filter) return null;
   const x = Math.min(1, (b - sec.start) / Math.max(1, sec.beats - sec.gap));

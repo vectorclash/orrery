@@ -101,9 +101,10 @@ function updateCages({ energy, hue, dt, fade, t, alpha }) {
   }
 
   // ── Layers ──
+  const frames = dt * 60; // the turns are per 60th of a second, as they were set
   for (const L of layers) {
-    L.mesh.rotation.y += L.ry + energy * 0.006;
-    L.mesh.rotation.x += L.rx + energy * 0.002;
+    L.mesh.rotation.y += (L.ry + energy * 0.006) * frames;
+    L.mesh.rotation.x += (L.rx + energy * 0.002) * frames;
     _q.copy(L.mesh.quaternion).invert(); // world → this layer's local frame
     // World x and z axes in local coordinates, to read each vertex's world direction.
     _ex.set(1, 0, 0).applyQuaternion(_q); _ez.set(0, 0, 1).applyQuaternion(_q);

@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "node scripts/dev.js",
+    "video": "node scripts/dev.js video.html",
     "build": "node scripts/build.js"
   },
   "devDependencies": {

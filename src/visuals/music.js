@@ -102,6 +102,18 @@ function hear(e, now) {
   }
 }
 
+// Forget what's been heard: a video's preview jumping to another moment of
+// the song (see video/stage.js) starts hearing again from there.
+export function resetMusic() {
+  cursor = 0;
+  pending.length = active.length = 0;
+  music.ripples.length = music.strikes.length = 0;
+  music.noteLevel.fill(0);
+  music.flash.fill(0);
+  for (const k in music.hits) music.hits[k] = 0;
+  for (const r in music.roleLevel) music.roleLevel[r] = 0;
+}
+
 export function updateMusic(dt) {
   if (!audio.started) return;
   const now = audio.ctx.currentTime - audio.latency;

@@ -6,6 +6,9 @@ import { TICK_MS, LOOKAHEAD } from './state.js';
 import { audio, initAudio, rideLevel, presetLevel } from './audio/context.js';
 import { applyPlan, startSession, tick, songFor } from './audio/scheduler.js';
 import { readLog } from './audio/notes.js';
+import { harmony } from './audio/harmony.js';
+import { transport } from './audio/transport.js';
+import { state } from './state.js';
 import { hookSection, transcribe } from './audio/transcribe.js';
 import { planFromShare } from './share.js';
 
@@ -18,19 +21,34 @@ const QUANTUM = 128; // frames per render quantum
 // the top of the section that beat falls in -- each section is seeded on its
 // own, so it plays as it does in the whole song -- with the bars before
 // `from` cut off, so `from` falls where beat 0 otherwise does.
-window.renderExport = async (plan, durationSec, sampleRate, onProgress) => {
+window.renderExport = async (plan, durationSec, sampleRate, onProgress) =>
+  (await renderTake(plan, durationSec, sampleRate, onProgress)).buffer;
+
+// renderExport's take, and with `capture` ({ stepRate }) what the visuals hear
+// as it plays, for a music video of it (see video/stage.js): `steps`, one every
+// 1/stepRate s of the render from the take's start, each the chord, key and
+// beat the scheduler had set when that moment was heard (as the live
+// visuals read them, between ticks); `events`, the note log as each tick
+// wrote it (`at`, the tick's time); and the render whole, before the cut --
+// `left`, `right` and `mix`, the mix in front of the master chain (mono, as
+// the spectrum analyser hears it). Times are the render's; the take starts
+// `cut` seconds into it.
+export async function renderTake(plan, durationSec, sampleRate, onProgress, capture = null) {
   const from = plan.song?.from ?? 0;
   const sec = from ? songFor(plan).sections.findLast(s => s.start <= from + 1e-9) : null;
   const cut = sec ? (from - sec.start) * 60 / plan.state.tempo : 0;
-  const rendered = await render(plan, durationSec + cut, sampleRate, sec?.start ?? 0, onProgress);
-  if (!cut) return rendered;
+  const heard = capture && { cut, stepRate: capture.stepRate, steps: [], events: [] };
+  const rendered = await render(plan, durationSec + cut, sampleRate, sec?.start ?? 0, onProgress, heard);
+  const channels = Math.min(2, rendered.numberOfChannels);
+  if (heard) Object.assign(heard, { left: rendered.getChannelData(0), right: rendered.getChannelData(1), mix: rendered.getChannelData(2) });
+  if (!cut && channels === rendered.numberOfChannels) return { buffer: rendered, heard };
   const skip = Math.round(cut * sampleRate), length = Math.round(durationSec * sampleRate);
-  const out = new AudioBuffer({ length, numberOfChannels: rendered.numberOfChannels, sampleRate });
-  for (let c = 0; c < rendered.numberOfChannels; c++) {
+  const out = new AudioBuffer({ length, numberOfChannels: channels, sampleRate });
+  for (let c = 0; c < channels; c++) {
     out.copyToChannel(rendered.getChannelData(c).subarray(skip, skip + length), c);
   }
-  return out;
-};
+  return { buffer: out, heard };
+}
 
 // The plan for a take of a song `durationSec` long whose first hook -- the
 // first drop, chorus or swell at or after `hookAtSec` -- lands `hookAtSec`
@@ -55,14 +73,25 @@ window.songPlanFor = (plan, durationSec, hookAtSec = 0) => {
   return p;
 };
 
-async function render(plan, durationSec, sampleRate, fromBeat, onProgress) {
+async function render(plan, durationSec, sampleRate, fromBeat, onProgress, heard) {
   const stepped = typeof OfflineAudioContext.prototype.suspend === 'function';
-  const ctx = new OfflineAudioContext(stepped ? 2 : 3, Math.round(durationSec * sampleRate), sampleRate);
+  if (heard && !stepped) throw new Error('A video needs OfflineAudioContext.suspend');
+  const ctx = new OfflineAudioContext(stepped && !heard ? 2 : 3, Math.round(durationSec * sampleRate), sampleRate);
   initAudio(ctx);
   applyPlan(plan);
   const opts = { skipBass: !plan.bassStyle, skipEvolve: true, levelMs: plan.song?.levelMs };
+  const hear = heard && listener(heard, durationSec); // before the session starts: it logs that it has
   startSession(LOOKAHEAD, fromBeat);
   if (opts.levelMs) presetLevel(opts.levelMs);
+  if (heard) {
+    // The finished mix on channels 0–1, and the spectrum analyser's input on 2.
+    audio.masterOut.disconnect();
+    const split = ctx.createChannelSplitter(2), merge = ctx.createChannelMerger(3);
+    audio.masterOut.connect(split);
+    split.connect(merge, 0, 0); split.connect(merge, 1, 1);
+    audio.mix.connect(merge, 0, 2);
+    merge.connect(ctx.destination);
+  }
 
   // Fade to silence over the last stretch so long tails (bell, harp, pad)
   // die away instead of being chopped; no new notes start inside it.
@@ -79,7 +108,23 @@ async function render(plan, durationSec, sampleRate, fromBeat, onProgress) {
   for (let t = step; ; t += step) { times.push(t); if (!(t + step < lastTick)) break; }
 
   const progress = t => onProgress(t / durationSec);
-  return stepped ? renderStepped(ctx, times, opts, progress) : renderAhead(ctx, times, opts, progress);
+  return stepped ? renderStepped(ctx, times, opts, progress, hear) : renderAhead(ctx, times, opts, progress);
+}
+
+// What the visuals would hear, written down after each tick at time `t` (the
+// next is at `next`): the notes it logged, and for each visual step until the
+// next tick, the chord, key and beat then -- what the scheduler has set at
+// this tick is what the live visuals read until the next one.
+function listener(heard, durationSec) {
+  const { steps, events, cut, stepRate } = heard;
+  let since = readLog(Infinity, () => {}), k = 0;
+  return (t, next) => {
+    since = readLog(since, e => events.push({ ...e, at: t }));
+    for (let at; (at = cut + k / stepRate) < next && at < durationSec; k++) {
+      const beat = transport.beatAt(at);
+      steps.push({ beat, chord: harmony.chordPcs(beat), rootMidi: state.rootMidi, era: state.era, scaleIdx: state.scaleIdx, tempo: state.tempo });
+    }
+  };
 }
 
 // ─── A song's level ───────────────────────────────────────────────────────────
@@ -149,15 +194,18 @@ window.planFromShare = planFromShare;
 // embedding page can line its own cuts up with the bars.
 window.exportBeatZero = LOOKAHEAD;
 
-// Pause the render at each tick and run the scheduler there.
-function renderStepped(ctx, times, opts, onProgress) {
+// Pause the render at each tick and run the scheduler there. `heard`, if
+// given, hears each tick (see listener).
+function renderStepped(ctx, times, opts, onProgress, heard) {
   const tickAt = i => ctx.suspend(times[i]).then(() => {
     tick(opts);
+    heard?.(times[i], times[i + 1] ?? Infinity);
     onProgress(times[i]);
     if (i + 1 < times.length) tickAt(i + 1);
     ctx.resume();
   });
   tick(opts);
+  heard?.(0, times[1] ?? Infinity);
   tickAt(1);
   return ctx.startRendering();
 }
