@@ -98,7 +98,10 @@ export function chapters(sections, duration) {
 // would have it (see lesson() below); the tags are plain, for search.
 // `p`: the plan; `key`: e.g. 'D♯ MINOR'; `name`: the song's, if it has one;
 // `style`: the video's; `sections`, `duration`: the video's.
-export function youtubeText({ p, key, name, style, sections, duration }) {
+// `module`: the lesson's number; `taken`: the topics other songs' lessons
+// have had (see topics() below); `kept`: this song's, if it has one already.
+// Returns the topic chosen with the text.
+export function youtubeText({ p, key, name, style, sections, duration, module = 1, taken = [], kept = null }) {
   const drums = p.drumStyle && p.voices.includes('drums') ? DRUMS[p.drumStyle] ?? [p.drumStyle.replace(/_/g, ' '), null] : null;
   const bass = p.bassStyle ? BASS_NAMES[p.bassStyle] ?? `${p.bassStyle} bass` : null;
   const voices = p.voices.filter(v => v !== 'drums').map(v => VOICE_NAMES[v] ?? v);
@@ -108,7 +111,8 @@ export function youtubeText({ p, key, name, style, sections, duration }) {
   const kind = p.song ? 'song' : 'loop';
 
   const marks = chapters(p.song ? sections : [], duration);
-  const { title, description } = lesson({ p, keyName, name: name?.trim(), genre, drums, kind, duration, marks });
+  const topic = chooseTopic(p, keyName, taken, kept);
+  const { title, description } = lesson({ p, keyName, name: name?.trim(), drums, kind, duration, marks, module, topic });
 
   const keyTag = keyName.toLowerCase().replace('♯', ' sharp');
   const candidates = unique([
@@ -125,7 +129,7 @@ export function youtubeText({ p, key, name, style, sections, duration }) {
     if (used + cost > LIMITS.tags) continue;
     tags.push(t); used += cost;
   }
-  return { title, description, tags: tags.join(', '), chapters: marks.length };
+  return { title, description, tags: tags.join(', '), chapters: marks.length, topic: topic.title };
 }
 
 // ── The pictures ──
@@ -339,23 +343,96 @@ function seedOf(p) {
   return h;
 }
 
+// ── Topics ──
+// Each lesson is about one thing, as each of the programme's episodes was
+// (Water, Iron, Germs): a plain subject drawn from what's in the song -- the
+// marimba makes it Wood, a minor key Sadness, a quick tempo Jogging. Each
+// is [the title's word, the sentence's]. A song has several to choose from,
+// the instruments' first; the studio passes the topics already given to
+// other songs, so a channel never has the same lesson twice.
+const VOICE_TOPICS = {
+  pad: ['Softness', 'softness'], melody: ['Triangles', 'triangles'], texture: ['Light', 'light'],
+  pluck: ['Imagination', 'the imagination'], bell: ['Bells', 'bells'], arpeggio: ['Order', 'order'],
+  mallet: ['Wood', 'wood'], drone: ['Waiting', 'waiting'], flute: ['Air', 'air'], choir: ['The Voice', 'the human voice'],
+  strings: ['Counting', 'counting'], rhodes: ['Electricity', 'electricity'], organ: ['Wheels', 'wheels'],
+  glass: ['Glass', 'glass'], harp: ['Angels', 'angels'], brass: ['Brass', 'brass'], vibraphone: ['Vibration', 'vibration'],
+  clavinet: ['Funk', 'funk'], sitar: ['Strings', 'strings'], kalimba: ['Thumbs', 'thumbs'], supersaw: ['Saws', 'saws'],
+  juno: ['Many', 'the word "many"'], solina: ['Pretending', 'pretending'], synthbrass: ['Lightness', 'lightness'],
+  monolead: ['Concentration', 'concentration'], stab: ['Shortness', 'shortness'], vox: ['Pieces', 'pieces'],
+  sawpluck: ['Safety', 'safety'], guitar: ['Balance', 'balance'],
+};
+const BASS_TOPICS = {
+  log: ['Logs', 'logs'], '808': ['Numbers', 'numbers'], sub: ['Silence', 'silence'], acid: ['Acid', 'acid'],
+  walking: ['Walking', 'walking'], reese: ['Reese', 'a man called Reese'], rumble: ['Tummies', 'tummies'],
+};
+const BASS_TOPIC = ['Crabs', 'crabs'];
+const DRUM_TOPICS = [['Time', 'time'], ['Cupboards', 'cupboards'], ['Sticks', 'sticks']];
+const KEY_TOPICS = {
+  minor: ['Sadness', 'sadness'], major: ['Happiness', 'happiness'], pentatonic: ['Five', 'the number five'], mode: ['Jars', 'jars'],
+};
+const SPEED_TOPICS = [[80, ['Cows', 'cows']], [105, ['Parks', 'parks']], [120, ['Horses', 'horses']], [135, ['Jogging', 'jogging']], [Infinity, ['The Heart', 'the heart']]];
+const GENERAL_TOPICS = [
+  ['Sound', 'sound'], ['Music', 'music'], ['Rules', 'rules'], ['Beats', 'beats'], ['Repetition', 'repetition'],
+  ['Echoes', 'echoes'], ['Loudness', 'loudness'], ['Space', 'space'], ['Computers', 'computers'], ['Listening', 'listening'],
+  ['Ears', 'ears'], ['Patterns', 'patterns'], ['Speed', 'speed'], ['Notes', 'notes'], ['Waves', 'waves'],
+  // and what's on the screen
+  ['Orbits', 'orbits'], ['Planets', 'planets'], ['Circles', 'circles'], ['Mirrors', 'mirrors'], ['Colour', 'colour'],
+  ['Stars', 'stars'], ['Spheres', 'spheres'],
+];
+
+const scaleKind = scale => scale.includes('pentatonic') ? 'pentatonic' : scale === 'minor' ? 'minor' : scale === 'major' ? 'major' : 'mode';
+
+// The song's topics, its own first: its instruments' (in an order of its
+// own), then its key's and speed's, then the general ones.
+function topics(p, keyName) {
+  const r = rng(seedOf(p) ^ 0x5eed);
+  const shuffle = list => list.map(x => [r(), x]).sort((a, b) => a[0] - b[0]).map(x => x[1]);
+  const [root, ...scale] = keyName.split(' ');
+  const own = p.voices.filter(v => v !== 'drums').map(v => VOICE_TOPICS[v]).filter(Boolean);
+  if (p.bassStyle) own.push(BASS_TOPICS[p.bassStyle] ?? BASS_TOPIC);
+  if (p.voices.includes('drums')) own.push(DRUM_TOPICS[Math.floor(r() * DRUM_TOPICS.length)]);
+  const music = [
+    KEY_TOPICS[scaleKind(scale.join(' ').toLowerCase())],
+    [`The Letter ${root.replace('♯', '')}`, `the letter ${root.replace('♯', '')}`],
+    SPEED_TOPICS.find(([below]) => p.state.tempo < below)[1],
+  ];
+  return [...shuffle(own), ...shuffle(music), ...shuffle(GENERAL_TOPICS)];
+}
+
+// The first of the song's topics not yet taken; if every one has been, its
+// first again, continued.
+// `kept`: the topic the song's lesson was given before, which it keeps.
+function chooseTopic(p, keyName, taken, kept) {
+  const list = topics(p, keyName);
+  if (kept) {
+    const [, base, part] = /^(.*?)(?:, Part (\d+))?$/.exec(kept);
+    const found = list.find(([title]) => title === base);
+    if (found) return part ? { title: kept, phrase: `${found[1]}, continued` } : { title: found[0], phrase: found[1] };
+  }
+  const used = new Set(taken);
+  const free = list.find(([title]) => !used.has(title));
+  if (free) return { title: free[0], phrase: free[1] };
+  const [title, phrase] = list[0];
+  let n = 2;
+  while (used.has(`${title}, Part ${n}`)) n++;
+  return { title: `${title}, Part ${n}`, phrase: `${phrase}, continued` };
+}
+
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 const spoken = s => {
   const m = Math.floor(s / 60), sec = Math.floor(s % 60);
   return m ? `${plural(m, 'minute')}${sec ? ` and ${plural(sec, 'second')}` : ''}` : plural(sec, 'second');
 };
 
-function lesson({ p, keyName, name, genre, drums, kind, duration, marks }) {
+function lesson({ p, keyName, name, drums, kind, duration, marks, module, topic }) {
   const r = rng(seedOf(p));
   const pick = list => list[Math.floor(r() * list.length)];
-  const module = 1 + Math.floor(r() * 99);
-  const subject = name || genre.split(' ').map(cap).join(' ');
+  const subject = name || topic.title;
   const title = `Orrery · Module ${module}: ${subject}`.slice(0, LIMITS.title);
 
   const [root, ...scaleWords] = keyName.split(' ');
   const scale = scaleWords.join(' ').toLowerCase();
-  const keyFact = scale.includes('pentatonic') ? KEY_FACTS.pentatonic
-    : scale === 'minor' ? KEY_FACTS.minor : scale === 'major' ? KEY_FACTS.major : KEY_FACTS.mode;
+  const keyFact = KEY_FACTS[scaleKind(scale)];
   const noteFact = root.includes('♯') ? SHARP_FACT : pick(NOTE_FACTS)(root);
 
   const instruments = [];
@@ -371,6 +448,8 @@ function lesson({ p, keyName, name, genre, drums, kind, duration, marks }) {
 
   const lines = [
     `ORRERY · MODULE ${module}: ${subject.toUpperCase()}`,
+    '',
+    `Today we will be learning about ${topic.phrase}.`,
     '',
     `Look carefully at your screen. What you are seeing is a ${kind}. It was written by a computer program called Orrery, which also drew the pictures. ${pick(OPENINGS)}`,
     '',

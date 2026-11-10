@@ -461,19 +461,30 @@ const blank = new THREE.DataTexture(new Uint8Array(4), 1, 1); blank.needsUpdate 
 
 function resize() {
   renderer.getDrawingBufferSize(size);
-  for (const t of [ping, pong, sum, skySum, skyFrame, ...history]) t.setSize(size.x, size.y);
+  for (const t of [ping, pong, sum, skySum, skyFrame]) t.setSize(size.x, size.y);
+  // The trails are the picture's past, which a new size mustn't wipe (a still
+  // drawn at another size, see stage.js): each carried over, scaled.
+  for (let i = 0; i < history.length; i++) {
+    const was = history[i];
+    if (was.width === size.x && was.height === size.y) continue;
+    const next = target();
+    next.setSize(size.x, size.y);
+    if (trailsOn) run(copyOut, was.texture, next);
+    was.dispose();
+    history[i] = next;
+  }
   renderer.initRenderTarget(skyFrame); // the screen is copied straight into its texture
   for (const t of [quarter, quarterBlur]) t.setSize(Math.max(1, size.x >> 2), Math.max(1, size.y >> 2));
   for (const t of [half, half2]) t.setSize(Math.max(1, size.x >> 1), Math.max(1, size.y >> 1));
 }
-resizeHandlers.push(resize);
-resize();
 
 // ─── Each frame ───────────────────────────────────────────────────────────────
 let time = 0, drift = 0, root = 0, angle = 0, phase = 0, depth = 0, spin = 0;
 let trailTurn = 0, trailSign = 1, lastChord = '';
 let tear = 0, tearSeed = 0, trailsOn = false;
 let wedges = { from: 6, to: 6 }, lastTo = null;
+resizeHandlers.push(resize); // (after the state above: resizing reads trailsOn)
+resize();
 const turnTo = (from, to) => ((to - from) % (Math.PI * 2) + Math.PI * 3) % (Math.PI * 2) - Math.PI;
 const _v = new THREE.Vector3();
 
@@ -660,7 +671,8 @@ export const chain = {
 
     // A new tear on each snare (and now and then besides), lasting a moment.
     tear = Math.max(tear * Math.exp(-dt / 0.08), hits.snare > 0.6 ? 1 : 0);
-    if (hits.snare > 0.6 || Math.random() < dt * 2) tearSeed = Math.random() * 100;
+    // (Only as time moves on: a frame drawn again is the same frame.)
+    if (dt > 0 && (hits.snare > 0.6 || Math.random() < dt * 2)) tearSeed = Math.random() * 100;
     const glitchAmount = fx.glitch * Math.min(1, 0.15 + tear);
     if (glitchAmount > 0.01) {
       const out = next();

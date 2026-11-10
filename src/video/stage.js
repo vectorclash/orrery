@@ -201,6 +201,14 @@ function seek(t) {
 async function drawAt(t, width, height) {
   if (canvas.width !== width || canvas.height !== height) setRenderSize(width, height, 1, { fit: true });
   await useTitles();
+  frameAt(t);
+}
+
+// On to time `t` from the preview's last frame, and drawn. Much of the
+// picture has built up over time -- the camera's orbit, the folds' turn,
+// the tunnel's depth, the trails -- so it's the moment the preview was
+// showing, moved on; not one worked out afresh, which would differ.
+function frameAt(t) {
   const was = clock;
   if (clock < 0 || t < clock - 0.05 || t > clock + 3) seek(t);
   else stepTo(t, PREVIEW_RATE);
@@ -209,23 +217,19 @@ async function drawAt(t, width, height) {
   render(Math.min(0.1, Math.max(0, moved)));
 }
 
-// A still: the frame at time `t`, at `width` × `height`, as a PNG data URL,
-// without the title cards (a picture's words are set on it, see youtube.js).
-// Drawn afresh at its size from a second before, every step drawn, so what
-// builds up over frames (the trails) is there as it would be in the video.
-// Read in the same task as it's drawn: the buffer is cleared once presented.
+// A still: the preview's frame at time `t` (the playhead), drawn again at
+// `width` × `height`, as a PNG data URL, without the title cards (a
+// picture's words are set on it, see youtube.js). At the playhead nothing
+// moves on, so it's the very picture on the screen; the trails come along,
+// scaled to the new size (see fx.js), and the preview goes back to its own
+// size unchanged. Read in the same task as it's drawn: the buffer is
+// cleared once presented.
 function still(t, width, height) {
   const kept = settings;
   settings = { ...settings, titles: { ...settings.titles, on: false } };
   try {
     setRenderSize(width, height, 1, { fit: true });
-    seek(Math.max(0, t - 1));
-    render(1 / PREVIEW_RATE);
-    while (clock + 1 / PREVIEW_RATE <= t + 1e-9) {
-      const was = clock;
-      step(clock + 1 / PREVIEW_RATE, 1 / PREVIEW_RATE);
-      render(Math.max(0, sceneAt(clock) - sceneAt(was)));
-    }
+    frameAt(t);
     return canvas.toDataURL('image/png');
   } finally {
     settings = kept;

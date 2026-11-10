@@ -32,7 +32,7 @@ const defaults = {
   allow: {}, strength: {}, solo: [],
   titles: { on: false, opening: { title: 'Orrery', about: '' }, closing: { title: 'Orrery', about: 'orrery.vectorclash.com' } },
   size: '1920x1080', fps: 30, motionBlur: false, link: '', loopSeconds: 60,
-  youtube: { names: {}, thumbName: true, bannerName: 'ORRERY', bannerLine: 'Generative music & visuals · orrery.vectorclash.com' },
+  youtube: { names: {}, lessons: {}, thumbName: true, bannerName: 'ORRERY', bannerLine: 'Generative music & visuals · orrery.vectorclash.com' },
 };
 // `v`: the settings' version. Before 2, titles were on by default and saved
 // as on with everything else, so that one is forgotten: off is the default now.
@@ -48,6 +48,7 @@ const save = () => localStorage.setItem(STORE, JSON.stringify(settings));
 let plan = null, loaded = null;   // the song, and what its stage gave back
 let preview = null, previewFrame = null;
 let ctx = null, buffer = null, source = null, startedAt = 0, offset = 0, playing = false;
+let shown = null;                 // while playing: the time of the frame on the screen
 let making = null;                // the frame of a video being made
 let autoStyle = 'CLUB', autoIntensity = 1, sections = [];
 
@@ -210,13 +211,17 @@ function play() {
   source.connect(ctx.destination);
   source.start(0, offset);
   startedAt = ctx.currentTime;
+  shown = null;
   playing = true;
   $('play').textContent = 'PAUSE';
   requestAnimationFrame(tick);
 }
+// Paused, the playhead is the frame on the screen, not the sound's place a
+// moment on: the picture builds up over time, so a still or a redraw at the
+// sound's place would be a different picture from the one paused on.
 function stop() {
   if (!playing) return;
-  offset = Math.max(0, playhead());
+  offset = Math.max(0, shown ?? playhead());
   source.stop();
   source.disconnect();
   playing = false;
@@ -236,6 +241,7 @@ async function tick() {
   showTime(t);
   if (!drawing) {
     drawing = true;
+    shown = t; // what the screen shows once drawn, as it will be if paused meanwhile
     try { await preview.drawAt(t, ...previewSize()); } finally { drawing = false; }
   }
   requestAnimationFrame(tick);
@@ -334,12 +340,31 @@ function finishMaking(text, error = false) {
 // stills of the playhead's moment from the preview's stage, saved as files.
 const songName = () => (settings.link && settings.youtube.names[settings.link]) || '';
 
+// The channel's lessons, one for each song whose text has been copied (so
+// taken to YouTube): { [the song's code]: { module, topic } }. A new song's
+// lesson is the next module, about a topic no other has had (youtube.js).
+const songKey = () => /(?:^|[#&])c=([A-Za-z0-9_-]+)/.exec(settings.link)?.[1] ?? settings.link;
+function lessonFor() {
+  const key = songKey(), all = settings.youtube.lessons, own = all[key];
+  const others = Object.entries(all).filter(([k]) => k !== key).map(([, l]) => l);
+  const module = own?.module ?? Math.max(0, ...others.map(l => l.module)) + 1;
+  return { key, own, module, others };
+}
+let lastText = null;
+
 function showYoutube() {
   if (!plan || !loaded) return;
-  const t = youtubeText({
+  const lesson = lessonFor();
+  const t = lastText = youtubeText({
     p: plan, key: describe(plan, loaded.duration).key, name: songName(),
     style: style(), sections, duration: loaded.duration,
+    module: lesson.module, taken: lesson.others.map(l => l.topic), kept: lesson.own?.topic,
   });
+  $('yt-module').value = lesson.module;
+  const clash = lesson.others.some(l => l.module === lesson.module);
+  $('yt-module-about').textContent = (lesson.own ? `KEPT FOR THIS SONG: ${t.topic.toUpperCase()}` : `THE NEXT MODULE: ${t.topic.toUpperCase()} · KEPT ONCE YOU COPY`)
+    + (clash ? ' · ANOTHER SONG HAS THIS NUMBER' : '');
+  $('yt-forget').hidden = !lesson.own;
   const show = (id, text, limit) => {
     $(id).value = text;
     $(`${id}-count`).textContent = `${text.length} / ${limit}`;
@@ -390,8 +415,25 @@ $('yt-name').addEventListener('input', e => {
   save();
   showYoutube();
 });
+// Copying the text is taking it to YouTube: the song's lesson is kept.
+function keepLesson(module = lessonFor().module) {
+  if (!lastText) return;
+  settings.youtube.lessons[songKey()] = { module, topic: lastText.topic };
+  save();
+  showYoutube();
+}
+$('yt-module').addEventListener('change', e => {
+  const n = Math.max(1, Math.round(Number(e.target.value) || 1));
+  keepLesson(n);
+});
+$('yt-forget').addEventListener('click', () => {
+  delete settings.youtube.lessons[songKey()];
+  save();
+  showYoutube();
+});
 for (const b of document.querySelectorAll('[data-copy]')) {
   b.addEventListener('click', async () => {
+    if (!lessonFor().own) keepLesson();
     await navigator.clipboard.writeText($(b.dataset.copy).value);
     b.textContent = 'COPIED';
     setTimeout(() => { b.textContent = 'COPY'; }, 1500);
