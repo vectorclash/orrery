@@ -12,6 +12,9 @@
 // A thumbnail is 1280×720, under 2 MB; an avatar 800×800, shown as a circle;
 // a banner 2560×1440, under 6 MB, of which only the middle 1546×423 shows everywhere.
 
+import { SCALE_NAMES } from '../state.js';
+import { GENRES, genreOfKit } from '../genres.js';
+
 export const LIMITS = { title: 100, description: 5000, tags: 500 };
 export const THUMB = [1280, 720];
 export const AVATAR = [800, 800];
@@ -98,13 +101,10 @@ export function chapters(sections, duration) {
 // would have it (see lesson() below); the tags are plain, for search.
 // `p`: the plan; `key`: e.g. 'D♯ MINOR'; `name`: the song's, if it has one;
 // `style`: the video's; `sections`, `duration`: the video's.
-// `module`: the lesson's number; `taken`: the names other songs have had (see
-// names() below); `kept`: this song's, if it has one already. Returns the
-// name chosen (`topic`, as the studio keeps it) with the text.
-// `titles`: 'named' (Perihelion · Orrery (Amapiano in B minor)) or 'plain'
-// (Orrery 07 · Amapiano in B minor, 110 BPM); a name typed for the song is
-// always used, as a named title.
-export function youtubeText({ p, key, name, style, sections, duration, module = 1, taken = [], kept = null, titles = 'named' }) {
+// `taken`: the titles other songs have been given (the studio keeps them), so
+// one the same in every word gets a numeral. `name`: one typed for the song,
+// which goes before the description.
+export function youtubeText({ p, key, name, style, sections, duration, taken = [] }) {
   const drums = p.drumStyle && p.voices.includes('drums') ? DRUMS[p.drumStyle] ?? [p.drumStyle.replace(/_/g, ' '), null] : null;
   const bass = p.bassStyle ? BASS_NAMES[p.bassStyle] ?? `${p.bassStyle} bass` : null;
   const voices = p.voices.filter(v => v !== 'drums').map(v => VOICE_NAMES[v] ?? v);
@@ -114,13 +114,23 @@ export function youtubeText({ p, key, name, style, sections, duration, module = 
   const kind = p.song ? 'song' : 'loop';
 
   const marks = chapters(p.song ? sections : [], duration);
-  const topic = chooseName(p, keyName, taken, kept);
   const typed = name?.trim();
-  const { title, description } = lesson({ p, keyName, name: typed || (titles === 'plain' ? null : topic), genre: titleCase(genre), drums, kind, duration, marks, module });
+  const line = songLine(p, genre), short = songLine(p, genre, 1);
+  // Within YouTube's 100 characters: without the key and tempo if need be,
+  // then with one instrument, rather than cut off mid-word.
+  const make = n => {
+    const fits = typed
+      ? [`${typed} · ${line}${n} · Orrery`, `${typed} · ${short}${n} · Orrery`]
+      : [`${line}${n} (${keyName}, ${p.state.tempo} BPM) · Orrery`, `${line}${n} · Orrery`, `${short}${n} · Orrery`];
+    return fits.find(t => t.length <= LIMITS.title) ?? fits.at(-1).slice(0, LIMITS.title);
+  };
+  let title = make(''), n = 2;
+  while (taken.includes(title)) title = make(` ${roman(n++)}`);
+  const { description } = lesson({ p, keyName, heading: (typed ? `${typed}: ${line}` : line).toUpperCase(), drums, kind, duration, marks });
 
   const keyTag = keyName.toLowerCase().replace('♯', ' sharp');
   const candidates = unique([
-    'orrery', (typed || (titles === 'plain' ? '' : topic)).toLowerCase(), ...genres, ...genres.map(g => `${g} music`),
+    'orrery', typed?.toLowerCase(), ...genres, ...genres.map(g => `${g} music`),
     'generative music', 'procedural music', 'algorithmic music', 'music visualizer', 'audio visualizer',
     'synthesizer', 'web audio', `${p.state.tempo} bpm`, keyTag, drums?.[0], bass, ...voices,
     'no ai', 'instrumental', 'music video',
@@ -133,7 +143,7 @@ export function youtubeText({ p, key, name, style, sections, duration, module = 
     if (used + cost > LIMITS.tags) continue;
     tags.push(t); used += cost;
   }
-  return { title, description, tags: tags.join(', '), chapters: marks.length, topic };
+  return { title, description, tags: tags.join(', '), chapters: marks.length };
 }
 
 // ── The pictures ──
@@ -235,7 +245,7 @@ export async function banner(frame, { name = 'ORRERY', line = '' } = {}) {
 
 // ─── The lesson ───────────────────────────────────────────────────────────────
 // The description as a schools science programme of the late 1970s: a grave,
-// patient narrator, a module number, headings in capitals, facts stated with
+// patient narrator, headings in capitals, facts stated with
 // total confidence (and not all of them true), questions to answer, and the
 // answer at the bottom. The jokes are chosen by the song's seed, so a song
 // always gets the same lesson, and two songs seldom get the same one.
@@ -347,99 +357,83 @@ function seedOf(p) {
   return h;
 }
 
-// ── Names ──
-// Each video is named from astronomy, as the orrery is: Perihelion,
-// Earthshine, Slow Conjunction, Distant Europa. A song's name comes from its
-// mood: a fast or pumping one draws from the restless sky (pulsars, flares,
-// meteor showers, the hot bright stars), a calm one from the quiet sky
-// (librations, earthshine, the outer moons, the zodiacal light); with a
-// qualifier, a minor key's is a dark one (Cold, Distant), a major key's a
-// bright one (Golden, Clear). The studio passes the names other songs have
-// had, so none comes twice. About 180 terms and 36 qualifiers: some 6,600
-// names, every one reachable from every song (see names()), so a channel can
-// post daily for years before the list runs out.
-const RESTLESS = [
-  // the sky in motion
-  'Perihelion', 'Perigee', 'Periapsis', 'Conjunction', 'Opposition', 'Syzygy', 'Transit', 'Eclipse',
-  'Totality', 'Retrograde', 'Flyby', 'Slingshot', 'Gravity Assist', 'Escape Velocity', 'Roche Limit',
-  // the sun
-  'Corona', 'Coronal Loop', 'Prominence', 'Solar Flare', 'Solar Wind', 'Solar Maximum', 'Sunspot', 'Aurora',
-  // violent things
-  'Quasar', 'Pulsar', 'Magnetar', 'Blazar', 'Nova', 'Supernova', 'Kilonova', 'Hypernova', 'Gamma Burst',
-  'Neutron Star', 'Event Horizon', 'Accretion Disc', 'Relativistic Jet', 'Tidal Disruption', 'Afterglow',
-  'Bow Shock', 'Shockfront', 'Starburst', 'Wolf-Rayet', 'Hot Jupiter', 'Doppler', 'Redshift', 'Blueshift',
-  // falling things
-  'Meteor Shower', 'Fireball', 'Bolide', 'Starfall', 'Comet Tail', 'Perseids', 'Leonids', 'Geminids', 'Orionids',
-  // first light
-  'First Light', 'Light Curve', 'Binary Star', 'Double Star', 'Cepheid', 'Variable Star',
-  // bright, hot or restless stars and constellations, and a volcanic moon
-  'Sirius', 'Rigel', 'Betelgeuse', 'Antares', 'Arcturus', 'Aldebaran', 'Deneb', 'Altair', 'Mira',
-  'Orion', 'Perseus', 'Draco', 'Aquila', 'Scorpius', 'Sagittarius', 'Leo', 'Io', 'Phobos', 'Crab Nebula',
+// ── The title ──
+// What the song is, in words: its character, its genre, the two instruments
+// you'd notice first, then its key and tempo -- "Bright Amapiano with Log Drum
+// and Marimba (B minor, 110 BPM) · Orrery". Nothing invented: every word is
+// read off the song.
+//
+// The character is what sets this song apart from others of its genre: each
+// genre's songs are rolled near its preset (genres.js), so a word for being
+// brighter, sparser, faster or roomier than that, or in a key the genre doesn't
+// usually choose, says something about this one. Only when nothing stands out
+// does the key's mood stand alone. (It once always did, and with Dorian the
+// first choice of eight genres, every other title began "Smoky".) Each word has
+// a few near-synonyms, one per song, so songs alike in the same way still read
+// differently.
+const KEY_MOOD = {
+  aeolian: ['Moody', 'Brooding', 'Wistful'], dorian: ['Smoky', 'Soulful', 'Cool'],
+  phrygian: ['Dark', 'Ominous', 'Shadowy'], minor_pent: ['Earthy', 'Bluesy', 'Moody'],
+  major_pent: ['Warm', 'Sunlit', 'Open'], lydian: ['Dreamy', 'Floating', 'Starry'],
+  mixolydian: ['Sunny', 'Breezy', 'Easygoing'], major: ['Bright', 'Hopeful', 'Joyful'],
+};
+// [how far the song is from its genre, in units of how far a roll can move it
+// (main.js genreFeel), words for more, words for less].
+const LEANS = [
+  [(s, g) => (s.brightness - g.brightness) / 0.12, ['Bright', 'Gleaming', 'Glowing'], ['Mellow', 'Dusky', 'Muted']],
+  [(s, g) => (s.density - g.density) / 0.1, ['Busy', 'Restless', 'Teeming'], ['Sparse', 'Bare', 'Minimal']],
+  [(s, g) => (s.spaciousness - g.spaciousness) / 0.1, ['Spacious', 'Wide', 'Airy'], ['Dry', 'Close', 'Intimate']],
+  [(s, g) => g.bpm[1] > g.bpm[0] ? (s.tempo - (g.bpm[0] + g.bpm[1]) / 2) / ((g.bpm[1] - g.bpm[0]) / 2) : 0,
+    ['Fast', 'Urgent', 'Quick'], ['Unhurried', 'Laid-back', 'Easy']],
 ];
-const QUIET = [
-  // light at the edges
-  'Libration', 'Earthshine', 'Zodiacal Light', 'Gegenschein', 'Airglow', 'Twilight', 'Blue Hour', 'Starlight',
-  // far points and slow turns
-  'Aphelion', 'Apogee', 'Apoapsis', 'Equinox', 'Solstice', 'Nadir', 'Zenith', 'Meridian', 'Ecliptic',
-  'Horizon', 'Parallax', 'Albedo', 'Penumbra', 'Umbra', 'Precession', 'Nutation', 'Occultation',
-  'Sidereal Time', 'Ephemeris', 'Barycentre', 'Lagrange Point', 'Tidal Lock', 'Halo Orbit', 'Low Orbit',
-  // the moon
-  'Moonrise', 'Moonset', 'New Moon', 'Crescent', 'Waxing Gibbous', 'Waning Gibbous', 'Harvest Moon', 'Blue Moon',
-  // the far reaches
-  'Heliopause', 'Heliosphere', 'Oort Cloud', 'Kuiper Belt', 'Interstellar', 'Light Year', 'Parsec',
-  'Dark Matter', 'Cosmic Dawn', 'Cosmic Background', 'Nebula', 'Dust Lane', 'Spiral Arm', 'Galactic Halo',
-  'Ring Plane', 'Shepherd Moon', 'Cassini Division',
-  // small cool stars
-  'White Dwarf', 'Red Dwarf', 'Brown Dwarf', 'Red Giant',
-  // quiet moons and small worlds
-  'Europa', 'Ganymede', 'Callisto', 'Titan', 'Enceladus', 'Triton', 'Miranda', 'Charon', 'Deimos',
-  'Ceres', 'Vesta', 'Pluto', 'Sedna', 'Hyperion',
-  // steady stars and constellations
-  'Vega', 'Polaris', 'Capella', 'Spica', 'Fomalhaut', 'Achernar', 'Canopus', 'Procyon',
-  'Lyra', 'Cygnus', 'Cassiopeia', 'Andromeda', 'Carina', 'Vela', 'Pleiades', 'Hyades', 'Magellanic Cloud',
-];
-const DARK = ['Slow', 'Pale', 'Distant', 'Quiet', 'Cold', 'Long', 'Late', 'Hidden', 'Second', 'Last', 'Deep',
-  'Faint', 'Dim', 'Lone', 'Lower', 'Outer', 'Fading', 'Silent'];
-const BRIGHT = ['Bright', 'Golden', 'Warm', 'Early', 'First', 'High', 'Silver', 'Clear', 'Northern', 'Southern',
-  'Great', 'Little', 'Inner', 'Upper', 'Rising', 'Burning', 'Near', 'Open'];
-
-const scaleKind = scale => scale.includes('pentatonic') ? 'pentatonic' : scale === 'minor' ? 'minor' : scale === 'major' ? 'major' : 'mode';
-
-// Every name, in the song's own order: its mood's terms plain; then its mood's
-// with its key's qualifiers; the other mood's plain, then qualified; then all
-// with the other qualifiers. Plain names are the strongest, so they go first.
-function names(p, keyName) {
-  const r = rng(seedOf(p) ^ 0x5eed);
-  const shuffle = list => list.map(x => [r(), x]).sort((a, b) => a[0] - b[0]).map(x => x[1]);
-  const restless = p.state.tempo >= 118 || (p.state.pump ?? 0) >= 0.5 || p.state.density > 0.7;
-  const scale = keyName.split(' ').slice(1).join(' ').toLowerCase();
-  const bright = /major|lydian|mixolydian/.test(scale);
-  const own = restless ? RESTLESS : QUIET, other = restless ? QUIET : RESTLESS;
-  const mine = bright ? BRIGHT : DARK, theirs = bright ? DARK : BRIGHT;
-  const with_ = (terms, qualifiers) => shuffle(terms.flatMap(t => qualifiers.map(q => `${q} ${t}`)));
-  return [
-    ...shuffle(own), ...with_(own, mine), ...shuffle(other), ...with_(other, mine),
-    ...with_([...own, ...other], theirs),
-  ];
+const STANDS_OUT = 0.5, ALSO = 0.8;
+function genreOf(p) {
+  const name = p.genre ?? p.state.language;
+  return GENRES.find(g => g.name === name) ?? genreOfKit(p);
 }
-
-// The first of the song's names not yet taken (`kept`: the one the song was
-// given before, which it keeps, whatever it is); if every one has been, its
-// first again, numbered.
-function chooseName(p, keyName, taken, kept) {
-  if (kept) return kept;
-  const used = new Set(taken);
-  const list = names(p, keyName);
-  const free = list.find(n => !used.has(n));
-  if (free) return free;
-  let n = 2;
-  while (used.has(`${list[0]} ${roman(n)}`)) n++;
-  return `${list[0]} ${roman(n)}`;
+function character(p, genre) {
+  const s = p.state, g = genreOf(p), pick = rng(seedOf(p) ^ 0x7e1e);
+  const one = words => words[Math.floor(pick() * words.length)];
+  const scale = SCALE_NAMES[s.scaleIdx];
+  const leans = g ? LEANS.map(([by, more, less]) => {
+    const d = by(s, g);
+    return { d: Math.abs(d), words: d > 0 ? more : less };
+  }) : [];
+  // A key the genre seldom picks is as telling as a slider.
+  if (g && scale !== SCALE_NAMES[g.scales[0]] && KEY_MOOD[scale]) leans.push({ d: 0.7, words: KEY_MOOD[scale] });
+  const said = leans.filter(l => l.d >= STANDS_OUT).sort((x, y) => y.d - x.d).slice(0, 2)
+    .filter((l, i) => i === 0 || l.d >= ALSO);
+  const words = (said.length ? said.map(l => one(l.words)) : [one(KEY_MOOD[scale] ?? ['Strange'])])
+    .filter(w => !genre.toLowerCase().includes(w.toLowerCase()));
+  return [...new Set(words)].join(', ');
 }
-const roman = n => ['', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X'][n] ?? String(n);
-
+// The instruments you'd notice first, most first; a bass counts when it's a
+// sound of its own (the log drum, the 808), not just the low end.
+const FEATURED = ['guitar', 'sitar', 'kalimba', 'harp', 'flute', 'choir', 'vox', 'mallet', 'vibraphone',
+  'clavinet', 'rhodes', 'organ', 'brass', 'synthbrass', 'strings', 'supersaw', 'monolead', 'sawpluck', 'stab',
+  'bell', 'pluck', 'arpeggio', 'juno', 'solina', 'glass', 'pad', 'melody', 'texture', 'drone'];
+const TITLE_NAMES = {
+  guitar: 'Disco Guitar', mallet: 'Marimba', rhodes: 'Electric Piano', vox: 'Vocal Chops', synthbrass: 'Synth Brass',
+  monolead: 'Synth Lead', sawpluck: 'Saw Plucks', stab: 'Chord Stabs', bell: 'Handbells', pluck: 'Fingerpicked Guitar',
+  arpeggio: 'Arpeggios', juno: 'Analogue Pads', solina: 'String Machine', glass: 'Glass Harmonica', pad: 'Pads',
+  melody: 'Soft Lead', texture: 'Shimmer', supersaw: 'Supersaws', drone: 'Drone',
+};
+const FEATURED_BASS = { log: 'Log Drum', '808': '808s', acid: 'Acid Bass', reese: 'Reese Bass', walking: 'Walking Bass', disco: 'Disco Bass' };
 // A genre as a title has it: UK Garage, Drum and Bass.
 const titleCase = g => g.split(' ').map(w => (w === 'uk' ? 'UK' : w === 'and' ? 'and' : cap(w))).join(' ');
+
+// "Moody Amapiano with Log Drum and Marimba", for the title and the description's heading.
+function songLine(p, genre, most = 2) {
+  const mood = character(p, genre);
+  const parts = [
+    ...(FEATURED_BASS[p.bassStyle] ? [FEATURED_BASS[p.bassStyle]] : []),
+    ...FEATURED.filter(v => p.voices.includes(v)).map(v => TITLE_NAMES[v] ?? cap(v)),
+  ].slice(0, most);
+  return `${mood} ${titleCase(genre)}${parts.length ? ` with ${parts.join(' and ')}` : ''}`.trim();
+}
+
+const scaleKind = scale => scale.includes('pentatonic') ? 'pentatonic' : scale === 'minor' ? 'minor' : scale === 'major' ? 'major' : 'mode';
+const roman = n => ['', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X'][n] ?? String(n);
 
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 const spoken = s => {
@@ -447,12 +441,9 @@ const spoken = s => {
   return m ? `${plural(m, 'minute')}${sec ? ` and ${plural(sec, 'second')}` : ''}` : plural(sec, 'second');
 };
 
-function lesson({ p, keyName, name, genre, drums, kind, duration, marks, module }) {
+function lesson({ p, keyName, heading, drums, kind, duration, marks }) {
   const r = rng(seedOf(p));
   const pick = list => list[Math.floor(r() * list.length)];
-  const title = (name
-    ? `${name} · Orrery (${genre} in ${keyName})`
-    : `Orrery ${String(module).padStart(2, '0')} · ${genre} in ${keyName}, ${p.state.tempo} BPM`).slice(0, LIMITS.title);
 
   const [root, ...scaleWords] = keyName.split(' ');
   const scale = scaleWords.join(' ').toLowerCase();
@@ -471,9 +462,8 @@ function lesson({ p, keyName, name, genre, drums, kind, duration, marks, module 
   const thing = VOICE_NAMES[voices.length ? pick(voices) : ''] ?? 'bass';
 
   const lines = [
-    name ? `ORRERY · MODULE ${module}: ${name.toUpperCase()}` : `ORRERY · MODULE ${module}`,
+    heading,
     '',
-    ...(name ? [`This module is called ${name}.`, ''] : []),
     `Look carefully at your screen. What you are seeing is a ${kind}. It was written by a computer program called Orrery, which also drew the pictures. ${pick(OPENINGS)}`,
     '',
     'Orrery is not an artificial intelligence. It is a list of very strict rules, like a school. Every sound you hear was made out of electricity, at the very moment it was played.',
@@ -498,5 +488,5 @@ function lesson({ p, keyName, name, genre, drums, kind, duration, marks, module 
     '',
     `Answer to question 1: about ${beats} beats. If you got it wrong, watch the video again and count more carefully.`,
   ];
-  return { title, description: lines.join('\n').slice(0, LIMITS.description) };
+  return { description: lines.join('\n').slice(0, LIMITS.description) };
 }

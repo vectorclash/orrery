@@ -32,7 +32,7 @@ const defaults = {
   allow: {}, strength: {}, solo: [],
   titles: { on: false, opening: { title: 'Orrery', about: '' }, closing: { title: 'Orrery', about: 'orrery.vectorclash.com' } },
   size: '1920x1080', fps: 30, motionBlur: false, link: '', loopSeconds: 60,
-  youtube: { names: {}, lessons: {}, titles: 'named', thumbName: true, bannerName: 'ORRERY', bannerLine: 'Generative music & visuals · orrery.vectorclash.com' },
+  youtube: { names: {}, given: {}, thumbName: true, bannerName: 'ORRERY', bannerLine: 'Generative music & visuals · orrery.vectorclash.com' },
 };
 // `v`: the settings' version. Before 2, titles were on by default and saved
 // as on with everything else, so that one is forgotten: off is the default now.
@@ -349,35 +349,20 @@ function finishMaking(text, error = false) {
 // stills of the playhead's moment from the preview's stage, saved as files.
 const songName = () => (settings.link && settings.youtube.names[settings.link]) || '';
 
-// The channel's lessons, one for each song whose text has been copied (so
-// taken to YouTube): { [the song's code]: { module, topic } }, `topic` being
-// the video's name. A new song's is the next module, with a name no other has
-// had (youtube.js).
+// The titles given out: { [the song's code]: title }, kept when a song's text
+// is copied (so taken to YouTube), so another song described the same in every
+// word gets a numeral (youtube.js).
 const songKey = () => /(?:^|[#&])c=([A-Za-z0-9_-]+)/.exec(settings.link)?.[1] ?? settings.link;
-function lessonFor() {
-  const key = songKey(), all = settings.youtube.lessons, own = all[key];
-  const others = Object.entries(all).filter(([k]) => k !== key).map(([, l]) => l);
-  const module = own?.module ?? Math.max(0, ...others.map(l => l.module)) + 1;
-  return { key, own, module, others };
-}
 let lastText = null;
 
 function showYoutube() {
   if (!plan || !loaded) return;
-  const lesson = lessonFor();
+  const key = songKey();
+  const taken = Object.entries(settings.youtube.given).filter(([k]) => k !== key).map(([, title]) => title);
   const t = lastText = youtubeText({
     p: plan, key: describe(plan, loaded.duration).key, name: songName(),
-    style: style(), sections, duration: loaded.duration,
-    module: lesson.module, taken: lesson.others.map(l => l.topic), kept: lesson.own?.topic,
-    titles: settings.youtube.titles,
+    style: style(), sections, duration: loaded.duration, taken,
   });
-  $('yt-module').value = lesson.module;
-  const clash = lesson.others.some(l => l.module === lesson.module);
-  const named = settings.youtube.titles === 'named' ? ` · ${t.topic.toUpperCase()}` : '';
-  $('yt-module-about').textContent = (lesson.own ? `KEPT FOR THIS SONG: MODULE ${lesson.module}${named}` : `NEXT: MODULE ${lesson.module}${named} · KEPT ONCE YOU COPY`)
-    + (clash ? ' · ANOTHER SONG HAS THIS NUMBER' : '');
-  $('yt-forget').hidden = !lesson.own;
-  $('yt-titles').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.v === settings.youtube.titles));
   const show = (id, text, limit) => {
     $(id).value = text;
     $(`${id}-count`).textContent = `${text.length} / ${limit}`;
@@ -428,32 +413,10 @@ $('yt-name').addEventListener('input', e => {
   save();
   showYoutube();
 });
-// Copying the text is taking it to YouTube: the song's lesson is kept.
-function keepLesson(module = lessonFor().module) {
-  if (!lastText) return;
-  settings.youtube.lessons[songKey()] = { module, topic: lastText.topic };
-  save();
-  showYoutube();
-}
-$('yt-module').addEventListener('change', e => {
-  const n = Math.max(1, Math.round(Number(e.target.value) || 1));
-  keepLesson(n);
-});
-$('yt-titles').addEventListener('click', e => {
-  const b = e.target.closest('button');
-  if (!b) return;
-  settings.youtube.titles = b.dataset.v;
-  save();
-  showYoutube();
-});
-$('yt-forget').addEventListener('click', () => {
-  delete settings.youtube.lessons[songKey()];
-  save();
-  showYoutube();
-});
 for (const b of document.querySelectorAll('[data-copy]')) {
   b.addEventListener('click', async () => {
-    if (!lessonFor().own) keepLesson();
+    // Copying the text is taking it to YouTube: its title is given out.
+    if (lastText) { settings.youtube.given[songKey()] = lastText.title; save(); }
     await navigator.clipboard.writeText($(b.dataset.copy).value);
     b.textContent = 'COPIED';
     setTimeout(() => { b.textContent = 'COPY'; }, 1500);
@@ -463,7 +426,7 @@ $('thumb-name').addEventListener('change', e => { settings.youtube.thumbName = e
 for (const [id, key] of [['banner-name', 'bannerName'], ['banner-line', 'bannerLine']]) {
   $(id).addEventListener('change', e => { settings.youtube[key] = e.target.value; save(); });
 }
-$('thumb').addEventListener('click', () => picture(THUMB, f => thumbnail(f, settings.youtube.thumbName ? songName() || (settings.youtube.titles === 'named' ? lastText?.topic : '') || '' : ''), `${stem()}_thumbnail.jpg`));
+$('thumb').addEventListener('click', () => picture(THUMB, f => thumbnail(f, settings.youtube.thumbName ? songName() : ''), `${stem()}_thumbnail.jpg`));
 $('avatar').addEventListener('click', () => picture(AVATAR, avatar, 'orrery_avatar.png'));
 $('banner').addEventListener('click', () => picture(BANNER, f => banner(f, { name: settings.youtube.bannerName, line: settings.youtube.bannerLine }), 'orrery_banner.jpg'));
 
