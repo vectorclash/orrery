@@ -1,4 +1,4 @@
-import './move.js'; // first: Orrery's old address sends visitors to its new one, with their library
+import { arrival, libraryLink, canCopyLibrary } from './move.js'; // first: Orrery's old address sends visitors to its new one, with their library
 import { state, rootName, START_DELAY, ROOT_BASE_MIDI, LATEST_COMPOSER, pick } from './state.js';
 import { audio, ensureAudioRunning, audioStopped, setRoom, ROOMS, heardTime } from './audio/context.js';
 import { everyTick } from './audio/ticker.js';
@@ -262,6 +262,7 @@ const libraryEl            = document.getElementById('library');
 const libraryList          = document.getElementById('library-list');
 const libraryTabs          = document.querySelectorAll('.library-tab');
 const libraryCloseBtn      = document.getElementById('library-close');
+const libraryCopyBtn       = document.getElementById('library-copy');
 const panelHideBtn         = document.getElementById('panel-hide-btn');
 
 // ─── Enable state (all off by default) ───────────────────────────────────────
@@ -1408,6 +1409,16 @@ function showLibrary() {
   const entries = libraryTab === 'kept' ? library.kept
     : [...library.recent].sort((a, b) => b.at - a.at).filter(e => !seen.has(e.link) && seen.add(e.link));
   libraryList.replaceChildren(...entries.map(libraryRow));
+  libraryCopyBtn.hidden = !canCopyLibrary || !(library.kept.length || library.recent.length);
+  if (arrived && libraryTab === 'kept') {
+    const note = document.createElement('div');
+    note.className = 'library-arrived';
+    const n = arrived.kept, m = arrived.recent;
+    note.textContent = n || m
+      ? `FROM YOUR OTHER BROWSER: ${n} KEPT SONG${n === 1 ? '' : 'S'}${m ? ` AND ${m} RECENT` : ''}`
+      : 'FROM YOUR OTHER BROWSER: NOTHING NEW, IT WAS ALL HERE ALREADY';
+    libraryList.prepend(note);
+  }
   if (entries.length) return;
   const none = document.createElement('div');
   none.className = 'library-none';
@@ -1415,7 +1426,26 @@ function showLibrary() {
   libraryList.append(none);
 }
 
+// What a library link brought (see move.js), said in the library until it's closed.
+let arrived = arrival;
+
+// COPY LIBRARY: the link is made after the press, and Safari only lets a page
+// write to the clipboard during one, so it's handed over as a promise of the
+// text, which Safari waits for.
+libraryCopyBtn.addEventListener('click', () => {
+  const link = libraryLink();
+  const done = ok => {
+    libraryCopyBtn.textContent = ok ? 'COPIED!' : 'FAILED';
+    setTimeout(() => { libraryCopyBtn.textContent = 'COPY LIBRARY'; }, 1600);
+  };
+  const write = typeof ClipboardItem === 'function' && ClipboardItem.supports?.('text/plain') !== false
+    ? navigator.clipboard.write([new ClipboardItem({ 'text/plain': link.then(l => new Blob([l], { type: 'text/plain' })) })])
+    : link.then(l => navigator.clipboard.writeText(l));
+  write.then(() => done(true), err => { console.error(err); done(false); });
+});
+
 function setLibraryOpen(open) {
+  if (!open) arrived = null;
   libraryEl.hidden = !open;
   infiniteUi.classList.toggle('library-open', open);
   libraryBtn.classList.toggle('on', open);
@@ -2103,6 +2133,9 @@ state.composer = LATEST_COMPOSER;
 startAnimation();
 setForm(manualForm);
 showFeel();
+
+// Opened with a library link: the library, saying what came.
+if (arrival && !libraryBtn.hidden) { libraryTab = 'kept'; setLibraryOpen(true); }
 
 // Restore config from URL hash (after all UI is wired)
 const _hashMatch = location.hash.match(/[#&]c=([A-Za-z0-9\-_]+)/);

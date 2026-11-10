@@ -6,6 +6,10 @@
 //
 // Kept in this browser's storage, so they outlast a reload; where there is no storage
 // (a private window, or it's full) they last as long as the page does.
+// After move.js, which may first merge in a library a link brought (it waits
+// to decompress it, and a module that didn't import it wouldn't wait).
+import './move.js';
+
 const KEPT_KEY    = 'orrery.kept';
 const RECENT_KEY  = 'orrery.recent';
 const RECENT_MOST = 60;

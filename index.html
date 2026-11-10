@@ -361,6 +361,14 @@
       border-bottom: 1px solid var(--line-3);
     }
     #library-head .kind-toggle { background: transparent; }
+    #library-head { flex-wrap: wrap; }
+    .library-head-actions { display: flex; gap: 4px; margin-left: auto; }
+    .library-arrived {
+      padding: 14px 0 2px;
+      font-size: 11px;
+      letter-spacing: 0.12em;
+      color: var(--ink-1);
+    }
     #library-list {
       overflow-y: auto;
       overscroll-behavior: contain;
@@ -1014,7 +1022,10 @@
             <button class="kind-btn library-tab" data-tab="kept">KEPT</button>
             <button class="kind-btn library-tab" data-tab="recent">RECENT</button>
           </div>
-          <button id="library-close" class="kind-action">CLOSE</button>
+          <div class="library-head-actions">
+            <button id="library-copy" class="kind-action" hidden title="Copy a link that brings all these songs into another browser">COPY LIBRARY</button>
+            <button id="library-close" class="kind-action">CLOSE</button>
+          </div>
         </div>
         <div id="library-list"></div>
       </div>

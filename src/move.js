@@ -10,6 +10,11 @@
 // any `c=` share link), and the new one merges it in -- every song on either
 // side kept -- and takes it back out of the address bar. Each browser moves
 // its own the first time it opens the old address.
+//
+// The same carries a library from one browser to another, by hand: COPY
+// LIBRARY in the library (main.js) makes a link with its songs in it
+// (`library=`, compressed), and opening that link elsewhere merges them in
+// and opens the library, saying how many came.
 export const HOME = 'https://orrery.vectorclash.com/';
 const OLD_HOSTS = new Set(['vectorclash.com', 'www.vectorclash.com']);
 const PREFIX = 'orrery.';
@@ -32,6 +37,25 @@ function stored() {
   } catch { /* no storage: nothing to bring */ }
   return items;
 }
+
+// Squeezed and unsqueezed, as a link carries a library (deflate, without its header).
+const through = async (bytes, stream) => new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(stream)).arrayBuffer());
+export const canCopyLibrary = typeof CompressionStream === 'function';
+const LIBRARY_KEYS = ['orrery.kept', 'orrery.recent'];
+
+// A link that brings this browser's library -- its kept and recent songs, not
+// its settings, which are this device's own -- into any other.
+export async function libraryLink() {
+  const items = {};
+  for (const k of LIBRARY_KEYS) { const v = localStorage.getItem(k); if (v) items[k] = v; }
+  const packed = await through(new TextEncoder().encode(JSON.stringify(items)), new CompressionStream('deflate-raw'));
+  // To this page's own address: the live site's, or a local copy's while it's tried out.
+  return `${location.origin}${location.pathname}#library=${toBase64Url(packed)}`;
+}
+
+// What a library link brought, once merged: { kept, recent }, the songs new
+// here; null if the page wasn't opened with one.
+export let arrival = null;
 
 const list = s => { try { const l = JSON.parse(s); return Array.isArray(l) ? l : []; } catch { return []; } };
 
@@ -64,9 +88,28 @@ if (OLD_HOSTS.has(location.hostname)) {
   const hash = params.toString();
   location.replace(HOME + (hash ? `#${hash}` : ''));
   await new Promise(() => {}); // the app never starts here: the page is leaving
+} else if (params.has('library')) {
+  try {
+    const items = JSON.parse(new TextDecoder().decode(await through(fromBase64Url(params.get('library')), new DecompressionStream('deflate-raw'))));
+    const links = k => new Set(list(localStorage.getItem(k)).map(e => e.link));
+    const before = { kept: links('orrery.kept'), recent: links('orrery.recent') };
+    merge(Object.fromEntries(Object.entries(items).filter(([k]) => LIBRARY_KEYS.includes(k))));
+    const added = k => [...links(k)].filter(l => !before[k.slice(7)].has(l)).length;
+    arrival = { kept: added('orrery.kept'), recent: added('orrery.recent') };
+    localStorage.setItem('orrery.infinite', 'songs'); // where the library is
+  } catch (err) { console.error('Orrery: the library in this link could not be read', err); }
+  params.delete('library');
+  const hash = params.toString();
+  history.replaceState(null, '', location.pathname + location.search + (hash ? `#${hash}` : ''));
 } else if (params.has('move')) {
   try { merge(JSON.parse(new TextDecoder().decode(fromBase64Url(params.get('move'))))); } catch (err) { console.error('Orrery: what the old address sent could not be read', err); }
   params.delete('move');
   const hash = params.toString();
   history.replaceState(null, '', location.pathname + location.search + (hash ? `#${hash}` : ''));
 }
+
+// A library link pasted into a tab Orrery is already open in changes only the
+// address's #, which loads nothing: load it, so the library is read as above.
+addEventListener('hashchange', () => {
+  if (new URLSearchParams(location.hash.slice(1)).has('library')) location.reload();
+});
