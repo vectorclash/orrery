@@ -177,6 +177,7 @@
         <button data-v="FILM">FILM</button>
         <button data-v="CINEMA">CINEMA</button>
         <button data-v="GLITCH">GLITCH</button>
+        <button data-v="PRISM">PRISM</button>
       </div>
       <div class="about" id="style-about"></div>
       <div class="row"><span class="label">CAMERA</span>
@@ -186,7 +187,7 @@
       <div class="row"><span class="label">GRADE</span>
         <div class="choice" id="grade">
           <button data-v="auto">AUTO</button><button data-v="neutral">NEUTRAL</button><button data-v="cool">COOL</button><button data-v="warm">WARM</button>
-          <button data-v="neon">NEON</button><button data-v="teal">TEAL</button><button data-v="mono">MONO</button><button data-v="dream">DREAM</button>
+          <button data-v="neon">NEON</button><button data-v="teal">TEAL</button><button data-v="mono">MONO</button><button data-v="dream">DREAM</button><button data-v="acid">ACID</button><button data-v="prism">PRISM</button>
         </div>
       </div>
     </div>
@@ -223,7 +224,9 @@
       <div class="row"><input type="text" id="yt-name" placeholder="The song's name (optional)"></div>
       <div class="row"><span class="label">MODULE</span><input type="number" id="yt-module" min="1" step="1" title="This song's lesson number. Copying the text keeps it, with its topic"><button class="btn" id="yt-forget" hidden title="Forget this song's lesson (its number and topic go back)">FORGET</button></div>
       <div class="about" id="yt-module-about"></div>
-      <div class="row"><span class="label">TITLE</span><span class="count" id="yt-title-count"></span><button class="btn" data-copy="yt-title">COPY</button></div>
+      <div class="row"><span class="label">TITLE</span>
+        <div class="choice" id="yt-titles"><button data-v="named" title="A name from astronomy: Perihelion · Orrery (Amapiano in B minor)">NAMED</button><button data-v="plain" title="What the song is: Orrery 07 · Amapiano in B minor, 110 BPM">PLAIN</button></div>
+        <span class="count" id="yt-title-count"></span><button class="btn" data-copy="yt-title">COPY</button></div>
       <input type="text" id="yt-title" readonly>
       <div class="row"><span class="label">DESCRIPTION</span><span class="count" id="yt-description-count"></span><button class="btn" data-copy="yt-description">COPY</button></div>
       <textarea id="yt-description" readonly spellcheck="false"></textarea>

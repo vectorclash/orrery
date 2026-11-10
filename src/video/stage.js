@@ -35,7 +35,7 @@ import { standInAnalyser } from './analyser.js';
 import { chain, fx } from './fx.js';
 import { planVideo, directScene, direct, resetDirector, titleCard, styleFor, intensityFor, sceneTime } from './director.js';
 import { makeTitles } from './titles.js';
-import { videoBitrate, avcHigh } from './encoding.js';
+import { videoBitrate, avcHigh, describeColour } from './encoding.js';
 
 export const SAMPLE_RATE = 48000;
 const CAPTURE_RATE = 240;  // what the visuals hear, written down this many times a second
@@ -198,22 +198,40 @@ function seek(t) {
 // The preview: the frame at time `t`, at `width` × `height`. Drawn again at
 // the same time (paused, a setting changed), it's the same moment: the
 // effects' own clocks -- trails, the turning folds, grain -- don't move on.
-async function drawAt(t, width, height) {
+async function drawAt(t, width, height, jumped = false) {
   if (canvas.width !== width || canvas.height !== height) setRenderSize(width, height, 1, { fit: true });
   await useTitles();
-  frameAt(t);
+  frameAt(t, jumped);
 }
 
 // On to time `t` from the preview's last frame, and drawn. Much of the
 // picture has built up over time -- the camera's orbit, the folds' turn,
 // the tunnel's depth, the trails -- so it's the moment the preview was
 // showing, moved on; not one worked out afresh, which would differ.
-function frameAt(t) {
+//
+// A jump -- `jumped`: the studio's playhead was moved; or a step back, or
+// far on -- starts the trails afresh and draws the WARM seconds before the
+// moment, every step, so they're there as if it had been played into: kept
+// from before, each jump left the last place's picture behind, ghost on ghost.
+// (Not judged by the step's size alone: a slow frame while playing would
+// count, and the extra drawing would make the next one slower again.)
+const WARM = 0.75; // seconds drawn up to a moment jumped to
+function frameAt(t, jumped = false) {
   const was = clock;
-  if (clock < 0 || t < clock - 0.05 || t > clock + 3) seek(t);
-  else stepTo(t, PREVIEW_RATE);
+  if (jumped || clock < 0 || t < clock - 0.05 || t > clock + 3) {
+    chain.clearTrails();
+    seek(Math.max(0, t - WARM));
+    render(1 / PREVIEW_RATE);
+    while (clock + 1 / PREVIEW_RATE <= t + 1e-9) {
+      const before = clock;
+      step(clock + 1 / PREVIEW_RATE, 1 / PREVIEW_RATE);
+      render(Math.max(0, sceneAt(clock) - sceneAt(before)));
+    }
+    return;
+  }
+  stepTo(t, PREVIEW_RATE);
   directNow(clock, 0);
-  const moved = was < 0 || clock < was ? 1 / PREVIEW_RATE : sceneAt(clock) - sceneAt(was);
+  const moved = clock < was ? 1 / PREVIEW_RATE : sceneAt(clock) - sceneAt(was);
   render(Math.min(0.1, Math.max(0, moved)));
 }
 
@@ -259,7 +277,7 @@ async function encode({ width, height, fps = 30, motionBlur = false, tags = {} }
   });
   const frames = Math.round(take.duration * fps);
   const samples = Math.round(take.duration * SAMPLE_RATE);
-  const video = new CanvasSource(canvas, { codec: 'avc', fullCodecString, quality: new Quality({ bitrate }), keyFrameInterval: 2, latencyMode: 'quality' });
+  const video = new CanvasSource(canvas, { codec: 'avc', fullCodecString, quality: new Quality({ bitrate }), keyFrameInterval: 2, latencyMode: 'quality', onEncodedPacket: describeColour });
   const sound = new AudioBufferSource({ codec: 'aac', quality: new Quality({ bitrate: AUDIO_BITRATE }) });
   output.addVideoTrack(video, { frameRate: fps, maximumPacketCount: frames + 16 });
   output.addAudioTrack(sound, { maximumPacketCount: Math.ceil(samples / 1024) + 64 });

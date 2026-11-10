@@ -100,7 +100,17 @@ export const STYLES = {
     shots: { intro: ['arrive'], low: ['low', 'close', 'ring'], mid: ['low', 'close', 'dutch'], rise: ['push'], peak: ['close', 'low', 'top', 'dutch'], break: ['wide', 'top'], outro: ['leave'] },
     looks: { intro: ['orrery'], low: ['orrery', 'mirror'], mid: ['orrery', 'mirror'], rise: ['tunnel'], peak: ['orrery', 'mirror', 'squares', 'mirrors', 'kaleidoscope'], break: ['orrery'], outro: ['orrery'] },
     fx: { trails: 0.2, lens: 0.8, shock: 0.7, defocus: 0.8, aberration: 0.8, glitch: 0.8, vhs: 0.15, grade: 0.7 },
-    grade: 'mono', impact: 1, shake: 0.8,
+    grade: 'acid', glitchColour: 0.8, impact: 1, shake: 0.8,
+  },
+  // Colour above all: the folds and tiles, the trails leaving rainbows
+  // (SPECTRUM), every colour remapped round the wheel from the chord's
+  // (the PRISM grade), glitches that recolour as they tear.
+  PRISM: {
+    cut: { low: 8, mid: 4, rise: 0, peak: 4, break: 8 }, glide: 0, dissolve: 1,
+    shots: { intro: ['arrive'], low: ['orbit', 'ring', 'drift'], mid: ['orbit', 'dutch', 'ring'], rise: ['push'], peak: ['close', 'top', 'orbit', 'dutch'], break: ['wide', 'top'], outro: ['leave'] },
+    looks: { intro: ['orrery'], low: ['orrery', 'kaleidoscope'], mid: ['kaleidoscope', 'hexagons', 'mirror'], rise: ['tunnel'], peak: ['kaleidoscope', 'hexagons', 'squares', 'mirrors'], break: ['kaleidoscope', 'tunnel'], outro: ['orrery'] },
+    fx: { trails: 0.45, spectrum: 1, lens: 0.3, shock: 0.5, defocus: 0.6, glints: 0.6, streaks: 0.3, aberration: 0.5, glitch: 0.25, grade: 0.9 },
+    grade: 'prism', glitchColour: 1, impact: 0.8, shake: 0.4,
   },
 };
 
@@ -317,6 +327,7 @@ export function direct(plan, t, dt, intensity, amounts) {
     fx[name] = amounts(name, v);
   }
   fx.gradeKind = style.grade;
+  fx.glitchColour = style.glitchColour ?? 0.5;
   fx.flash = amounts('flash', flash);
   fx.fade = Math.min(1, fade);
 }

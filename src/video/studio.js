@@ -32,7 +32,7 @@ const defaults = {
   allow: {}, strength: {}, solo: [],
   titles: { on: false, opening: { title: 'Orrery', about: '' }, closing: { title: 'Orrery', about: 'orrery.vectorclash.com' } },
   size: '1920x1080', fps: 30, motionBlur: false, link: '', loopSeconds: 60,
-  youtube: { names: {}, lessons: {}, thumbName: true, bannerName: 'ORRERY', bannerLine: 'Generative music & visuals · orrery.vectorclash.com' },
+  youtube: { names: {}, lessons: {}, titles: 'named', thumbName: true, bannerName: 'ORRERY', bannerLine: 'Generative music & visuals · orrery.vectorclash.com' },
 };
 // `v`: the settings' version. Before 2, titles were on by default and saved
 // as on with everything else, so that one is forgotten: off is the default now.
@@ -49,6 +49,7 @@ let plan = null, loaded = null;   // the song, and what its stage gave back
 let preview = null, previewFrame = null;
 let ctx = null, buffer = null, source = null, startedAt = 0, offset = 0, playing = false;
 let shown = null;                 // while playing: the time of the frame on the screen
+let jumped = false;               // the playhead was moved: the next frame drawn starts afresh
 let making = null;                // the frame of a video being made
 let autoStyle = 'CLUB', autoIntensity = 1, sections = [];
 
@@ -192,10 +193,16 @@ async function apply() {
 }
 
 let drawing = false;
+// Asked while a frame is still drawing (clicks through the sections faster
+// than they draw), it draws once more when that one's done, at the latest place.
+let redrawAgain = false;
 async function redraw() {
-  if (!preview || playing || drawing) return;
+  if (!preview || playing) return;
+  if (drawing) { redrawAgain = true; return; }
   drawing = true;
-  try { await preview.drawAt(offset, ...previewSize()); } finally { drawing = false; }
+  const jump = jumped; jumped = false;
+  try { await preview.drawAt(offset, ...previewSize(), jump); } finally { drawing = false; }
+  if (redrawAgain) { redrawAgain = false; redraw(); }
 }
 
 // ─── Playback ─────────────────────────────────────────────────────────────────
@@ -231,6 +238,7 @@ function seekTo(t) {
   const was = playing;
   stop();
   offset = Math.max(0, Math.min(loaded.duration, t));
+  jumped = true;
   if (was) play(); else { redraw(); showTime(offset); }
 }
 
@@ -242,7 +250,8 @@ async function tick() {
   if (!drawing) {
     drawing = true;
     shown = t; // what the screen shows once drawn, as it will be if paused meanwhile
-    try { await preview.drawAt(t, ...previewSize()); } finally { drawing = false; }
+    const jump = jumped; jumped = false;
+    try { await preview.drawAt(t, ...previewSize(), jump); } finally { drawing = false; }
   }
   requestAnimationFrame(tick);
 }
@@ -341,8 +350,9 @@ function finishMaking(text, error = false) {
 const songName = () => (settings.link && settings.youtube.names[settings.link]) || '';
 
 // The channel's lessons, one for each song whose text has been copied (so
-// taken to YouTube): { [the song's code]: { module, topic } }. A new song's
-// lesson is the next module, about a topic no other has had (youtube.js).
+// taken to YouTube): { [the song's code]: { module, topic } }, `topic` being
+// the video's name. A new song's is the next module, with a name no other has
+// had (youtube.js).
 const songKey = () => /(?:^|[#&])c=([A-Za-z0-9_-]+)/.exec(settings.link)?.[1] ?? settings.link;
 function lessonFor() {
   const key = songKey(), all = settings.youtube.lessons, own = all[key];
@@ -359,12 +369,15 @@ function showYoutube() {
     p: plan, key: describe(plan, loaded.duration).key, name: songName(),
     style: style(), sections, duration: loaded.duration,
     module: lesson.module, taken: lesson.others.map(l => l.topic), kept: lesson.own?.topic,
+    titles: settings.youtube.titles,
   });
   $('yt-module').value = lesson.module;
   const clash = lesson.others.some(l => l.module === lesson.module);
-  $('yt-module-about').textContent = (lesson.own ? `KEPT FOR THIS SONG: ${t.topic.toUpperCase()}` : `THE NEXT MODULE: ${t.topic.toUpperCase()} · KEPT ONCE YOU COPY`)
+  const named = settings.youtube.titles === 'named' ? ` · ${t.topic.toUpperCase()}` : '';
+  $('yt-module-about').textContent = (lesson.own ? `KEPT FOR THIS SONG: MODULE ${lesson.module}${named}` : `NEXT: MODULE ${lesson.module}${named} · KEPT ONCE YOU COPY`)
     + (clash ? ' · ANOTHER SONG HAS THIS NUMBER' : '');
   $('yt-forget').hidden = !lesson.own;
+  $('yt-titles').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.v === settings.youtube.titles));
   const show = (id, text, limit) => {
     $(id).value = text;
     $(`${id}-count`).textContent = `${text.length} / ${limit}`;
@@ -426,6 +439,13 @@ $('yt-module').addEventListener('change', e => {
   const n = Math.max(1, Math.round(Number(e.target.value) || 1));
   keepLesson(n);
 });
+$('yt-titles').addEventListener('click', e => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  settings.youtube.titles = b.dataset.v;
+  save();
+  showYoutube();
+});
 $('yt-forget').addEventListener('click', () => {
   delete settings.youtube.lessons[songKey()];
   save();
@@ -443,7 +463,7 @@ $('thumb-name').addEventListener('change', e => { settings.youtube.thumbName = e
 for (const [id, key] of [['banner-name', 'bannerName'], ['banner-line', 'bannerLine']]) {
   $(id).addEventListener('change', e => { settings.youtube[key] = e.target.value; save(); });
 }
-$('thumb').addEventListener('click', () => picture(THUMB, f => thumbnail(f, settings.youtube.thumbName ? songName() : ''), `${stem()}_thumbnail.jpg`));
+$('thumb').addEventListener('click', () => picture(THUMB, f => thumbnail(f, settings.youtube.thumbName ? songName() || (settings.youtube.titles === 'named' ? lastText?.topic : '') || '' : ''), `${stem()}_thumbnail.jpg`));
 $('avatar').addEventListener('click', () => picture(AVATAR, avatar, 'orrery_avatar.png'));
 $('banner').addEventListener('click', () => picture(BANNER, f => banner(f, { name: settings.youtube.bannerName, line: settings.youtube.bannerLine }), 'orrery_banner.jpg'));
 
@@ -479,6 +499,16 @@ for (const [id, card, field] of [['title-open', 'opening', 'title'], ['title-ope
 $('loop-seconds').addEventListener('change', e => { settings.loopSeconds = Math.max(10, Number(e.target.value) || 60); save(); });
 $('load').addEventListener('click', load);
 $('link').addEventListener('keydown', e => { if (e.key === 'Enter') load(); });
+// The field keeps the last song's link. Clicked into, it's all selected, so a
+// paste replaces it (the click's own mouseup would otherwise drop the
+// selection for a caret; a second click places one, to edit); and a pasted
+// link loads at once.
+let selectOnUp = false;
+$('link').addEventListener('focus', e => { e.target.select(); selectOnUp = true; });
+$('link').addEventListener('mouseup', e => { if (selectOnUp) { e.preventDefault(); selectOnUp = false; } });
+$('link').addEventListener('paste', () => setTimeout(() => {
+  if (!$('load').disabled && planFromShare($('link').value.trim())) load();
+}));
 $('play').addEventListener('click', () => (playing ? stop() : play()));
 $('make').addEventListener('click', make);
 $('job-cancel').addEventListener('click', () => { if (making) make(); });

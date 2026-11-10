@@ -35,3 +35,20 @@ export function avcHigh(w, h, fps, bitrate) {
     frame <= perFrame && frame * fps <= perSecond && bitrate / 1000 <= kbps) ?? LEVELS.at(-1);
   return `avc1.6400${level[0].toString(16)}`;
 }
+
+// What the picture's colour is, written into the file for players (and
+// YouTube) to read. Both browsers' encoders turn a canvas into limited-range
+// BT.709 (black at 16, white at 235). Chrome says so in the H.264 stream
+// itself. Safari's stream says nothing, and the description it hands over
+// says full range, which Mediabunny writes into the MP4 as the only word on
+// it: read that way, black came out grey and white dimmed (measured
+// 2026-11-10, Safari 27.2: patches off by up to 20 levels; read as below,
+// within 1). So the file says what's true, whatever the encoder reported.
+// Transfer: sRGB's curve, which is what the canvas holds, as Chrome writes.
+export const VIDEO_COLOUR = { primaries: 'bt709', transfer: 'iec61966-2-1', matrix: 'bt709', fullRange: false };
+
+// Mediabunny's onEncodedPacket: called with the encoder's description before
+// it reaches the file, so it can be put right.
+export function describeColour(packet, meta) {
+  if (meta?.decoderConfig) meta.decoderConfig.colorSpace = { ...VIDEO_COLOUR };
+}

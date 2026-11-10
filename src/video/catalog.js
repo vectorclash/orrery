@@ -5,13 +5,14 @@
 // Each effect, and what it does (see fx.js).
 export const EFFECTS = [
   ['trails',     'TRAILS',     'Light painting: the picture leaves fading trails that flow outward with the bass.'],
+  ['spectrum',   'SPECTRUM',   'The trails turn through the colours as they fade, leaving rainbows (brings trails of its own if there are none).'],
   ['lens',       'LENS',       'Gravitational lensing: starlight bent round the planet into arcs, stronger with the bass.'],
   ['shock',      'SHOCKWAVE',  'Each kick sends a ring of refraction out from the planet.'],
   ['defocus',    'FILTER BLUR','The picture softens while a build\'s filter is shut (easing in over its first beat), and opens up into the drop.'],
   ['glints',     'GLINTS',     'Six-pointed stars on the brightest points, a mirrorball\'s, sparkling with the hats.'],
   ['streaks',    'STREAKS',    'Anamorphic lens flares: long blue streaks across bright points, with the lead.'],
   ['aberration', 'ABERRATION', 'Colour fringes toward the edges, kicked wider by the kick and snare.'],
-  ['glitch',     'GLITCH',     'Bands torn sideways and colours slipping apart, on the snare.'],
+  ['glitch',     'GLITCH',     'Bands torn sideways and colours slipping apart, on the snare; some come back recoloured (more in GLITCH and PRISM).'],
   ['crt',        'CRT',        'A curved tube: scanlines and an aperture grille.'],
   ['vhs',        'VHS',        'Tape: colour smeared sideways, wobbling lines, a tracking band, noise.'],
   ['film',       'FILM',       'Grain, red halation round highlights, gate weave, lifted blacks, a vignette.'],
@@ -28,5 +29,6 @@ export const STYLE_ABOUT = {
   RETRO:  'Synthwave: a neon CRT, anamorphic streaks, mirrors and tunnels.',
   FILM:   'Lo-fi, jazz, blues, folk: grain, warmth and worn tape, long takes.',
   CINEMA: 'Orchestral, epic, dark: widescreen, slow dolly moves, lens flares.',
-  GLITCH: 'Trap, future bass: glitches on the snare, the lens on the 808, fast cuts.',
+  GLITCH: 'Trap, future bass: glitches on the snare that recolour as they tear, the lens on the 808, fast cuts.',
+  PRISM:  'Colour above all: kaleidoscopes and tiles, rainbow trails, every colour turned round the wheel with the chords. Chosen, never AUTO.',
 };

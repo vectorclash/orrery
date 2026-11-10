@@ -32,6 +32,8 @@ export const LOOKS = ['orrery', 'kaleidoscope', 'squares', 'hexagons', 'mirror',
 export const fx = {
   trails: 0, lens: 0, shock: 0, defocus: 0, glints: 0, streaks: 0,
   aberration: 0, glitch: 0, crt: 0, vhs: 0, film: 0, grade: 0, letterbox: 0,
+  spectrum: 0,      // the trails turning through the colours as they fade
+  glitchColour: 0.5, // how many of the glitch's torn bands come back recoloured (the style's)
   flash: 0, fade: 0,
   gradeKind: 'neutral',
   look: { from: 'orrery', to: 'orrery', mix: 1 }, // `from` dissolving into `to`
@@ -57,6 +59,13 @@ const HEAD = /* glsl */`
   vec2 fromCentred(vec2 p) { return p / vec2(aspect, 1.0) + 0.5; }
   // Mirror-repeat past the edges, so nothing reads off the frame.
   vec2 mirrored(vec2 uv) { return 1.0 - abs(1.0 - mod(uv, 2.0)); }
+  // A colour turned round the colour wheel by \`a\` radians, its brightness kept
+  // (a rotation of its chroma, in YIQ).
+  vec3 hueTurn(vec3 c, float a) {
+    vec3 yiq = mat3(0.299, 0.596, 0.211, 0.587, -0.274, -0.523, 0.114, -0.322, 0.312) * c;
+    yiq.yz = mat2(cos(a), sin(a), -sin(a), cos(a)) * yiq.yz;
+    return mat3(1.0, 1.0, 1.0, 0.956, -0.272, -1.106, 0.621, -0.647, 1.703) * yiq;
+  }
 `;
 
 function pass(fragment, uniforms = {}, blending = THREE.NoBlending) {
@@ -82,14 +91,17 @@ const target = (scale = 1) => new THREE.WebGLRenderTarget(1, 1, {
 // the camera), fading. The bass pushes the flow; each new chord turns it.
 const trails = pass(/* glsl */`
   uniform sampler2D tPrev;
-  uniform float decay, zoom, turn;
+  uniform float decay, zoom, turn, hue;
   void main() {
     vec4 c = texture2D(tIn, vUv);
     vec2 q = fromCentred(rot(turn) * centred(vUv) / zoom);
     vec4 h = texture2D(tPrev, q) * decay;
     if (q.x < 0.0 || q.x > 1.0 || q.y < 0.0 || q.y > 1.0) h = vec4(0.0);
+    // SPECTRUM: what the trails remember turns round the colour wheel a little
+    // each frame, so the older a trail the further on its colour: rainbows.
+    if (hue != 0.0) h.rgb = max(vec3(0.0), hueTurn(h.rgb, hue));
     gl_FragColor = max(c, h);
-  }`, { tPrev: { value: null }, decay: { value: 0 }, zoom: { value: 1 }, turn: { value: 0 } });
+  }`, { tPrev: { value: null }, decay: { value: 0 }, zoom: { value: 1 }, turn: { value: 0 }, hue: { value: 0 } });
 
 // Gravitational lens: the sky behind the planet -- the stars and nebulae,
 // drawn on their own (see drawSplit) -- bent round it as a point mass bends
@@ -297,9 +309,14 @@ const aberration = pass(/* glsl */`
   }`, { spread: { value: 0 } });
 
 // Glitch: bands of the picture torn sideways, their colours slipping apart,
-// some blown up into blocks -- a new tear each time it fires.
+// some blown up into blocks -- a new tear each time it fires. Some of the torn
+// bands come back recoloured (as many as \`colour\` says): their channels
+// swapped round, their colours turned to the opposite side of the wheel, or
+// flooded with the chord's colour by brightness. Each keeps its brightness,
+// so a band never flashes white out of a dark frame.
 const glitch = pass(/* glsl */`
-  uniform float seed;
+  uniform float seed, colour;
+  uniform vec3 tint;
   void main() {
     vec2 uv = vUv;
     float rows = 6.0 + floor(hash(vec2(seed, 3.0)) * 30.0);
@@ -309,13 +326,25 @@ const glitch = pass(/* glsl */`
     float blocky = torn * step(0.6, hash(vec2(row, seed + 2.0)));
     vec2 cell = vec2(aspect, 1.0) * (20.0 + 60.0 * hash(vec2(row, seed + 4.0)));
     uv = mix(uv, (floor(uv * cell) + 0.5) / cell, blocky);
-    float slip = (0.004 + 0.02 * torn) * amount;
-    gl_FragColor = vec4(texture2D(tIn, fract(uv + vec2(slip, 0.0))).r, texture2D(tIn, fract(uv)).g,
-                        texture2D(tIn, fract(uv - vec2(slip, 0.0))).b, 1.0);
-  }`, { seed: { value: 0 } });
+    float slip = (0.004 + (0.02 + 0.02 * colour) * torn) * amount;
+    vec3 c = vec3(texture2D(tIn, fract(uv + vec2(slip, 0.0))).r, texture2D(tIn, fract(uv)).g,
+                  texture2D(tIn, fract(uv - vec2(slip, 0.0))).b);
+    float recolour = torn * step(1.0 - colour * 0.85, hash(vec2(row, seed + 6.0)));
+    if (recolour > 0.0) {
+      float l = luma(c), kind = hash(vec2(row, seed + 5.0));
+      vec3 alt = kind < 0.3 ? c.gbr
+               : kind < 0.55 ? c.brg
+               : kind < 0.8 ? vec3(l) + (vec3(l) - c) * 1.6               // the opposite colour
+               : tint * (0.25 + 1.6 * l);                                  // the chord's colour
+      alt *= l / max(luma(alt), 1e-3);                                     // at the band's brightness
+      c = mix(c, clamp(alt, 0.0, 1.0), recolour);
+    }
+    gl_FragColor = vec4(c, 1.0);
+  }`, { seed: { value: 0 }, colour: { value: 0 }, tint: { value: new THREE.Vector3(1, 1, 1) } });
 
 // CRT: a curved tube, scanlines and an aperture grille, and a glow -- the
 // same number of lines however large the video.
+const CRT_GAIN = '1.28';
 const crt = pass(/* glsl */`
   void main() {
     vec2 q = vUv * 2.0 - 1.0;
@@ -330,6 +359,10 @@ const crt = pass(/* glsl */`
     float sub = mod(floor(gl_FragCoord.x / max(1.0, res.y / 1080.0)), 3.0);
     vec3 mask = sub < 1.0 ? vec3(1.0, 0.7, 0.7) : sub < 2.0 ? vec3(0.7, 1.0, 0.7) : vec3(0.7, 0.7, 1.0);
     c *= mix(vec3(1.0), mask * 1.2, amount * 0.6);
+    // The lines, the grille and the tube's curve take a quarter of the light;
+    // a tube made it up in the lines, so the picture is about as bright as it
+    // was (measured over RETRO frames: 25% darker before this, 8% at 1.2).
+    c *= mix(1.0, ${CRT_GAIN}, amount);
     c *= 1.0 - amount * 0.5 * pow(length(q) * 0.72, 4.0);
     gl_FragColor = vec4(c, 1.0);
   }`);
@@ -379,8 +412,14 @@ const film = pass(/* glsl */`
   }`, { weave: { value: new THREE.Vector2() } });
 
 // Grade: a colour treatment. Lift, gamma and gain per channel and saturation,
-// then optionally two-tone (duotone, from shadow to highlight colour), and
-// optionally everything grey but the colours near one hue (the chord root's).
+// then optionally two-tone (duotone, from shadow to highlight colour),
+// optionally everything grey but the colours near one hue (the chord root's),
+// and optionally PRISM: every colour turned round the wheel by its brightness,
+// from the chord's hue, so dim colours are one hue, brighter ones the next and
+// the brightest the next again, turning with the chords. A grade changes
+// colour but doesn't take light away: where it would leave a pixel darker than
+// it was, above the shadows, the pixel is brought back up (the neon grade,
+// measured, had taken a third of the light; lifts that add light stay).
 export const GRADES = {
   neutral: { lift: [0, 0, 0], gamma: [1, 1, 1], gain: [1, 1, 1], sat: 1.1 },
   cool:    { lift: [0, 0.01, 0.03], gamma: [0.95, 1, 1.08], gain: [0.92, 1, 1.1], sat: 0.85 },
@@ -388,11 +427,13 @@ export const GRADES = {
   neon:    { lift: [0.02, 0, 0.04], gamma: [1, 0.92, 1.05], gain: [1.1, 0.9, 1.15], sat: 1.35, duo: [[0.05, 0.0, 0.12], [1.0, 0.35, 0.85]], duoMix: 0.35 },
   teal:    { lift: [0, 0.02, 0.03], gamma: [1.05, 1, 0.95], gain: [1.1, 1, 0.9], sat: 1.05, duo: [[0.0, 0.08, 0.1], [1.0, 0.75, 0.5]], duoMix: 0.3 },
   mono:    { lift: [0.01, 0.01, 0.01], gamma: [1, 1, 1], gain: [1.05, 1.05, 1.05], sat: 1, accent: 1 },
+  acid:    { lift: [0, 0.015, 0.03], gamma: [1, 1.04, 1], gain: [1.12, 0.95, 1.12], sat: 1.45, duo: [[0.0, 0.04, 0.1], [0.35, 1.0, 0.95]], duoMix: 0.28 },
+  prism:   { lift: [0, 0, 0], gamma: [1, 1, 1], gain: [1.05, 1.05, 1.05], sat: 1.3, prism: 0.8 },
   dream:   { lift: [0.022, 0.018, 0.035], gamma: [1.08, 1.04, 1.08], gain: [1, 0.98, 1.02], sat: 0.85 },
 };
 const grade = pass(/* glsl */`
   uniform vec3 lift, gamma, gain, duoA, duoB;
-  uniform float sat, duoMix, accent, accentHue;
+  uniform float sat, duoMix, accent, accentHue, prism, prismHue;
   vec3 hsv(vec3 c) {
     vec4 K = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
     vec4 p = mix(vec4(c.bg, K.wz), vec4(c.gb, K.xy), step(c.b, c.g));
@@ -412,11 +453,24 @@ const grade = pass(/* glsl */`
       float keep = exp(-dh * dh / 0.004) * smoothstep(0.15, 0.4, h.y);
       c = mix(c, mix(vec3(l), c, keep), accent);
     }
+    if (prism > 0.0) {
+      // Each colour turned round the wheel by its brightness, from the chord's
+      // turn, and made more vivid; greys have no hue to turn, so black stays
+      // black and the white-hot core white.
+      vec3 p = hueTurn(c, 6.28318531 * (prismHue + 0.9 * l));
+      p = mix(vec3(l), p, 1.0 + 0.8 * prism);
+      c = mix(c, clamp(p, 0.0, 1.0), prism);
+    }
+    // Never darker -- above the shadows: there a grade may deepen, as space
+    // should stay black (bringing a dark pixel's brightness back through the
+    // channels a grade had left turned it to coloured haze).
+    float lo = luma(o), lc = luma(c);
+    if (lc < lo) c = min(vec3(1.0), c * mix(1.0, min(2.5, lo / max(lc, 1e-4)), smoothstep(0.06, 0.3, lo)));
     gl_FragColor = vec4(mix(o, c, amount), 1.0);
   }`, {
   lift: { value: new THREE.Vector3() }, gamma: { value: new THREE.Vector3(1, 1, 1) }, gain: { value: new THREE.Vector3(1, 1, 1) },
   sat: { value: 1 }, duoA: { value: new THREE.Vector3() }, duoB: { value: new THREE.Vector3(1, 1, 1) }, duoMix: { value: 0 },
-  accent: { value: 0 }, accentHue: { value: 0 },
+  accent: { value: 0 }, accentHue: { value: 0 }, prism: { value: 0 }, prismHue: { value: 0 },
 });
 
 // ─── Finish ───────────────────────────────────────────────────────────────────
@@ -513,6 +567,14 @@ function run(q, input, output, uniforms = {}) {
 
 // A flash is the chord root's colour, pale (as the moons draw it, lighter).
 const _flash = new THREE.Color();
+// The chord's colour, vivid: what the glitch floods a band with.
+const _chord = new THREE.Color();
+function chordColour() {
+  const palette = ((state.rootMidi % 12) * 15 + 180 + state.era * 40) % 360;
+  _chord.setHSL((music.chord.length ? pcHue(music.chord[0], palette) : palette) / 360, 0.95, 0.55);
+  return [_chord.r, _chord.g, _chord.b];
+}
+
 function flashTint() {
   const palette = ((state.rootMidi % 12) * 15 + 180 + state.era * 40) % 360;
   _flash.setHSL((music.chord.length ? pcHue(music.chord[0], palette) : palette) / 360, 0.6, 0.8);
@@ -550,6 +612,14 @@ function warmPasses() {
 
 export const chain = {
   warm: warmPasses,
+
+  // The trails forgotten: the picture jumped (the preview's playhead moved),
+  // and what they remember is of somewhere else.
+  clearTrails() {
+    for (const t of history) { renderer.setRenderTarget(t); renderer.clear(); }
+    renderer.setRenderTarget(null);
+    trailsOn = false;
+  },
 
   blurred: false, // the scene was summed for motion blur this frame (see sumScene)
   summedSky: false,
@@ -590,13 +660,15 @@ export const chain = {
     // Trails
     const chordKey = music.chord.join();
     if (chordKey !== lastChord) { if (lastChord) trailSign = -trailSign; lastChord = chordKey; }
-    if (fx.trails > 0) {
-      const tau = 0.12 + 1.1 * fx.trails;
-      trailTurn += (trailSign * (0.05 + 0.1 * fx.trails) - trailTurn) * (1 - Math.exp(-dt / 1.5));
+    const trailing = Math.max(fx.trails, 0.5 * fx.spectrum); // SPECTRUM needs trails to colour
+    if (trailing > 0) {
+      const tau = 0.12 + 1.1 * trailing;
+      trailTurn += (trailSign * (0.05 + 0.1 * trailing) - trailTurn) * (1 - Math.exp(-dt / 1.5));
       const [a, b] = history;
       run(trails, cur, b, {
         tPrev: a.texture, decay: Math.exp(-dt / tau),
-        zoom: Math.exp(dt * (0.03 + 0.2 * roleLevel.bass + 0.2 * hits.kick) * fx.trails), turn: trailTurn * dt,
+        zoom: Math.exp(dt * (0.03 + 0.2 * roleLevel.bass + 0.2 * hits.kick) * trailing), turn: trailTurn * dt,
+        hue: fx.spectrum * dt * 2.6, // radians a second: once round the wheel in about 2.4 s at full
       });
       history.reverse();
       cur = b.texture;
@@ -676,7 +748,7 @@ export const chain = {
     const glitchAmount = fx.glitch * Math.min(1, 0.15 + tear);
     if (glitchAmount > 0.01) {
       const out = next();
-      run(glitch, cur, out, { amount: glitchAmount, seed: tearSeed });
+      run(glitch, cur, out, { amount: glitchAmount, seed: tearSeed, colour: fx.glitchColour, tint: chordColour() });
       cur = out.texture;
     }
 
@@ -697,6 +769,7 @@ export const chain = {
         amount: fx.grade, lift: g.lift, gamma: g.gamma, gain: g.gain, sat: g.sat,
         duoA: g.duo?.[0] ?? [0, 0, 0], duoB: g.duo?.[1] ?? [1, 1, 1], duoMix: g.duoMix ?? 0,
         accent: g.accent ?? 0, accentHue: hueOf / 360,
+        prism: g.prism ?? 0, prismHue: (hueOf / 360 + time * 0.015) % 1,
       });
       cur = out.texture;
     }
