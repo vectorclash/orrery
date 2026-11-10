@@ -19,7 +19,7 @@
 // So the frames are exactly in step with the sound (a live recording would be
 // one output latency behind it -- two seconds over AirPlay), any size, never
 // dropped however long a frame takes, and the preview is the video.
-import { Output, Mp4OutputFormat, StreamTarget, CanvasSource, AudioBufferSource, Quality, canEncodeVideo, canEncodeAudio } from 'mediabunny';
+import { Output, Mp4OutputFormat, StreamTarget, CanvasSource, AudioBufferSource, Quality, canEncodeVideo } from 'mediabunny';
 import { renderTake } from '../render.js';
 import { songFor } from '../audio/scheduler.js';
 import { audio } from '../audio/context.js';
@@ -35,6 +35,7 @@ import { standInAnalyser } from './analyser.js';
 import { chain, fx } from './fx.js';
 import { planVideo, directScene, direct, resetDirector, titleCard, styleFor, intensityFor, sceneTime } from './director.js';
 import { makeTitles } from './titles.js';
+import { videoBitrate, avcHigh } from './encoding.js';
 
 export const SAMPLE_RATE = 48000;
 const CAPTURE_RATE = 240;  // what the visuals hear, written down this many times a second
@@ -42,11 +43,7 @@ const PREVIEW_RATE = 60;   // preview steps a second, as the live view draws
 const BLUR_SUBFRAMES = 4;  // moments averaged into a frame, with motion blur
 const AUDIO_BITRATE = 320_000;
 const AUDIO_AHEAD = 1;     // seconds of audio handed to the encoder ahead of the frames
-
-// The video bitrate for a size and frame rate: bits per pixel per frame. Dust
-// and star fields are thousands of fine moving points, which compress badly,
-// so this is above the usual upload recommendations (YouTube's, for one).
-export const videoBitrate = (w, h, fps) => Math.round(w * h * fps * (fps > 30 ? 0.14 : 0.2));
+const STALL_MS = 30_000;   // an encoder that takes no frame for this long has stopped
 
 // How much of each effect when it's soloed (SOLO on the bench), before its strength.
 const SOLO_LEVEL = { defocus: 0.5, grade: 1, letterbox: 1, crt: 0.8, vhs: 0.8, film: 0.8 };
@@ -212,29 +209,53 @@ async function drawAt(t, width, height) {
   render(Math.min(0.1, Math.max(0, moved)));
 }
 
+// A still: the frame at time `t`, at `width` × `height`, as a PNG data URL,
+// without the title cards (a picture's words are set on it, see youtube.js).
+// Drawn afresh at its size from a second before, every step drawn, so what
+// builds up over frames (the trails) is there as it would be in the video.
+// Read in the same task as it's drawn: the buffer is cleared once presented.
+function still(t, width, height) {
+  const kept = settings;
+  settings = { ...settings, titles: { ...settings.titles, on: false } };
+  try {
+    setRenderSize(width, height, 1, { fit: true });
+    seek(Math.max(0, t - 1));
+    render(1 / PREVIEW_RATE);
+    while (clock + 1 / PREVIEW_RATE <= t + 1e-9) {
+      const was = clock;
+      step(clock + 1 / PREVIEW_RATE, 1 / PREVIEW_RATE);
+      render(Math.max(0, sceneAt(clock) - sceneAt(was)));
+    }
+    return canvas.toDataURL('image/png');
+  } finally {
+    settings = kept;
+  }
+}
+
 // ── Encoding ──
 // Every frame of the video, from the start, into an MP4. `output`: { width,
 // height, fps, motionBlur, tags }. `onProgress` hears the fraction done.
 async function encode({ width, height, fps = 30, motionBlur = false, tags = {} }, onProgress) {
   const bitrate = videoBitrate(width, height, fps);
-  if (!await canEncodeVideo('avc', { width, height, quality: new Quality({ bitrate }) })) {
+  const fullCodecString = avcHigh(width, height, fps, bitrate);
+  if (!await canEncodeVideo('avc', { width, height, fullCodecString, quality: new Quality({ bitrate }) })) {
     throw new Error(`This browser can't encode H.264 at ${width}×${height}`);
   }
-  if (!await canEncodeAudio('aac', { numberOfChannels: 2, sampleRate: SAMPLE_RATE, quality: new Quality({ bitrate: AUDIO_BITRATE }) })) {
-    // No AAC encoder of the browser's own (Firefox's case): FFmpeg's, as WebAssembly.
-    (await import('@mediabunny/aac-encoder')).registerAacEncoder();
-  }
+  // FFmpeg's AAC encoder, as WebAssembly, in every browser: Safari's own ignores
+  // the bitrate asked of it (76 kbit/s whatever's asked, measured in 27.2), and
+  // Firefox has none. Registered, it's used before the browser's.
+  (await import('@mediabunny/aac-encoder')).registerAacEncoder();
   setRenderSize(width, height, 1, { fit: true });
   await useTitles();
 
-  const sink = new Sink();
+  const file = await openFile();
   const output = new Output({
     format: new Mp4OutputFormat({ fastStart: 'reserve' }),
-    target: new StreamTarget(new WritableStream({ write: c => sink.write(c) }), { chunked: true }),
+    target: new StreamTarget(new WritableStream({ write: c => file.write(c) }), { chunked: true }),
   });
   const frames = Math.round(take.duration * fps);
   const samples = Math.round(take.duration * SAMPLE_RATE);
-  const video = new CanvasSource(canvas, { codec: 'avc', quality: new Quality({ bitrate }), keyFrameInterval: 2, latencyMode: 'quality' });
+  const video = new CanvasSource(canvas, { codec: 'avc', fullCodecString, quality: new Quality({ bitrate }), keyFrameInterval: 2, latencyMode: 'quality' });
   const sound = new AudioBufferSource({ codec: 'aac', quality: new Quality({ bitrate: AUDIO_BITRATE }) });
   output.addVideoTrack(video, { frameRate: fps, maximumPacketCount: frames + 16 });
   output.addAudioTrack(sound, { maximumPacketCount: Math.ceil(samples / 1024) + 64 });
@@ -273,7 +294,7 @@ async function encode({ width, height, fps = 30, motionBlur = false, tags = {} }
       }
     } else stepTo(t, rate);
     render(i ? sceneAt(t) - sceneAt(t - 1 / fps) : 1 / fps); // the scene's time, slowed or not
-    await video.add(t, 1 / fps); // captures the canvas now, before it's presented
+    await unlessStalled(video.add(t, 1 / fps)); // captures the canvas now, before it's presented
     await feedAudio(t + 1 / fps + AUDIO_AHEAD);
     if (i - lastProgress >= 5 || i === frames - 1) {
       lastProgress = i;
@@ -285,7 +306,16 @@ async function encode({ width, height, fps = 30, motionBlur = false, tags = {} }
   video.close();
   sound.close();
   await output.finalize();
-  return sink.blob('video/mp4');
+  return file.finish();
+}
+
+// An encoder's promise, or an error if it takes no frame for STALL_MS (see encoding.js).
+function unlessStalled(promise) {
+  let timer;
+  const stalled = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error('the video encoder stopped responding. Try Chrome, or a smaller size')), STALL_MS);
+  });
+  return Promise.race([promise, stalled]).finally(() => clearTimeout(timer));
 }
 let encodeAudio = null;
 
@@ -297,6 +327,7 @@ window.stage = {
   },
   configure,
   drawAt,
+  still,
   encode,
 };
 
@@ -311,9 +342,37 @@ function yieldToPage() {
 
 // ─── The file, as it's written ────────────────────────────────────────────────
 // The muxer writes the file in order, except that it goes back to fill in
-// what it reserved at the start (the index: fastStart 'reserve'), so a write
-// before the end overwrites bytes already held. Kept as a list of chunks, the
-// parts of a Blob, so a long 4K file never needs one buffer the size of it.
+// what it reserved at the start (the index: fastStart 'reserve'), so some
+// writes land before the end, over bytes already written.
+//
+// Written to disk as it's made: a file in the browser's own storage for this
+// page (the origin private file system), which a 4K song of several GB needs
+// -- held in memory, it could take the tab down. Left there for the download
+// to read, and cleared away at the start of the next video. Where there's no
+// such storage, held in memory (Sink, below).
+// Returns { write({ data, position }), finish() → Blob }.
+async function openFile() {
+  try {
+    const dir = await navigator.storage.getDirectory();
+    for await (const name of dir.keys()) {
+      if (name.startsWith('video-')) await dir.removeEntry(name).catch(() => {});
+    }
+    const handle = await dir.getFileHandle(`video-${Date.now()}.mp4`, { create: true });
+    const out = await handle.createWritable();
+    return {
+      // A copy: the muxer may reuse its buffer before the write is done.
+      write: ({ data, position }) => out.write({ type: 'write', position, data: data.slice() }),
+      finish: async () => { await out.close(); return handle.getFile(); },
+    };
+  } catch (err) {
+    console.warn('No file storage for the video; keeping it in memory:', err);
+    const sink = new Sink();
+    return { write: c => sink.write(c), finish: async () => sink.blob('video/mp4') };
+  }
+}
+
+// In memory: a list of chunks, the parts of a Blob, so a long file never needs
+// one buffer the size of it.
 class Sink {
   chunks = []; // { at, bytes }, in order, back to back
   end = 0;

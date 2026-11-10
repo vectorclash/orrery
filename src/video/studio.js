@@ -14,6 +14,8 @@ import { planFromShare } from '../share.js';
 import { SCALE_NAMES } from '../state.js';
 import { openStage, videoSeed, videoSupported } from './frame.js';
 import { EFFECTS, STYLE_ABOUT } from './catalog.js';
+import { videoBitrate } from './encoding.js';
+import { youtubeText, thumbnail, avatar, banner, THUMB, AVATAR, BANNER, LIMITS } from './youtube.js';
 
 const SAMPLE_RATE = 48000;
 const ROOTS = ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A', 'A♯', 'B'];
@@ -30,6 +32,7 @@ const defaults = {
   allow: {}, strength: {}, solo: [],
   titles: { on: false, opening: { title: 'Orrery', about: '' }, closing: { title: 'Orrery', about: 'orrery.vectorclash.com' } },
   size: '1920x1080', fps: 30, motionBlur: false, link: '', loopSeconds: 60,
+  youtube: { names: {}, thumbName: true, bannerName: 'ORRERY', bannerLine: 'Generative music & visuals · orrery.vectorclash.com' },
 };
 // `v`: the settings' version. Before 2, titles were on by default and saved
 // as on with everything else, so that one is forgotten: off is the default now.
@@ -38,7 +41,7 @@ const SETTINGS_VERSION = 3;
 const saved = JSON.parse(localStorage.getItem(STORE) || '{}');
 if ((saved.v ?? 1) < 2 && saved.titles) delete saved.titles.on;
 if ((saved.v ?? 1) < 3 && saved.titles?.closing?.about === 'vectorclash.com/orrery') saved.titles.closing.about = 'orrery.vectorclash.com';
-const settings = { ...defaults, ...saved, titles: { ...defaults.titles, ...saved.titles }, v: SETTINGS_VERSION };
+const settings = { ...defaults, ...saved, titles: { ...defaults.titles, ...saved.titles }, youtube: { ...defaults.youtube, ...saved.youtube }, v: SETTINGS_VERSION };
 const save = () => localStorage.setItem(STORE, JSON.stringify(settings));
 
 // ─── State ────────────────────────────────────────────────────────────────────
@@ -133,6 +136,7 @@ async function load() {
   settings.link = link; save();
   $('loop-row').hidden = !!p.song;
   $('load').disabled = $('make').disabled = $('play').disabled = true;
+  setPictures(false);
   job(p.song ? 'LOADING · MEASURING THE SONG\'S LEVEL' : 'LOADING', p.song ? null : 0);
   try {
     plan = await readyPlan(p);
@@ -159,6 +163,7 @@ async function load() {
     await apply();
     endJob();
     $('load').disabled = $('make').disabled = $('play').disabled = false;
+    setPictures(true);
   } catch (err) {
     console.error(err);
     endJob(`Couldn't load it: ${err.message}`, true);
@@ -259,6 +264,7 @@ function showSections(list) {
     bar.insertBefore(b, $('playhead'));
   }
   showTime(playhead());
+  showYoutube();
 }
 
 // ─── Making the video ─────────────────────────────────────────────────────────
@@ -282,6 +288,7 @@ async function make() {
   making = frame;
   $('make').textContent = 'CANCEL';
   $('load').disabled = $('play').disabled = true;
+  setPictures(false);
   const began = performance.now();
   job('MAKING THE VIDEO · RENDERING THE AUDIO', 0, true);
   try {
@@ -316,9 +323,87 @@ function finishMaking(text, error = false) {
   previewFrame.style.visibility = '';
   $('make').textContent = 'MAKE VIDEO';
   $('load').disabled = $('play').disabled = false;
+  setPictures(true);
   endJob(text, error);
   redraw();
 }
+
+// ─── For YouTube ──────────────────────────────────────────────────────────────
+// The upload's text, made again whenever the song, its sections or the style
+// change; the song's name kept for each song (by its link). The pictures are
+// stills of the playhead's moment from the preview's stage, saved as files.
+const songName = () => (settings.link && settings.youtube.names[settings.link]) || '';
+
+function showYoutube() {
+  if (!plan || !loaded) return;
+  const t = youtubeText({
+    p: plan, key: describe(plan, loaded.duration).key, name: songName(),
+    style: style(), sections, duration: loaded.duration,
+  });
+  const show = (id, text, limit) => {
+    $(id).value = text;
+    $(`${id}-count`).textContent = `${text.length} / ${limit}`;
+    $(`${id}-count`).classList.toggle('over', text.length > limit);
+  };
+  show('yt-title', t.title, LIMITS.title);
+  show('yt-description', t.description, LIMITS.description);
+  show('yt-tags', t.tags, LIMITS.tags);
+  $('yt-about').textContent = plan.song
+    ? (t.chapters ? `${t.chapters} CHAPTERS, FROM THE SONG'S SECTIONS` : 'NO CHAPTERS: YOUTUBE NEEDS THREE OR MORE, EACH 10 S OR LONGER')
+    : 'A LOOP HAS NO SECTIONS, SO NO CHAPTERS';
+}
+
+function setPictures(on) {
+  for (const id of ['thumb', 'avatar', 'banner']) $(id).disabled = !on;
+}
+
+function saveBlob(blob, name) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
+// A still of the playhead's moment at `size`, made into a picture by `make`.
+async function picture(size, make, name) {
+  if (!preview || making) return;
+  stop();
+  setPictures(false);
+  try {
+    const blob = await make(preview.still(offset, ...size));
+    saveBlob(blob, name);
+    endJob(`SAVED ${name} · ${size.join('×')} · ${Math.round(blob.size / 1000)} KB`);
+  } catch (err) {
+    console.error(err);
+    endJob(`Couldn't make it: ${err.message}`, true);
+  } finally {
+    setPictures(true);
+    redraw();
+  }
+}
+const stem = () => fileName().replace(/_\d+x\d+_\d+fps\.mp4$/, '');
+
+$('yt-name').addEventListener('input', e => {
+  if (!settings.link) return;
+  settings.youtube.names[settings.link] = e.target.value;
+  save();
+  showYoutube();
+});
+for (const b of document.querySelectorAll('[data-copy]')) {
+  b.addEventListener('click', async () => {
+    await navigator.clipboard.writeText($(b.dataset.copy).value);
+    b.textContent = 'COPIED';
+    setTimeout(() => { b.textContent = 'COPY'; }, 1500);
+  });
+}
+$('thumb-name').addEventListener('change', e => { settings.youtube.thumbName = e.target.checked; save(); });
+for (const [id, key] of [['banner-name', 'bannerName'], ['banner-line', 'bannerLine']]) {
+  $(id).addEventListener('change', e => { settings.youtube[key] = e.target.value; save(); });
+}
+$('thumb').addEventListener('click', () => picture(THUMB, f => thumbnail(f, settings.youtube.thumbName ? songName() : ''), `${stem()}_thumbnail.jpg`));
+$('avatar').addEventListener('click', () => picture(AVATAR, avatar, 'orrery_avatar.png'));
+$('banner').addEventListener('click', () => picture(BANNER, f => banner(f, { name: settings.youtube.bannerName, line: settings.youtube.bannerLine }), 'orrery_banner.jpg'));
 
 // ─── Controls ─────────────────────────────────────────────────────────────────
 function choice(id, key, parse = v => v) {
@@ -405,6 +490,10 @@ function showSettings() {
   $('title-close').value = settings.titles.closing.title;
   $('title-close-about').value = settings.titles.closing.about;
   $('loop-seconds').value = settings.loopSeconds;
+  $('yt-name').value = songName();
+  $('thumb-name').checked = settings.youtube.thumbName;
+  $('banner-name').value = settings.youtube.bannerName;
+  $('banner-line').value = settings.youtube.bannerLine;
   for (const el of effectsEl.querySelectorAll('[data-effect]')) {
     const n = el.dataset.effect, s = settings.strength[n] ?? 1;
     if (el.type === 'checkbox') el.checked = settings.allow[n] !== false;
@@ -414,11 +503,18 @@ function showSettings() {
   }
   const [vw, vh] = outSize();
   const secs = loaded?.duration ?? 0;
-  const mb = secs ? ((vw * vh * settings.fps * (settings.fps > 30 ? 0.14 : 0.2) + 320_000) * secs / 8 / 1e6) : 0;
+  const mb = secs ? ((videoBitrate(vw, vh, settings.fps) + 320_000) * secs / 8 / 1e6) : 0;
+  showYoutube();
   $('video-about').textContent = `${vw}×${vh} · ${settings.fps} FPS${settings.motionBlur ? ' · MOTION BLUR' : ''}${secs ? ` · ${fmt(secs)} · ABOUT ${Math.round(mb)} MB` : ''}`;
 }
 
 // ─── Start ────────────────────────────────────────────────────────────────────
+// The last session's video, left in the browser's storage for its download
+// (see openFile in stage.js): gigabytes, for a 4K song, that nothing shows.
+navigator.storage?.getDirectory?.().then(async dir => {
+  for await (const name of dir.keys()) if (name.startsWith('video-')) await dir.removeEntry(name).catch(() => {});
+}).catch(() => {});
+
 $('link').value = settings.link;
 showSettings();
 fitScreen();

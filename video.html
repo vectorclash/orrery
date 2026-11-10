@@ -101,6 +101,14 @@
     .choice button.on { color: var(--ink-1); background: var(--sel); border-color: var(--line-sel); }
     input[type="range"] { flex: 1; accent-color: #8aafc8; min-width: 0; }
     .value { color: var(--ink-2); min-width: 46px; text-align: right; font-variant-numeric: tabular-nums; }
+    textarea {
+      background: var(--chip); border: 1px solid var(--line-2); padding: 7px 9px; color: var(--ink-1);
+      font-family: inherit; font-size: 11px; letter-spacing: 0.02em; line-height: 1.45; resize: vertical; width: 100%;
+    }
+    #yt-description { min-height: 220px; }
+    #yt-tags { min-height: 70px; }
+    .count { color: var(--ink-3); font-size: 10px; margin-left: auto; font-variant-numeric: tabular-nums; }
+    .count.over { color: #dcbcbc; }
     #effects { display: grid; grid-template-columns: auto 1fr 1.2fr auto auto; gap: 6px 10px; align-items: center; }
     #effects .name { color: var(--ink-2); letter-spacing: 0.12em; font-size: 11px; }
     #effects .hint { color: var(--ink-3); font-size: 10px; letter-spacing: 0.02em; grid-column: 2 / 6; margin-top: -4px; line-height: 1.4; }
@@ -208,6 +216,27 @@
         <label class="label"><input type="checkbox" id="motion-blur"> MOTION BLUR</label></div>
       <div class="about" id="video-about"></div>
       <div class="row"><button class="btn primary" id="make" disabled>MAKE VIDEO</button></div>
+    </div>
+
+    <div class="group">
+      <span class="label">YOUTUBE — THE TEXT FOR THE UPLOAD, MADE FROM THE SONG</span>
+      <div class="row"><input type="text" id="yt-name" placeholder="The song's name (optional)"></div>
+      <div class="row"><span class="label">TITLE</span><span class="count" id="yt-title-count"></span><button class="btn" data-copy="yt-title">COPY</button></div>
+      <input type="text" id="yt-title" readonly>
+      <div class="row"><span class="label">DESCRIPTION</span><span class="count" id="yt-description-count"></span><button class="btn" data-copy="yt-description">COPY</button></div>
+      <textarea id="yt-description" readonly spellcheck="false"></textarea>
+      <div class="row"><span class="label">TAGS</span><span class="count" id="yt-tags-count"></span><button class="btn" data-copy="yt-tags">COPY</button></div>
+      <textarea id="yt-tags" readonly spellcheck="false"></textarea>
+      <div class="about" id="yt-about"></div>
+      <div class="row"><button class="btn" id="thumb" disabled title="1280×720 JPEG, the frame at the playhead">SAVE THUMBNAIL</button>
+        <label class="label"><input type="checkbox" id="thumb-name"> NAME ON IT</label></div>
+    </div>
+
+    <div class="group">
+      <span class="label">CHANNEL ART — THE FRAME AT THE PLAYHEAD, IN THE LOOK AND STYLE ABOVE</span>
+      <div class="row"><button class="btn" id="avatar" disabled title="800×800 PNG: YouTube shows it as a circle">SAVE AVATAR</button>
+        <button class="btn" id="banner" disabled title="2560×1440 JPEG: the middle 1546×423 shows on every device">SAVE BANNER</button></div>
+      <div class="row"><input type="text" id="banner-name" placeholder="Name on the banner"><input type="text" id="banner-line" placeholder="Line under it"></div>
     </div>
   </div>
 
