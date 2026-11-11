@@ -19,6 +19,7 @@ export const audio = {
   leveler:    null, // slow loudness rider on the master (see updateLevel)
   meter:      null,
   level:      null,
+  width:      null, // slow width rider on the master's side channel (see rideWidth)
   started:    false,
   // Per-session inputs, rebuilt by beginSession(). Voices connect only to
   // these, so ending a session silences everything it scheduled — including
@@ -582,7 +583,11 @@ const LEVEL_GATE_DB   = 20;  // below target − this, hold
 export function updateLevel() {
   if (!audio.level) return;
   audio.meter.getFloatTimeDomainData(audio.level.data);
-  rideLevel(audio.ctx.currentTime);
+  audio.width.mid.getFloatTimeDomainData(audio.width.m);
+  audio.width.side.getFloatTimeDomainData(audio.width.s);
+  const now = audio.ctx.currentTime;
+  rideLevel(now);
+  rideWidth(now);
 }
 
 // The leveller's move for the meter reading in audio.level.data, taken at
@@ -600,6 +605,49 @@ export function rideLevel(now) {
   lv.ms = lv.ms === null ? e : lv.ms + (e - lv.ms) * (1 - Math.exp(-dt / LEVEL_TAU));
   const gainDb = Math.max(-LEVEL_RANGE_DB, Math.min(LEVEL_RANGE_DB, LEVEL_TARGET_DB - 10 * Math.log10(lv.ms)));
   audio.leveler.gain.setTargetAtTime(dbToGain(gainDb), now, 1.0);
+}
+
+// Width. How wide a mix comes out depends on who is playing: measured over 60
+// songs, the side channel above the bass ran from 2 dB under the mid (chorused
+// synths, an orchestra in a hall) to 11 dB under it (a funk or techno trio:
+// centred drums and bass, two instruments panned a little, a small room). A
+// fixed side boost big enough to open the narrow ones up hollows out the wide
+// ones, so this rides it instead, as the leveller rides loudness: it reads how
+// far the side sits under the mid (see stereoImage's meters), averaged over a
+// few seconds, and raises the side by most of what a narrow mix is short of
+// WIDTH_TARGET_DB, up to WIDTH_MAX_DB. A mix already that wide is left alone,
+// and none is ever narrowed. Unlike the leveller it listens all through a
+// song: there's no width a section is meant to have that it would fight.
+//
+// Only the side moves, so the mono fold-down (a phone speaker) is exactly what
+// it was, and what gets wider is whatever was off-centre: the panned parts, the
+// chorus and above all the room and hall, which is where the space is.
+const WIDTH_TARGET_DB = -5;   // side under mid, above 250 Hz
+const WIDTH_SLOPE     = 0.75; // how much of the shortfall is made up
+const WIDTH_MAX_DB    = 4.5;
+const WIDTH_TAU       = 4;    // seconds of history
+const WIDTH_GATE_DB   = -50;  // mid quieter than this: hold
+
+// The width rider's move for the meter readings in audio.width.m and .s, taken
+// at audio time `now` (the export fills them in itself where it can't read the
+// meters mid-render, as it does the leveller's: see src/render.js).
+export function rideWidth(now) {
+  const w = audio.width, n = w.m.length;
+  const dt = Math.min(1, now - w.last);
+  w.last = now;
+  let m = 0, s = 0;
+  for (let i = 0; i < n; i++) { m += w.m[i] * w.m[i]; s += w.s[i] * w.s[i]; }
+  m /= n; s /= n;
+  if (10 * Math.log10(m + 1e-12) < WIDTH_GATE_DB) return;
+  // It starts as if the mix were on target, and finds out otherwise: the first
+  // readings of a song are a kick or a pickup note, not its width.
+  if (w.mid2 === null) { w.mid2 = m; w.side2 = m * Math.pow(10, WIDTH_TARGET_DB / 10); }
+  const k = 1 - Math.exp(-dt / WIDTH_TAU);
+  w.mid2  += (m - w.mid2) * k;
+  w.side2 += (s - w.side2) * k;
+  const short = WIDTH_TARGET_DB - 10 * Math.log10((w.side2 + 1e-12) / (w.mid2 + 1e-12));
+  const gainDb = Math.max(0, Math.min(WIDTH_MAX_DB, WIDTH_SLOPE * short));
+  w.gain.setTargetAtTime(dbToGain(gainDb), now, 1.0);
 }
 
 // Starts the leveller as if it had already been listening to a mix of mean
@@ -716,12 +764,26 @@ export function syncLatency() {
   for (const d of audio.lag) d.delayTime.value = l;
 }
 
+// The stereo image, worked on as mid (L + R) and side (L − R). Three things:
+//
 // Bass in the middle: below `hz` the mix is folded to mono, the mid kept whole and the
 // side high-passed (fourth order), as mastering does, so the low end doesn't thin out on
 // a phone speaker or anywhere the stereo is summed. Several voices pan or chorus all the
 // way down; measured, their side channel ran 6 to 9 dB under the mid below 180 Hz in
-// lo-fi, blues, orchestral and nu-disco songs. Above `hz` the stereo is as it was.
-function monoBelow(ctx, hz) {
+// lo-fi, blues, orchestral and nu-disco songs.
+//
+// Air at the sides: a high shelf on the side alone. The top two octaves were the
+// narrowest part of every mix (side 9 and 13 dB under the mid at 8 and 16 kHz, against
+// 5 or 6 through the midrange), because what lives up there is the kit's cymbals, panned
+// a little, and centred noise. Finished records open out towards the top instead.
+//
+// Width: the side's level, ridden to suit the mix (see rideWidth), which reads the two
+// meters returned here: the mid and the side from 250 Hz up, where the bass and kick
+// (always centred) don't count, weighted towards the presence range as the leveller's
+// meter is.
+const SIDE_AIR = { hz: 5000, db: 3 };
+
+function stereoImage(ctx, hz) {
   const input = ctx.createGain();
   input.channelCount = 2; input.channelCountMode = 'explicit'; // a mono mix is spread to both
   const split = ctx.createChannelSplitter(2), merge = ctx.createChannelMerger(2);
@@ -737,15 +799,33 @@ function monoBelow(ctx, hz) {
     hp.Q.value = 20 * Math.log10(q); // a high-pass's Q is in dB in Web Audio
     last.connect(hp); last = hp;
   }
-  last.connect(back);
-  mid.connect(merge, 0, 0); last.connect(merge, 0, 0); // L = mid + side
-  mid.connect(merge, 0, 1); back.connect(merge, 0, 1); // R = mid − side
-  return { input, output: merge };
+  const air = ctx.createBiquadFilter();
+  air.type = 'highshelf'; air.frequency.value = SIDE_AIR.hz; air.gain.value = SIDE_AIR.db;
+  const width = ctx.createGain();
+  last.connect(air); air.connect(width); width.connect(back);
+  mid.connect(merge, 0, 0); width.connect(merge, 0, 0); // L = mid + side
+  mid.connect(merge, 0, 1); back.connect(merge, 0, 1);  // R = mid − side
+
+  // The meters hear the mix as it arrives, ahead of the shelf and the rider's own gain.
+  const meterOf = from => {
+    const hp = ctx.createBiquadFilter(), shelf = ctx.createBiquadFilter(), meter = ctx.createAnalyser();
+    hp.type = 'highpass'; hp.frequency.value = 250;
+    shelf.type = 'highshelf'; shelf.frequency.value = 1500; shelf.gain.value = 4;
+    meter.fftSize = 2048;
+    from.connect(hp); hp.connect(shelf); shelf.connect(meter);
+    return meter;
+  };
+  return { input, output: merge, width: width.gain, midMeter: meterOf(mid), sideMeter: meterOf(last) };
 }
 
 // The level the master brings the mix up to before the limiter, set so a song comes
 // out at about −14 LUFS, the level streaming services and ad platforms normalise to.
-const MAKEUP_DB = 5.2;
+const MAKEUP_DB = 5.4;
+// And the trim after it. The limiter isn't a brickwall, and its ceiling can't be set
+// directly (a compressor node adds its own makeup gain, which grows as the threshold
+// drops), so the last quarter of a dB is taken here: over 60 test renders the loudest
+// true peak was −1.1 dBTP, under the −1 that streaming and ad platforms ask for.
+const CEILING_DB = -0.25;
 
 export function initAudio(ctx = null) {
   const AC = window.AudioContext || window.webkitAudioContext;
@@ -794,8 +874,7 @@ export function initAudio(ctx = null) {
   // headroom (quiet next to anything else playing), and the compressor's
   // 10 ms attack lets transients through, so the limiter catches them once
   // the level comes up. It isn't a brickwall, hence the threshold well below
-  // where peaks land: over 60 test renders at MAKEUP_DB the loudest true peak
-  // was −1.2 dBTP, under the −1 that streaming and ad platforms ask for.
+  // where peaks land, and the trim after it (see CEILING_DB).
   const makeup = audio.ctx.createGain();
   makeup.gain.value = Math.pow(10, MAKEUP_DB / 20);
   const limiter = audio.ctx.createDynamicsCompressor();
@@ -828,27 +907,40 @@ export function initAudio(ctx = null) {
   audio.mix = audio.ctx.createGain();
   audio.masterGain.connect(audio.mix);
   audio.reverbGain.connect(audio.mix);
-  const mono = monoBelow(audio.ctx, 120);
-  audio.mix.connect(mono.input); mono.output.connect(highpass);
+  const image = stereoImage(audio.ctx, 120);
+  audio.mix.connect(image.input); image.output.connect(highpass);
+  audio.width = {
+    gain: image.width, mid: image.midMeter, side: image.sideMeter,
+    m: new Float32Array(image.midMeter.fftSize), s: new Float32Array(image.sideMeter.fftSize),
+    mid2: null, side2: null, last: 0, // the mean squares it has heard (see rideWidth)
+  };
   // A little out of the low mids: chords and pads sit at 150–500 Hz, and measured over
   // 60 songs the 250 and 500 Hz octaves came out as loud as 125 Hz, a couple of dB fuller
   // than finished mixes usually are there, which reads as boxy.
   const lowMids = audio.ctx.createBiquadFilter();
   lowMids.type = 'peaking'; lowMids.frequency.value = 350; lowMids.Q.value = 0.9; lowMids.gain.value = -1.5;
-  highpass.connect(lowMids); lowMids.connect(leveler);
+  // And a little more at the top. Over the same songs each octave above 1 kHz came out
+  // 5 to 7 dB under the one below, steeper than finished mixes run, which reads as a
+  // blanket over the cymbals and the breath of things: a mastering engineer's air shelf.
+  const air = audio.ctx.createBiquadFilter();
+  air.type = 'highshelf'; air.frequency.value = 6000; air.gain.value = 2;
+  highpass.connect(lowMids); lowMids.connect(air); air.connect(leveler);
   leveler.connect(compressor);
   compressor.connect(makeup);
   makeup.connect(saturator);
   saturator.connect(limiter);
-  limiter.connect(audio.ctx.destination);
-  audio.masterOut = limiter;
+  const ceiling = audio.ctx.createGain();
+  ceiling.gain.value = Math.pow(10, CEILING_DB / 20);
+  limiter.connect(ceiling);
+  ceiling.connect(audio.ctx.destination);
+  audio.masterOut = ceiling;
 
   // The analysers listen through delays of the output latency (see
   // syncLatency), so they hold what is being heard, not what was just rendered.
   // They are taps: nothing downstream of them reaches the speakers.
   const lagSpectrum = audio.ctx.createDelay(MAX_LAG), lagScope = audio.ctx.createDelay(MAX_LAG);
   audio.mix.connect(lagSpectrum); lagSpectrum.connect(audio.analyser);
-  limiter.connect(lagScope); lagScope.connect(audio.scope); // the scope hears the finished mix
+  ceiling.connect(lagScope); lagScope.connect(audio.scope); // the scope hears the finished mix
   audio.lag = [lagSpectrum, lagScope];
   audio.latency = 0;
 

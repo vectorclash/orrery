@@ -4,7 +4,7 @@ import { createVoice } from '../transport.js';
 import { logNote } from '../notes.js';
 import { harmony } from '../harmony.js';
 import { lines } from '../lines.js';
-import { gain, send, pluckBuffer, playBuffer } from '../synth.js';
+import { gain, send, pluckBuffer, playBuffer, desk } from '../synth.js';
 
 // Harp: a real plucked-string model (Karplus–Strong) with a soft, finger-like
 // excitation plucked mid-string for the round harp tone, on a soundboard and
@@ -16,10 +16,10 @@ function string(t, midi, vel) {
   const t60 = clamp(3.4 * Math.pow(200 / hz, 0.4), 1.0, 4.2);
   logNote('harp', t, midi, Math.min(t60, 3.2), vel);
   const src = playBuffer(pluckBuffer(midi, { t60, bright: 0.28 + 0.2 * vel, pick: 0.42, stretch: 0.5, length: Math.min(t60, 3.2), body: 'harp', pol: { cents: 0.8, t60: 0.5, mix: 0.3 } }), t, t + 3.2);
-  const g = gain(0.22 * vel);
-  src.connect(g);
-  g.connect(getVoiceBus('harp').dry);
-  send(g, audio.reverbSend, 0.6);
+  const g = gain(0.22 * vel), d = desk(0.22 * vel * 2.3, 1.05); // the pluck's spike rounded off: see desk()
+  src.connect(g); g.connect(d.input);
+  d.output.connect(getVoiceBus('harp').dry);
+  send(d.output, audio.reverbSend, 0.6);
 }
 
 function play(t, b) {

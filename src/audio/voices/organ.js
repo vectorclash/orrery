@@ -3,7 +3,7 @@ import { beat, pick, register, midiToHz, random } from '../../state.js';
 import { createVoice } from '../transport.js';
 import { logNote } from '../notes.js';
 import { harmony } from '../harmony.js';
-import { osc, gain, filter, send, perc } from '../synth.js';
+import { osc, gain, filter, send, perc, desk } from '../synth.js';
 
 // Hammond-style tonewheel organ. Drawbars are pitched in organ footages —
 // 16′ 5⅓′ 8′ 4′ 2⅔′ 2′ 1⅗′ 1⅓′ 1′ = 0.5, 1.5, 1, 2, 3, 4, 5, 6, 8 × the note —
@@ -20,6 +20,13 @@ const REGISTRATIONS = [
   { bars: [0, 0, 8, 8, 0, 0, 0, 0, 0], perc: false }, // soft flutes
 ];
 const drawbar = level => (level ? Math.pow(10, (level - 8) * 3 / 20) : 0);
+// The Leslie's amplifier is forty watts of valves, and an organist leans on it:
+// a full chord pushes it into a little saturation, the tonewheels' pure sines
+// growing harmonics and growling against each other. Without it the organ is
+// a set of sine waves, clean at any level. AMP is how much chord the amp takes
+// before it bends (against a chord's level).
+const AMP = 9;
+const LEVEL = 1.035; // matched to the old voice's loudness
 const ORGAN_TRIM = 0.83; // level-matched to the old, mono Leslie: the bus's panner gives a stereo source more
 let reg  = REGISTRATIONS[0];
 let prev = null;
@@ -97,7 +104,7 @@ function play(t, b) {
 
   const bus  = getVoiceBus('organ').dry;
   const end  = t + dur + 0.1;
-  const peak = 0.045 * 3 / v.length * ORGAN_TRIM;
+  const peak = 0.045 * 3 / v.length * ORGAN_TRIM * LEVEL;
 
   // The player's hand on the Leslie switch: the first chord finds it at either
   // speed, and now and then a chord flips it (two draws, as the Leslie always took).
@@ -111,6 +118,7 @@ function play(t, b) {
     gate.setValueAtTime(1, t + dur - 0.04);
     gate.linearRampToValueAtTime(0, t + dur);
   }
+  const amps = new Map([horn, drum].map(r => { const a = desk(0.045 * ORGAN_TRIM * AMP); a.output.connect(r.input); return [r, a]; }));
   const to = hz => (hz < CROSSOVER ? drum : horn);
 
   for (const midi of v) {
@@ -121,7 +129,7 @@ function play(t, b) {
       const o = osc('sine', hz * FOOTAGE[i], t, end);
       r.doppler.connect(o.detune);
       const g = gain(peak * drawbar(level));
-      o.connect(g); g.connect(r.input);
+      o.connect(g); g.connect(amps.get(r).input);
     });
     if (reg.perc) {
       // The percussion isn't gated with the chord: it decays by itself.

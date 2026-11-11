@@ -122,7 +122,7 @@ export function wander(t, stop, depth, key = 0) {
 // as a single hardware LFO would, instead of restarting at every change.
 // `shift` offsets the phase by a fraction of a cycle. Output is ±1.
 const cycles = new Map();
-function freeLfo(shape, hz, t, stop, shift = 0) {
+export function freeLfo(shape, hz, t, stop, shift = 0) {
   const ctx = audio.ctx, key = `${shape}|${hz}|${ctx.sampleRate}`;
   if (!cycles.has(key)) {
     const n = Math.round(ctx.sampleRate / hz), buf = ctx.createBuffer(1, n, ctx.sampleRate), d = buf.getChannelData(0);
@@ -226,6 +226,22 @@ export function shaper(drive = 2, bias = 0) {
   ws.curve = curve;
   ws.oversample = '2x';
   return ws;
+}
+
+// The desk: what a recorded instrument's loudest moments go through, a little
+// tube-style saturation, unity gain for anything quiet. A plucked string's first
+// few milliseconds are several times louder than the note that follows, and
+// measured solo the sitar's, the picked guitar's and the harp's attacks reached
+// the master 8 to 12 dB above any other instrument's peaks, at a third of the
+// loudness: every pluck made the master compressor and limiter duck the whole mix
+// for something barely heard. An engineer compresses a plucked instrument for
+// just that reason. Nothing passes above `ceiling`; at a third of it the level is
+// down a third of a dB. `makeup` gives back the loudness the rounding takes
+// (measured, per instrument). Returns { input, output }.
+export function desk(ceiling, makeup = 1) {
+  const pre = gain(1 / ceiling), drive = shaper(1), post = gain(Math.tanh(1) * ceiling * makeup);
+  pre.connect(drive); drive.connect(post);
+  return { input: pre, output: post };
 }
 
 // ─── Plucked string ───────────────────────────────────────────────────────────

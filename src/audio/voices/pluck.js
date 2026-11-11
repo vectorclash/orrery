@@ -4,7 +4,7 @@ import { createVoice } from '../transport.js';
 import { logNote } from '../notes.js';
 import { harmony } from '../harmony.js';
 import { song } from '../song.js';
-import { gain, send, pluckBuffer, playBuffer, settle } from '../synth.js';
+import { gain, send, pluckBuffer, playBuffer, settle, desk } from '../synth.js';
 
 // Fingerpicked steel-string guitar (Travis picking). The thumb alternates
 // root and fifth in the bass on each beat; the fingers pick upper chord tones
@@ -14,6 +14,7 @@ import { gain, send, pluckBuffer, playBuffer, settle } from '../synth.js';
 // white noise and measured ~25 dB quieter than everything else.)
 const FINGER_ORDER = [2, 1, 2, 0];
 const POL = { cents: 1.2, t60: 0.4, mix: 0.35 };
+const PEAK = 2.3; // how far above its level a string's attack may reach
 let upperPrev = null;
 
 // For the newer composers, the picked guitar of the other genres that use it: Travis
@@ -58,10 +59,10 @@ function string(t, midi, level, ring) {
   logNote('pluck', t, midi, ring, Math.min(1, level * 5));
   const src = playBuffer(pluckBuffer(midi, { t60: ring, bright: 0.62, pick: 0.13, stretch: 0.45, length: ring, body: 'acoustic', pol: POL }), t, t + ring);
   settle(src, t, 5, 0.05);
-  const g = gain(level);
-  src.connect(g);
-  g.connect(getVoiceBus('pluck').dry);
-  send(g, audio.reverbSend, 0.32);
+  const g = gain(level), d = desk(level * PEAK, 1.07); // see desk()
+  src.connect(g); g.connect(d.input);
+  d.output.connect(getVoiceBus('pluck').dry);
+  send(d.output, audio.reverbSend, 0.32);
 }
 
 function play(t, b) {

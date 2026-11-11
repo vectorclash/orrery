@@ -3,7 +3,7 @@
 // context, harmony, transport, voices. Rendering an export there leaves the
 // live music untouched: it keeps playing while the file renders.
 import { TICK_MS, LOOKAHEAD } from './state.js';
-import { audio, initAudio, rideLevel, presetLevel } from './audio/context.js';
+import { audio, initAudio, rideLevel, rideWidth, presetLevel } from './audio/context.js';
 import { applyPlan, startSession, tick, songFor } from './audio/scheduler.js';
 import { readLog } from './audio/notes.js';
 import { harmony } from './audio/harmony.js';
@@ -76,7 +76,7 @@ window.songPlanFor = (plan, durationSec, hookAtSec = 0) => {
 async function render(plan, durationSec, sampleRate, fromBeat, onProgress, heard) {
   const stepped = typeof OfflineAudioContext.prototype.suspend === 'function';
   if (heard && !stepped) throw new Error('A video needs OfflineAudioContext.suspend');
-  const ctx = new OfflineAudioContext(stepped && !heard ? 2 : 3, Math.round(durationSec * sampleRate), sampleRate);
+  const ctx = new OfflineAudioContext(stepped ? (heard ? 3 : 2) : 5, Math.round(durationSec * sampleRate), sampleRate);
   initAudio(ctx);
   applyPlan(plan);
   const opts = { skipBass: !plan.bassStyle, skipEvolve: true, levelMs: plan.song?.levelMs };
@@ -212,12 +212,13 @@ function renderStepped(ctx, times, opts, onProgress, heard) {
 
 // Firefox has no OfflineAudioContext.suspend(), so nothing can run partway
 // through a render. There the scheduler runs ahead of it instead, reading a
-// stand-in clock set to each tick's time, which leaves one thing unscheduled:
-// the leveller, which reads the meter as the render goes (see updateLevel).
-// So the render takes two passes. The meter listens before the leveller, so
-// the first pass, everything up to the master chain, also captures what the
-// meter hears; the leveller's moves are worked out from that, and the second
-// pass runs the first's output through a fresh master chain making them.
+// stand-in clock set to each tick's time, which leaves two things unscheduled:
+// the leveller and the width rider, which read their meters as the render
+// goes (see updateLevel). So the render takes two passes. The meters listen
+// ahead of what they move, so the first pass, everything up to the master
+// chain, also captures what they hear; the moves are worked out from that,
+// and the second pass runs the first's output through a fresh master chain
+// making them.
 async function renderAhead(ctx, times, opts, onProgress) {
   const sr = ctx.sampleRate;
   // Where a suspend at t would land, as Chrome places it: the frame (rounded
@@ -230,37 +231,44 @@ async function renderAhead(ctx, times, opts, onProgress) {
   for (const t of times) { now = frameAt(t) / sr; tick(opts); }
   delete ctx.currentTime;
 
-  // Pass 1: the mix on channels 0–1 and the meter's signal on channel 2 —
-  // mono, as the analyser hears it (a merger input down-mixes the same way).
+  // Pass 1: the mix on channels 0–1, the leveller's meter signal on channel 2 —
+  // mono, as the analyser hears it (a merger input down-mixes the same way) —
+  // and the width rider's two on 3 and 4.
   audio.masterOut.disconnect();
-  const split = ctx.createChannelSplitter(2), merge = ctx.createChannelMerger(3);
+  const split = ctx.createChannelSplitter(2), merge = ctx.createChannelMerger(5);
   audio.mix.connect(split);
   split.connect(merge, 0, 0); split.connect(merge, 1, 1);
   audio.meter.connect(merge, 0, 2);
+  audio.width.mid.connect(merge, 0, 3);
+  audio.width.side.connect(merge, 0, 4);
   merge.connect(ctx.destination);
   const poll = setInterval(() => onProgress(ctx.currentTime), 100);
   const mix = await ctx.startRendering().finally(() => clearInterval(poll));
 
-  // Pass 2: the mix in where masterGain and reverbGain meet, and the
-  // leveller's moves from the meter readings each tick would have taken.
+  // Pass 2: the mix in where masterGain and reverbGain meet, and the leveller's
+  // and the width rider's moves from the meter readings each tick would have taken.
   const out = new OfflineAudioContext(2, mix.length, sr);
   const { holdsAt } = audio.level; // where a song's leveller holds still (see rideLevel)
   initAudio(out);
   audio.level.holdsAt = holdsAt;
   if (opts.levelMs) presetLevel(opts.levelMs);
   const src = out.createBufferSource();
-  const split2 = out.createChannelSplitter(3), merge2 = out.createChannelMerger(2);
+  const split2 = out.createChannelSplitter(5), merge2 = out.createChannelMerger(2);
   src.buffer = mix;
   src.connect(split2);
   split2.connect(merge2, 0, 0); split2.connect(merge2, 1, 1);
   merge2.connect(audio.mix);
   src.start(0);
 
-  const meter = mix.getChannelData(2), reading = audio.level.data, n = reading.length;
+  const readings = [[mix.getChannelData(2), audio.level.data], [mix.getChannelData(3), audio.width.m], [mix.getChannelData(4), audio.width.s]];
   for (const t of times) {
     const end = frameAt(t);
-    for (let i = 0; i < n; i++) reading[i] = meter[end - n + i] ?? 0; // silence before the start
+    for (const [meter, reading] of readings) {
+      const n = reading.length;
+      for (let i = 0; i < n; i++) reading[i] = meter[end - n + i] ?? 0; // silence before the start
+    }
     rideLevel(end / sr);
+    rideWidth(end / sr);
   }
   return out.startRendering();
 }

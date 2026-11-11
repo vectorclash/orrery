@@ -344,6 +344,192 @@ const gtomLo  = (t, v) => drum(t, v, midiToHz(fold(state.rootMidi, 38, 49)), 'to
 const gtomMid = (t, v) => drum(t, v, midiToHz(fold(state.rootMidi + 7, 45, 56)), 'tomMid', 0.28, 0.1, 0.7);
 const gtomHi  = (t, v) => drum(t, v, midiToHz(fold(state.rootMidi + 12, 50, 61)), 'tomHi', 0.25, 0.1, 0.7);
 
+// ─── The acoustic kit ─────────────────────────────────────────────────────────
+// The pieces above are a drum machine's: an oscillator and a burst of noise each,
+// the same at every level. That's the right kit for house or trap. Played by a
+// drummer (styles marked `acoustic`) it's what made a jazz or funk song sound
+// programmed: measured solo, those kits had almost nothing between 500 Hz and
+// 2 kHz, where a snare's shell and a kit's wood live, and a ghost note was an
+// accent turned down. These are drums as struck things:
+//
+//   - a head has several modes, not one pitch (a membrane's run 1 : 1.59 : 2.14 :
+//     2.65 against the lowest, never a harmonic series), each dying at its own rate;
+//   - how hard it's hit changes the sound, not just the level: a hard stroke
+//     stretches the head (it starts sharper and falls further), puts more of the
+//     stick into it, and opens the top; a ghost note is duller, shorter, mostly head;
+//   - no two strokes land alike: each differs a little in tuning, tone and length.
+//
+// Each takes (t, level, vel): `vel` is the stroke, 0.15 feathered to 1.15 accented.
+// Each takes exactly one draw, as the piece it stands in for does, and everything
+// that varies comes from it, so a kit sounding different never moves a hit.
+const hardness = vel => Math.max(0, Math.min(1, (vel - 0.15) / 0.95));
+
+// Bass drum: a felt beater on a damped 22-inch head. The head's note barely
+// falls (a drum machine's kick sweeps two octaves; a real one a few tones), a
+// second mode gives it the shell's knock, and the beater is a soft thump with a
+// click on top that grows with the stroke.
+function kickA(t, v, vel = 1) {
+  const u = random(), h = hardness(vel), o = out();
+  const f = 58 * (1 + 0.03 * (u - 0.5));
+  const head = osc('sine', f, t, t + 0.6), sat = shaper(1.2), e = gain(0);
+  head.frequency.setValueAtTime(f * (1.6 + 0.6 * h), t);
+  head.frequency.exponentialRampToValueAtTime(f * 1.07, t + 0.03);
+  head.frequency.exponentialRampToValueAtTime(f, t + 0.22);
+  e.gain.setValueAtTime(0, t);
+  e.gain.linearRampToValueAtTime(v, t + 0.003);
+  e.gain.setTargetAtTime(0, t + 0.003, 0.085 + 0.02 * h);
+  head.connect(sat); sat.connect(e); e.connect(o);
+  const shell = osc('sine', f * 2.3, t, t + 0.2), sE = gain(0);
+  shell.frequency.setValueAtTime(f * 2.3 * (1 + 0.12 * h), t);
+  shell.frequency.exponentialRampToValueAtTime(f * 2.3, t + 0.03);
+  perc(sE.gain, t, v * 0.6, 0.1, 0.002);
+  shell.connect(sE); sE.connect(o);
+  const thump = noise(t, 0.05, (u + 0.37) % 1), tLp = filter('lowpass', 380), tE = gain(0);
+  perc(tE.gain, t, v * 0.55, 0.03, 0.001);
+  thump.connect(tLp); tLp.connect(tE); tE.connect(o);
+  const beater = noise(t, 0.03, u), bBp = filter('bandpass', 2400 + 1800 * h, 1.1), bE = gain(0);
+  perc(bE.gain, t, v * (0.18 + 0.5 * h), 0.011, 0.0005);
+  beater.connect(bBp); bBp.connect(bE); bE.connect(o);
+}
+
+// Snare: the batter head's first modes, the shell's crack around 900 Hz, the
+// stick, and the wires under the other head -- broad, bright on a hard stroke and
+// darkening as they settle, where the machine's are one fixed band.
+function snareA(t, v, vel = 1) {
+  const u = random(), h = hardness(vel), o = out();
+  const tune = 1 + 0.025 * (u - 0.5);
+  for (const [f, level, decay] of [[192, 0.5, 0.11], [338, 0.36, 0.075], [452, 0.15, 0.05], [566, 0.1, 0.035]]) {
+    const m = osc('sine', f * tune, t, t + decay * 1.3 + 0.05), e = gain(0);
+    m.frequency.setValueAtTime(f * tune * (1 + 0.1 * h), t);
+    m.frequency.exponentialRampToValueAtTime(f * tune, t + 0.03);
+    perc(e.gain, t, v * level, decay * (0.8 + 0.4 * h), 0.001);
+    m.connect(e); e.connect(o);
+  }
+  const crack = noise(t, 0.09, (u + 0.21) % 1), cBp = filter('bandpass', 950 * tune, 1.5), cE = gain(0);
+  perc(cE.gain, t, v * (0.4 + 0.7 * h), 0.045, 0.001);
+  crack.connect(cBp); cBp.connect(cE); cE.connect(o);
+  const wires = noise(t, 0.34, u), hp = filter('highpass', 1500, 0.7), lp = filter('lowpass', 12000, 0.7), wE = gain(0);
+  lp.frequency.setValueAtTime(5200 + 7800 * h, t);
+  lp.frequency.exponentialRampToValueAtTime(3400, t + 0.22);
+  perc(wE.gain, t, v * (0.62 + 0.3 * h) * (0.9 + 0.2 * u), 0.13 + 0.09 * h, 0.002);
+  wires.connect(hp); hp.connect(lp); lp.connect(wE); wE.connect(o);
+  const stick = noise(t, 0.012, (u + 0.63) % 1), sHp = filter('highpass', 3200), sE = gain(0);
+  perc(sE.gain, t, v * 0.7 * h, 0.004, 0.0003);
+  stick.connect(sHp); sHp.connect(sE); sE.connect(o);
+  send(wE, audio.reverbSend, 0.18);
+}
+
+// Hi-hats: two cymbals are thousands of modes, so mostly noise, with the plates'
+// own resonances as two peaks that sit a little differently on every stroke (the
+// tip, the shank, nearer the edge), and a little of the metal for its shimmer.
+// A soft stroke has less top. Closed, they ring a moment after the tick; open,
+// they wash, the highs going first.
+function hatA(t, v, vel = 1, open = false) {
+  const u = random(), h = hardness(vel);
+  const decay = open ? 0.5 + 0.2 * h : 0.04 + 0.025 * u;
+  const dur = decay + 0.08;
+  const body = gain(1);
+  noise(t, dur, u).connect(body);
+  const m = metal(t, dur), mG = gain(0.5);
+  m.connect(mG); mG.connect(body);
+  const hp = filter('highpass', 3400, 0.7), lp = filter('lowpass', 7000 + 9000 * h, 0.7);
+  const p1 = filter('peaking', 4700 * (1 + 0.1 * (u - 0.5)), 2.5), p2 = filter('peaking', 9200 * (1 + 0.08 * (0.5 - u)), 2);
+  p1.gain.value = 5; p2.gain.value = 6;
+  if (open) { lp.frequency.setValueAtTime(7000 + 9000 * h, t); lp.frequency.exponentialRampToValueAtTime(6000, t + decay); }
+  const env = gain(0);
+  perc(env.gain, t, v, decay, 0.001);
+  body.connect(hp); hp.connect(p1); p1.connect(p2); p2.connect(lp); lp.connect(env);
+  const c = gain(1);
+  env.connect(c); c.connect(out('hat'));
+  if (choke && choke.until > t) {
+    choke.node.gain.setValueAtTime(1, t);
+    choke.node.gain.setTargetAtTime(0, t, 0.01);
+  }
+  choke = open ? { node: c, until: t + decay } : null;
+}
+
+// Crash: the stick's energy starts low in the cymbal and spreads upward through
+// its modes, so the top blooms a few hundredths of a second after the stroke
+// instead of arriving with it; then the highs die first and the wash that's left
+// wobbles, the plate's modes beating. The machine's is a burst of hiss.
+function crashA(t, v) {
+  const u = random(), dur = 2.4;
+  const body = gain(1);
+  noise(t, dur, u).connect(body);
+  const m = metal(t, 1.4), mBp = filter('bandpass', 5600, 0.5), mG = gain(0.9);
+  m.connect(mBp); mBp.connect(mG); mG.connect(body);
+  const hp = filter('highpass', 2300, 0.7), lp = filter('lowpass', 4500, 0.6);
+  lp.frequency.setValueAtTime(4500, t);
+  lp.frequency.exponentialRampToValueAtTime(15000, t + 0.045);
+  lp.frequency.exponentialRampToValueAtTime(4800, t + 1.9);
+  const env = gain(0);
+  env.gain.setValueAtTime(0, t);
+  env.gain.linearRampToValueAtTime(v * 0.75, t + 0.002);
+  env.gain.linearRampToValueAtTime(v, t + 0.04);
+  env.gain.exponentialRampToValueAtTime(v * 1e-3, t + dur - 0.05);
+  const wobble = osc('sine', 5.3 + 3 * u, t, t + dur), wG = gain(0.12), am = gain(1);
+  wobble.connect(wG); wG.connect(am.gain);
+  body.connect(hp); hp.connect(lp); lp.connect(env); env.connect(am); am.connect(out('crash'));
+  send(am, audio.reverbSend, 0.3);
+}
+
+// Toms (and the taiko): three modes of the head, the upper ones gone in a
+// moment, a note that falls further the harder it's struck, and the stick.
+function drumA(t, v, vel, hz, piece, decay, verb) {
+  const u = random(), h = hardness(vel), o = out(piece);
+  const f = hz * (1 + 0.02 * (u - 0.5)), sum = gain(1);
+  for (const [ratio, level, d] of [[1, 1, 1], [1.59, 0.35, 0.4], [2.14, 0.18, 0.25]]) {
+    const m = osc('sine', f * ratio, t, t + decay * d + 0.1), e = gain(0);
+    m.frequency.setValueAtTime(f * ratio * (1.2 + 0.35 * h), t);
+    m.frequency.exponentialRampToValueAtTime(f * ratio, t + 0.05);
+    perc(e.gain, t, v * level, decay * d, 0.001);
+    m.connect(e); e.connect(sum);
+  }
+  sum.connect(o);
+  const stick = noise(t, 0.04, u), bp = filter('bandpass', Math.min(6000, f * 5), 0.9), sE = gain(0);
+  perc(sE.gain, t, v * (0.15 + 0.4 * h), 0.02, 0.0005);
+  stick.connect(bp); bp.connect(sE); sE.connect(o);
+  send(sum, audio.reverbSend, verb);
+}
+const tomLoA = (t, v, vel) => drumA(t, v, vel, midiToHz(fold(state.rootMidi, 38, 49)), 'tomLo', 0.45, 0.25);
+const tomHiA = (t, v, vel) => drumA(t, v, vel, midiToHz(fold(state.rootMidi + 7, 45, 56)), 'tomHi', 0.32, 0.25);
+const congaLoA = (t, v, vel) => drumA(t, v, vel, midiToHz(fold(state.rootMidi, 50, 61)), 'tomLo', 0.18, 0.12);
+const congaHiA = (t, v, vel) => drumA(t, v, vel, midiToHz(fold(state.rootMidi + 7, 57, 68)), 'tomHi', 0.12, 0.12);
+// The taiko's two parts each took a draw (the drum's stick, the kick's click).
+const taikoA = (t, v, vel) => { drumA(t, v, vel, midiToHz(fold(state.rootMidi, 31, 42)), null, 0.9, 0.5); kickA(t, v * 0.5, vel); };
+
+// Ride: the stick's ping, a handful of the cymbal's modes that sit a little
+// differently on every stroke, over a wash that grows and brightens the harder
+// it's played and darkens as it rings. The machine's ping is three fixed tones.
+function rideA(t, v, vel = 1) {
+  const u = random(), h = hardness(vel), o = out('ride');
+  const wash = gain(1);
+  noise(t, 1.5, u).connect(wash);
+  const m = metal(t, 1.0), mBp = filter('bandpass', 5200, 0.6), mG = gain(0.5);
+  m.connect(mBp); mBp.connect(mG);
+  const bp = filter('bandpass', 6500, 0.5), hp = filter('highpass', 2800), lp = filter('lowpass', 8000 + 6000 * h, 0.7), env = gain(0);
+  lp.frequency.setValueAtTime(8000 + 6000 * h, t);
+  lp.frequency.exponentialRampToValueAtTime(5500, t + 1.2);
+  perc(env.gain, t, v * 0.55 * (0.75 + 0.45 * h), 1.2, 0.001);
+  wash.connect(bp); bp.connect(hp); hp.connect(lp); mG.connect(lp); lp.connect(env); env.connect(o);
+  const tune = 1 + 0.035 * (u - 0.5);
+  for (const [f, level, decay] of [[3150, 0.1, 0.34], [4420, 0.1, 0.3], [5850, 0.09, 0.26], [7430, 0.05, 0.18]]) {
+    const p = osc('sine', f * tune, t, t + decay + 0.1), e = gain(0);
+    perc(e.gain, t, v * level * (0.8 + 0.4 * h), decay, 0.001);
+    p.connect(e); e.connect(o);
+  }
+  const tick = noise(t, 0.012, (u + 0.41) % 1), tHp = filter('highpass', 5000), tE = gain(0);
+  perc(tE.gain, t, v * 0.35 * h, 0.004, 0.0003);
+  tick.connect(tHp); tHp.connect(tE); tE.connect(o);
+  send(env, audio.reverbSend, 0.15);
+}
+
+// The acoustic piece that stands in for each machine one, in a style marked `acoustic`.
+const ACOUSTIC = { kick: 'kickA', snare: 'snareA', hat: 'hatA', ohat: 'ohatA', ride: 'rideA', taiko: 'taikoA' };
+// And the pieces that are struck skins and cymbals in any kit, a machine's included: a drum
+// machine's crash was a recording of a real one, and nobody programs a hiss for a conga.
+const STRUCK = { crash: 'crashA', tomLo: 'tomLoA', tomHi: 'tomHiA', congaLo: 'congaLoA', congaHi: 'congaHiA' };
+
 // Per-piece loudness (before density/brightness scaling and velocity).
 const KIT = {
   kick:    [kick,    0.32],  k808:  [kick808, 0.28], snare:   [snare,   0.2],
@@ -359,6 +545,11 @@ const KIT = {
   simHi:   [simHi,   0.22],  gtomLo: [gtomLo, 0.26], gtomMid: [gtomMid, 0.24],
   gtomHi:  [gtomHi,  0.22],
   tamb:    [tambourine, 0.09],
+  // The acoustic kit, each level-matched (K-weighted) to the piece it stands in for.
+  kickA:   [kickA,   0.365], snareA: [snareA, 0.175], hatA:    [(t, v, vel) => hatA(t, v, vel), 0.028],
+  ohatA:   [(t, v, vel) => hatA(t, v, vel, true), 0.018], crashA: [crashA, 0.07],
+  tomLoA:  [tomLoA,  0.26],  tomHiA: [tomHiA, 0.22],  taikoA:  [taikoA,  0.32],
+  rideA:   [rideA,   0.455], congaLoA: [congaLoA, 0.2], congaHiA: [congaHiA, 0.18],
 };
 
 // ─── Patterns ─────────────────────────────────────────────────────────────────
@@ -375,6 +566,7 @@ const KIT = {
 //             Otherwise a fill ends every 8th bar and most 4th bars.
 //   rolls   — trap hi-hat rolls
 //   bpm     — tempo range the style suits (Infinite mode picks by tempo)
+//   acoustic — a drummer's kit, not a machine's (see ACOUSTIC)
 const VEL = { X: 1.15, x: 1, o: 0.62, g: 0.35, f: 0.15 };
 const SYNTH_FILLS = { gsnare: 2, gtom: 2, simmons: 1 };
 
@@ -382,15 +574,15 @@ const STYLES = {
   minimal: { bpm: [50, 140], tracks: {
     kick:  'x.......x.......',
     snare: '....x.......x...' } },
-  four_four: { bpm: [70, 140], human: true, fill: 'snare', tracks: {
+  four_four: { acoustic: true, bpm: [70, 140], human: true, fill: 'snare', tracks: {
     kick:  'x.......x.x.....',
     snare: '....x.......x...',
     hat:   'x.o.x.o.x.o.x.o.' } },
-  jungle: { bpm: [80, 140], fill: 'snare', tracks: {
+  jungle: { acoustic: true, bpm: [80, 140], fill: 'snare', tracks: {
     kick:  'x.....x.....x...',
     snare: '....x..g..g.x...',
     hat:   'xo.ox.oo.oo.xo.o' } },
-  shuffle: { steps: 12, bpm: [60, 130], human: true, fill: 'snare', tracks: {
+  shuffle: { acoustic: true, steps: 12, bpm: [60, 130], human: true, fill: 'snare', tracks: {
     kick:  'x.....x.....',
     snare: '...x.....x.g',
     hat:   'x.ox.ox.ox.o' } },
@@ -399,7 +591,7 @@ const STYLES = {
     snare: '........x.......',
     clap:  '........x.......',
     hat:   'xoxoxoxoxoxoxoxo' } },
-  ghost: { bpm: [50, 140], tracks: {
+  ghost: { acoustic: true, bpm: [50, 140], tracks: {
     kick:  'x.............x.',
     snare: '......x.....x...',
     hat:   '..x......x......' } },
@@ -408,11 +600,11 @@ const STYLES = {
     snare: '........x.....g.',
     clap:  '........x.......',
     hat:   'x.o.x.o.x.o.x.o.' } },
-  breakbeat: { bpm: [80, 140], swing: 0.54, human: true, fill: 'snare', tracks: {
+  breakbeat: { acoustic: true, bpm: [80, 140], swing: 0.54, human: true, fill: 'snare', tracks: {
     kick:  'x......x..x.....',
     snare: '....x.......x.g.',
     hat:   'x.og.go.xg.gx.o.' } },
-  bossanova: { bpm: [60, 140], human: true, tracks: {
+  bossanova: { acoustic: true, bpm: [60, 140], human: true, tracks: {
     kick:  'x.....x.x.....x.',
     rim:   'x..x..x...x..x..',
     hat:   'o.g.o.g.o.g.o.g.' } },
@@ -421,21 +613,21 @@ const STYLES = {
     clap:   '....x.......x...',
     ohat:   '..x...x...x...x.',
     shaker: 'ogogogogogogogog' } },
-  swing: { steps: 12, bpm: [60, 140], human: true, fill: 'snare', tracks: {
+  swing: { acoustic: true, steps: 12, bpm: [60, 140], human: true, fill: 'snare', tracks: {
     ride:  'x..x.xx..x.x',
     hat:   '...o.....o..',
     kick:  'f..f..f..f..',
     snare: '..?..?..?..?' } },
-  funk: { bpm: [85, 125], swing: 0.53, human: true, fill: 'snare', tracks: {
+  funk: { acoustic: true, bpm: [85, 125], swing: 0.53, human: true, fill: 'snare', tracks: {
     kick:  'x.x....x..x..x..',
     snare: '....X..g.g..X..g',
     hat:   'xoxoxoxoxoxoxo.o',
     ohat:  '..............x.' } },
-  boombap: { bpm: [70, 100], swing: 0.58, human: true, tracks: {
+  boombap: { acoustic: true, bpm: [70, 100], swing: 0.58, human: true, tracks: {
     kick:  'x......x..x.....',
     snare: '....x.......x...',
     hat:   'x.o.x.o.x.o.x.o.' } },
-  reggae: { steps: 12, bpm: [60, 100], human: true, tracks: {
+  reggae: { acoustic: true, steps: 12, bpm: [60, 100], human: true, tracks: {
     kick:  '......x.....',
     rim:   '......x.....',
     hat:   'x.ox.ox.ox.o' } },
@@ -449,7 +641,7 @@ const STYLES = {
     kick:    'x.....x.....',
     congaHi: '...o.x...o.x',
     congaLo: '........x...' } },
-  cinematic: { bpm: [60, 110], human: true, fill: 'tom', tracks: {
+  cinematic: { acoustic: true, bpm: [60, 110], human: true, fill: 'tom', tracks: {
     taiko: 'X.......x.......',
     tomLo: 'x..x..x...x..x..',
     tomHi: '....o.......o.o.' } },
@@ -457,7 +649,7 @@ const STYLES = {
   // tapping the ride pattern on the snare (1, 2 and its skip note, 3, 4 and its
   // skip, now and then the "let" before 2 or 4), slapped on 2 and 4 with the
   // foot's hi-hat; the kick feathered. ORIGINAL plays ORIGINAL_BRUSHES.
-  brushes: { steps: 12, bpm: [50, 110], human: true, tracks: {
+  brushes: { acoustic: true, steps: 12, bpm: [50, 110], human: true, tracks: {
     sweep: 'x..x..x..x..',
     brush: 'o.?x.go.?x.g',
     chick: '...o.....o..',
@@ -517,7 +709,7 @@ const STYLES = {
   // Disco / nu-disco: four on the floor, snare and clap on two and four, the
   // open hat on every "and" (cut by the closed one a sixteenth later -- the
   // "tss-t"), a tambourine, and tom fills.
-  disco: { dance: true, bpm: [110, 128], human: true, fill: 'tom', tracks: {
+  disco: { acoustic: true, dance: true, bpm: [110, 128], human: true, fill: 'tom', tracks: {
     kick:  'x...x...x...x...',
     snare: '....x.......x...',
     clap:  '....g.......g...',
@@ -569,7 +761,7 @@ const STYLES = {
 
 // The brushes as ORIGINAL plays them, note for note: a sweep on each beat, a tap
 // and the hi-hat on 2 and 4, in sixteenths.
-const ORIGINAL_BRUSHES = { bpm: [50, 110], swing: 0.66, human: true, tracks: {
+const ORIGINAL_BRUSHES = { acoustic: true, bpm: [50, 110], swing: 0.66, human: true, tracks: {
   swish: 'x...x...x...x...',
   btap:  '....x.......x...',
   kick:  'f.......f.......',
@@ -726,19 +918,19 @@ function play(t, b) {
     let v = typeof ch === 'number' ? ch : ch === '?' ? (random() < 0.35 ? VEL.g : 0) : VEL[ch] || 0;
     if (!v) continue;
     if (track !== 'crash' && sec) v *= PART_LEVEL[part];
-    const [fn, level] = KIT[track];
+    const [fn, level] = KIT[(p.acoustic && ACOUSTIC[track]) || STRUCK[track] || track];
     const scale = ['hat', 'ohat', 'ride', 'shaker', 'crash', 'swish', 'sweep', 'chick', 'tamb'].includes(track) ? bright : density;
     let at = st;
     if (p.human) { at += rand(-0.004, 0.004); v *= rand(0.9, 1.07); }
     if (track === 'hat' && rollSteps.has(i)) {
       const n = pick([2, 3, 4]);
       for (let r = 0; r < n; r++) {
-        fn(at + r * stepSec / n, level * scale * v * (0.6 + 0.4 * r / n));
+        fn(at + r * stepSec / n, level * scale * v * (0.6 + 0.4 * r / n), v * (0.6 + 0.4 * r / n));
         logHit(track, at + r * stepSec / n, v * 0.6);
       }
       continue;
     }
-    fn(Math.max(t, at), level * scale * v);
+    fn(Math.max(t, at), level * scale * v, v);
     logHit(track, Math.max(t, at), Math.min(1, v));
   }
 

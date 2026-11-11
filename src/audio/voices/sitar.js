@@ -3,7 +3,7 @@ import { state, beat, rand, register, fold, random } from '../../state.js';
 import { createVoice } from '../transport.js';
 import { logNote } from '../notes.js';
 import { createPhraser } from '../phrase.js';
-import { gain, filter, send, shaper, pluckBuffer, playBuffer } from '../synth.js';
+import { gain, filter, send, shaper, pluckBuffer, playBuffer, desk } from '../synth.js';
 
 // Sitar: a plucked string, plucked near the bridge, in its gourd (a
 // Karplus–Strong string with a body, see pluckBuffer), over the jawari: the
@@ -77,11 +77,12 @@ function play(t, b) {
   }
   prev = midi;
 
-  const env = gain(peak);
+  const env = gain(peak), d = desk(peak * 1.3, 1.1); // the pluck's spike rounded off: see desk()
   src.connect(env);
   jawari(src, t, ring).connect(env);
-  env.connect(bus);
-  send(env, audio.reverbSend, 0.25);
+  env.connect(d.input);
+  d.output.connect(bus);
+  send(d.output, audio.reverbSend, 0.25);
 
   // Tarab strings tuned to the tonic and the scale: the played pitch class
   // excites its sympathetic string an octave up, along with the tonic. They

@@ -1,9 +1,9 @@
-import { audio, getVoiceBus } from '../context.js';
+import { audio, getVoiceBus, noise } from '../context.js';
 import { state, beat, rand, pick, register, midiToHz, currentScale, random } from '../../state.js';
 import { createVoice } from '../transport.js';
 import { logNote } from '../notes.js';
 import { harmony } from '../harmony.js';
-import { osc, gain, send, perc } from '../synth.js';
+import { osc, gain, filter, send, perc, shaper } from '../synth.js';
 
 // Electric piano comping. The tone is two-operator FM, the standard way to
 // synthesise a tine piano: a 1:1 modulator whose depth follows velocity gives
@@ -12,6 +12,17 @@ import { osc, gain, send, perc } from '../synth.js';
 // player comps — rootless voicings (3-5-7-9, the bass has the root) in
 // syncopated rhythms, anticipating a chord change by an eighth note — through
 // the Suitcase's stereo auto-pan.
+//
+// Three things a real one has that the bare FM lacked. No two tines are tuned
+// alike: each note sits a cent or two off, always the same way, so a chord
+// shimmers a little instead of locking like one oscillator. The chord goes
+// through the piano's own preamp and speakers: a gentle, lopsided saturation
+// (the pickup and the amp both bend one way more than the other, which is where
+// the warm second harmonic and a hard chord's growl come from) and the cabinet's
+// roll-off above 5 kHz. And when the keys lift, the felt dampers land on the tines.
+const tuning = hz => ((Math.sin(hz * 12.9898) * 43758.5453) % 1) * 2.5; // cents, fixed per note
+const CAB_DRIVE = 1.4;
+const LEVEL = 0.77; // matched to the old voice's loudness
 const COMPS = [
   [[0, 1.5], [1.5, 2.5]],             // Charleston
   [[0, 2], [2.5, 1.5]],
@@ -92,8 +103,9 @@ let compFor = null; // the language `comp` was drawn for
 
 function tine(t, hz, vel, dur, out) {
   const end = t + dur + 0.6;
-  const car = osc('sine', hz, t, end);
-  const mod = osc('sine', hz, t, end), modAmt = gain(0);
+  const cents = tuning(hz);
+  const car = osc('sine', hz, t, end, cents);
+  const mod = osc('sine', hz, t, end, cents), modAmt = gain(0);
   modAmt.gain.setValueAtTime(hz * (0.5 + 2.3 * vel * vel), t);
   modAmt.gain.setTargetAtTime(hz * 0.22, t, 0.2);
   mod.connect(modAmt); modAmt.connect(car.frequency);
@@ -107,6 +119,10 @@ function tine(t, hz, vel, dur, out) {
   env.gain.setTargetAtTime(0, t + 0.003, 0.6 + 1.6 * Math.sqrt(220 / hz));
   env.gain.setTargetAtTime(0, t + dur, 0.09);
   car.connect(env); env.connect(out);
+  // The damper: a fixed place in the noise, so it takes no draw from the voice's stream.
+  const thud = noise(t + dur, 0.04, (hz * 0.0137) % 1), thLp = filter('lowpass', 650), thE = gain(0);
+  perc(thE.gain, t + dur, vel * 0.05, 0.025, 0.002);
+  thud.connect(thLp); thLp.connect(thE); thE.connect(out);
 }
 
 function strike(t, b, lenBeats) {
@@ -135,8 +151,12 @@ function strike(t, b, lenBeats) {
   const out = gain(0.055 * 4 / v.length);
   const vel = rand(0.65, 0.95);
   for (const m of v) tine(t + rand(0, 0.012), midiToHz(m), vel * rand(0.9, 1), lenBeats * beat() * 0.95, out);
-  out.connect(pan); pan.connect(bus);
-  send(out, audio.reverbSend, 0.3);
+  // Preamp and cabinet.
+  const pre = gain(CAB_DRIVE / out.gain.value * 0.2), amp = shaper(1.3, 0.2), cab = filter('lowpass', 5200, 0.7);
+  const post = gain(out.gain.value / (CAB_DRIVE * 0.2) * LEVEL);
+  out.connect(pre); pre.connect(amp); amp.connect(cab); cab.connect(post);
+  post.connect(pan); pan.connect(bus);
+  send(post, audio.reverbSend, 0.3);
 }
 
 function play(t, b) {

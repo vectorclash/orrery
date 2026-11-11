@@ -66,7 +66,9 @@ function chop(t, midi, len, vowel, fall) {
     src.connect(bp); bp.connect(g); g.connect(sum);
   });
 
-  const peak = 0.33 * lerp(0.85, 1.05, state.density); // level-matched: the formants pass a narrow slice of the saw
+  // Measured solo it stood about 9 dB over the other rhythm parts (the stab, the saw pluck):
+  // the formants sit where the ear is keenest. Down 3 dB: still the hook, less on top of the mix.
+  const peak = 0.233 * lerp(0.85, 1.05, state.density);
   const env = gain(0);
   env.gain.setValueAtTime(0, t);
   env.gain.linearRampToValueAtTime(peak, t + 0.012);
