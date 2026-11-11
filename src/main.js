@@ -164,6 +164,7 @@ const libraryList          = document.getElementById('library-list');
 const libraryTabs          = document.querySelectorAll('.library-tab');
 const libraryCloseBtn      = document.getElementById('library-close');
 const libraryCopyBtn       = document.getElementById('library-copy');
+const libraryFoot           = document.getElementById('library-foot');
 const panelHideBtn         = document.getElementById('panel-hide-btn');
 
 // ─── Enable state (all off by default) ───────────────────────────────────────
@@ -1270,7 +1271,12 @@ function libraryRow(entry) {
   name.textContent = entry.variation ? `${entry.genre} · VARIATION` : entry.genre;
   const meta = document.createElement('div');
   meta.className = 'library-meta';
-  meta.textContent = [scaleLabel(entry), `${entry.tempo} BPM`, clock(entry.seconds), timeAgo(entry.at)].join(' · ');
+  // Each part whole, so a narrow row breaks between them, never inside one.
+  meta.append(...[scaleLabel(entry), `${entry.tempo} BPM`, clock(entry.seconds), timeAgo(entry.at)].flatMap((part, i) => {
+    const span = document.createElement('span');
+    span.textContent = i ? `· ${part}` : part;
+    return i ? [' ', span] : [span];
+  }));
   about.append(name, meta);
 
   const actions = document.createElement('div');
@@ -1304,7 +1310,7 @@ function showLibrary() {
   const entries = libraryTab === 'kept' ? library.kept
     : [...library.recent].sort((a, b) => b.at - a.at).filter(e => !seen.has(e.link) && seen.add(e.link));
   libraryList.replaceChildren(...entries.map(libraryRow));
-  libraryCopyBtn.hidden = !canCopyLibrary || !(library.kept.length || library.recent.length);
+  libraryFoot.hidden = !canCopyLibrary || !(library.kept.length || library.recent.length);
   if (arrived && libraryTab === 'kept') {
     const note = document.createElement('div');
     note.className = 'library-arrived';

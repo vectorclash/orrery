@@ -332,26 +332,27 @@
     }
 
     /* ─── Library ─────────────────────────────────────────────────────────── */
-    /* A sheet where Edit mode's sits, over the controls. */
+    /* A sheet in the stack, just above the transport: what's under the
+       transport folds away while it's open, so the transport drops to the
+       bottom and stays in reach, with nothing behind the sheet showing
+       through. Its height is what's left between the mode tabs and the
+       transport. */
     #library {
+      --transport-h: calc(1.15 * clamp(18px, 5vw, 28px) + 2 * clamp(14px, 3.6vw, 20px) + 2px);
+      --ui-bottom: calc(32px + env(safe-area-inset-bottom, 0px));
       pointer-events: all;
       display: flex;
       flex-direction: column;
-      position: fixed;
-      left: 0;
-      right: 0;
-      bottom: calc(32px + env(safe-area-inset-bottom, 0px));
-      margin: 0 auto;
+      margin: 0 auto 12px;
       width: min(520px, 92vw);
-      max-height: calc(100dvh - 32px - env(safe-area-inset-bottom, 0px) - 76px);
+      max-height: calc(100dvh - 76px - var(--ui-bottom) - var(--transport-h) - 12px);
       background: var(--panel);
       border: 1px solid var(--line-2);
       text-align: left;
     }
-    /* The sheet sits over these, so they step back rather than show through; the
-       transport above stays, for a short list. */
     .library-open #infinite-kind, .library-open #song-actions,
-    .library-open #state-line { visibility: hidden; }
+    .library-open #state-line { display: none; }
+    .library-open #infinite-controls { margin-bottom: 0; }
     #library-head {
       display: flex;
       justify-content: space-between;
@@ -360,9 +361,13 @@
       padding: 12px clamp(14px, 3.5vw, 22px);
       border-bottom: 1px solid var(--line-3);
     }
+    #library-foot {
+      display: flex;
+      justify-content: center;
+      padding: 10px clamp(14px, 3.5vw, 22px);
+      border-top: 1px solid var(--line-3);
+    }
     #library-head .kind-toggle { background: transparent; }
-    #library-head { flex-wrap: wrap; }
-    .library-head-actions { display: flex; gap: 4px; margin-left: auto; }
     .library-arrived {
       padding: 14px 0 2px;
       font-size: 11px;
@@ -399,6 +404,7 @@
       color: var(--ink-3);
       margin-top: 5px;
     }
+    .library-meta span { white-space: nowrap; }
     .library-actions { display: flex; gap: 6px; flex-shrink: 0; }
     .library-actions .header-btn:last-child { min-width: 80px; } /* KEEP, REMOVE and SURE? line up */
     .library-none {
@@ -912,7 +918,11 @@
         --pad: 14px;
       }
       #infinite-ui { bottom: calc(24px + env(safe-area-inset-bottom, 0px)); }
-      #library { bottom: calc(24px + env(safe-area-inset-bottom, 0px)); }
+      #library { --ui-bottom: calc(24px + env(safe-area-inset-bottom, 0px)); }
+      /* On a phone the row's buttons go under its name, as one strip the
+         width of the row, rather than bunched at the left. */
+      .library-actions { flex: 1 1 100%; display: grid; grid-template-columns: repeat(3, 1fr); }
+      .library-actions .header-btn:last-child { min-width: 0; }
       .ctrl-row { gap: 10px; }
     }
 
@@ -963,7 +973,7 @@
       #infinite-kind, #song-actions { margin-bottom: 6px; }
       #state-line { line-height: 1.5; }
       #state-line .np-players { display: none; }
-      #library { bottom: calc(10px + env(safe-area-inset-bottom, 0px)); max-height: calc(100dvh - 74px); }
+      #library { --ui-bottom: calc(10px + env(safe-area-inset-bottom, 0px)); --transport-h: calc(16px * 1.15 + 22px); margin-bottom: 8px; }
 
       /* The sheet's bars and buttons tighter, so the settings get the height. */
       #panel-hide-btn { padding: 8px 0; }
@@ -993,6 +1003,19 @@
 
     <!-- Infinite mode -->
     <div id="infinite-ui">
+      <div id="library" role="dialog" aria-label="Library" hidden>
+        <div id="library-head">
+          <div class="kind-toggle" role="group" aria-label="Which songs">
+            <button class="kind-btn library-tab" data-tab="kept">KEPT</button>
+            <button class="kind-btn library-tab" data-tab="recent">RECENT</button>
+          </div>
+          <button id="library-close" class="kind-action">CLOSE</button>
+        </div>
+        <div id="library-list"></div>
+        <div id="library-foot" hidden>
+          <button id="library-copy" class="kind-action" title="Copy a link that brings all these songs into another browser">COPY LIBRARY</button>
+        </div>
+      </div>
       <div id="infinite-controls">
         <button id="prev-btn" tabindex="-1" aria-hidden="true" title="Back to the top of this song, or just after it starts, to the one before">PREV</button>
         <button id="start-btn" title="Play or pause (Space)">PLAY</button>
@@ -1015,19 +1038,6 @@
         <div class="np-meta"></div>
         <div class="np-where"></div>
         <div class="np-players"></div>
-      </div>
-      <div id="library" role="dialog" aria-label="Library" hidden>
-        <div id="library-head">
-          <div class="kind-toggle" role="group" aria-label="Which songs">
-            <button class="kind-btn library-tab" data-tab="kept">KEPT</button>
-            <button class="kind-btn library-tab" data-tab="recent">RECENT</button>
-          </div>
-          <div class="library-head-actions">
-            <button id="library-copy" class="kind-action" hidden title="Copy a link that brings all these songs into another browser">COPY LIBRARY</button>
-            <button id="library-close" class="kind-action">CLOSE</button>
-          </div>
-        </div>
-        <div id="library-list"></div>
       </div>
     </div>
 
