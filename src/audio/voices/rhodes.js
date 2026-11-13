@@ -4,6 +4,7 @@ import { createVoice } from '../transport.js';
 import { logNote } from '../notes.js';
 import { harmony } from '../harmony.js';
 import { osc, gain, filter, send, perc, shaper } from '../synth.js';
+import { barBeats, foldHits } from '../meter.js';
 
 // Electric piano comping. The tone is two-operator FM, the standard way to
 // synthesise a tine piano: a 1:1 modulator whose depth follows velocity gives
@@ -160,20 +161,22 @@ function strike(t, b, lenBeats) {
 }
 
 function play(t, b) {
-  const bar = Math.floor(b / 4 + 1e-9), pos = b - bar * 4;
+  const B = barBeats(), bar = Math.floor(b / B + 1e-9), pos = b - bar * B;
   if (bar !== curBar) {
     curBar = bar;
     if (bar % 2 === 0 && random() < 0.5) comp = pick(comps());
   }
   // A genre chosen while it plays: its comping from the next hit.
   if (state.composer >= 2 && compFor !== state.language) { comp = pick(comps()); compFor = state.language; }
-  const hit = comp.find(([p]) => Math.abs(p - pos) < 1e-6);
+  // A comp is a 4/4 bar's: in another meter, folded into its bar (see meter.js).
+  const hits = foldHits(comp);
+  const hit = hits.find(([p]) => Math.abs(p - pos) < 1e-6);
   if (hit) strike(t, b, hit[1]);
-  const next = comp.find(([p]) => p > pos + 1e-6);
-  return (next ? next[0] : 4) - pos;
+  const next = hits.find(([p]) => p > pos + 1e-6);
+  return (next ? next[0] : B) - pos;
 }
 
 export const rhodesVoice = createVoice('rhodes', play, {
-  entry: 4, role: 'motion',
+  entry: 'bar', role: 'motion',
   onReset: () => { curBar = -1; prev = null; comp = pick(comps()); compFor = state.language; panRate = rand(3.5, 5.5); },
 });

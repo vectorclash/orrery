@@ -52,4 +52,4 @@ function play(t, b) {
   return ev.gap;
 }
 
-export const clavinetVoice = createVoice('clavinet', play, { entry: 4, role: 'motion', onReset: phraser.reset });
+export const clavinetVoice = createVoice('clavinet', play, { entry: 'bar', role: 'motion', onReset: phraser.reset });

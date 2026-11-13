@@ -5,6 +5,7 @@ import { logNote } from '../notes.js';
 import { harmony } from '../harmony.js';
 import { lines } from '../lines.js';
 import { osc, gain, filter, send } from '../synth.js';
+import { barBeats, step16 } from '../meter.js';
 
 // Saw pluck: the bright, short lead of trance and EDM. Three detuned saws
 // through a lowpass that snaps shut in a fraction of a second, so each note is
@@ -43,13 +44,13 @@ function play(t, b) {
     return line.gap;
   }
   const hold = state.composer >= 2; // a figure that comes round holds for its section
-  const p = Math.floor(b / 16);
+  const p = Math.floor(b / (4 * barBeats()));
   if (p !== phrase) {
     phrase = p;
     if (!gate || (!hold && random() < 0.4)) gate = pick(GATES);
     if (!walk || (!hold && random() < 0.4)) walk = pick(WALKS);
   }
-  const step = Math.round((b - Math.floor(b / 4) * 4) * 4) % 16;
+  const step = step16(b - Math.floor(b / barBeats()) * barBeats());
   if (gate[step] !== 'x') return 0.25;
 
   const notes = chordTones(b);

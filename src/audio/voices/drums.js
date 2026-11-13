@@ -1,10 +1,11 @@
 import { audio, getVoiceBus, noise, voiceIn } from '../context.js';
-import { state, beat, rand, pick, fold, midiToHz, random } from '../../state.js';
+import { state, beat, rand, pick, fold, midiToHz, random, rhythmChance } from '../../state.js';
 import { createVoice } from '../transport.js';
 import { seeded, hashSeed, restream, within, stream } from '../../random.js';
 import { song } from '../song.js';
 import { logHit } from '../notes.js';
 import { osc, gain, filter, send, perc, shaper } from '../synth.js';
+import { meter, FOUR, METER_DRUMS } from '../meter.js';
 
 // ─── Kit ──────────────────────────────────────────────────────────────────────
 // Each piece takes (t, velocity). Kick/snare/clap sit centre; the rest are
@@ -768,16 +769,72 @@ const ORIGINAL_BRUSHES = { acoustic: true, bpm: [50, 110], swing: 0.66, human: t
   hat:   '....o.......o...' } };
 const styleNow = () => (style === 'brushes' && state.composer < 2 ? ORIGINAL_BRUSHES : STYLES[style]);
 
+// ─── Other meters ─────────────────────────────────────────────────────────────
+// The styles' bars in 3/4 and 6/8 (see meter.js), for the genres that play in them:
+// `steps` to the bar, sixteenths (twelve) or triplet eighths (nine, three to the beat).
+// A waltz leans on one, its other two beats lighter (jazz's ride 1, 2-and-a-let, 3;
+// folk's oom-pah-pah); six-eight is two big beats of three eighths, the backbeat on
+// the second. METER_DRUMS (meter.js) lists these: a song only goes into a meter its
+// kit has a bar of.
+const METER_TRACKS = {
+  '3/4': {
+    swing:     { steps: 9, tracks: { ride: 'x..x.xx..', hat: '...o..o..', kick: 'f........', snare: '..?..?..?' } },
+    brushes:   { steps: 9, tracks: { sweep: 'x..x..x..', brush: 'o.?x.gx.?', chick: '...o..o..', kick: 'f........' } },
+    four_four: { steps: 12, tracks: { kick: 'x...........', snare: '....x...x...', hat: 'x.o.x.o.x.o.' } },
+    cinematic: { steps: 12, tracks: { taiko: 'X...........', tomLo: 'x..x..x.....', tomHi: '....o.....o.' } },
+    halftime:  { steps: 12, tracks: { kick: 'x.....x.....', snare: '........x...', clap: '........x...', hat: 'x.o.x.o.x.o.' } },
+    minimal:   { steps: 12, tracks: { kick: 'x...........', snare: '....x...x...' } },
+    ghost:     { steps: 12, tracks: { kick: 'x.........x.', snare: '........x...', hat: '..x...x.....' } },
+  },
+  '6/8': {
+    swing:     { steps: 12, tracks: { ride: 'x.o.o.x.o.o.', hat: '......o.....', kick: 'f.....f.....', snare: '....?.....?.' } },
+    brushes:   { steps: 12, tracks: { sweep: 'x.....x.....', brush: 'o.g.?.x.g.?.', chick: '......o.....', kick: 'f.....f.....' } },
+    four_four: { steps: 12, tracks: { kick: 'x.........x.', snare: '......x.....', hat: 'x.o.o.x.o.o.' } },
+    cinematic: { steps: 12, tracks: { taiko: 'X.....x.....', tomLo: 'x...x.x...x.', tomHi: '......o.o...' } },
+    halftime:  { steps: 12, tracks: { kick: 'x.......x...', snare: '......x.....', clap: '......x.....', hat: 'x.o.o.x.o.o.' } },
+    shuffle:   { steps: 12, tracks: { kick: 'x.........x.', snare: '......x....g', hat: 'x.o.o.x.o.o.' } },
+    minimal:   { steps: 12, tracks: { kick: 'x...........', snare: '......x.....' } },
+  },
+};
+for (const [m, styles] of Object.entries(METER_TRACKS)) {
+  for (const [name, { steps, tracks }] of Object.entries(styles)) {
+    if (!METER_DRUMS[m].includes(name)) console.warn(`drums: ${name} has a ${m} bar METER_DRUMS doesn't list`);
+    for (const [track, line] of Object.entries(tracks)) if (line.length !== steps) console.warn(`drums: ${m} ${name} ${track} is ${line.length} steps, not ${steps}`);
+  }
+  for (const name of METER_DRUMS[m]) if (!styles[name]) console.warn(`drums: METER_DRUMS lists ${name} in ${m}, which has no bar`);
+}
+
+// Style `p` in meter `m`, with `steps` to the bar: its own bar in that meter if it has
+// one, else its 4/4 bar folded (see meter.js), a sixteenth grid's or a triplet grid's.
+const inMeter = new Map();
+function styleIn(p, m) {
+  if (m === FOUR) return p;
+  const key = `${m.name}|${style}|${p === ORIGINAL_BRUSHES}`;
+  if (inMeter.has(key)) return inMeter.get(key);
+  const own = p === ORIGINAL_BRUSHES ? null : METER_TRACKS[m.name]?.[style];
+  let out;
+  if (own) out = { ...p, steps: own.steps, tracks: own.tracks };
+  else {
+    const per = (p.steps || 16) / 4, steps = m.beats * per;
+    const from = j => (per === 4 ? m.to16(j) : m.to16(Math.round(j * 4 / 3)) * 3 / 4);
+    const tracks = Object.fromEntries(Object.entries(p.tracks).map(([k, line]) =>
+      [k, Array.from({ length: steps }, (_, j) => line[Math.round(from(j))] ?? '.').join('')]));
+    out = { ...p, steps, tracks };
+  }
+  inMeter.set(key, out);
+  return out;
+}
+
 // Fills replace snare/toms/cymbals over the last beat (or two, every 8th bar).
 const FILLS = {
   16: {
-    snare: { 4: { snare: 'goxX' }, 8: { snare: 'g.gooxxX' } },
-    tom:   { 4: { tomHi: 'xo..', tomLo: '..xx' }, 8: { snare: 'x.......', tomHi: '.xx.o...', tomLo: '....xxoX' } },
+    snare: { 4: { snare: 'goxX' }, 6: { snare: 'gooxxX' }, 8: { snare: 'g.gooxxX' } },
+    tom:   { 4: { tomHi: 'xo..', tomLo: '..xx' }, 6: { tomHi: 'xxo...', tomLo: '...xoX' }, 8: { snare: 'x.......', tomHi: '.xx.o...', tomLo: '....xxoX' } },
     // The 80s kit: gated snare, gated toms, and electronic toms, each rolling
     // down from high to low.
-    gsnare:  { 4: { gsnare: 'xoxX' }, 8: { gsnare: 'x.x.xoxX' } },
-    gtom:    { 4: { gtomHi: 'xo..', gtomMid: '..x.', gtomLo: '...X' }, 8: { gsnare: 'x.......', gtomHi: '..xo....', gtomMid: '....xo..', gtomLo: '......xX' } },
-    simmons: { 4: { simHi: 'xx..', simMid: '..x.', simLo: '...x' }, 8: { simHi: 'xxo.....', simMid: '...xxo..', simLo: '......xX' } },
+    gsnare:  { 4: { gsnare: 'xoxX' }, 6: { gsnare: 'xoxoxX' }, 8: { gsnare: 'x.x.xoxX' } },
+    gtom:    { 4: { gtomHi: 'xo..', gtomMid: '..x.', gtomLo: '...X' }, 6: { gtomHi: 'xo....', gtomMid: '..xo..', gtomLo: '....xX' }, 8: { gsnare: 'x.......', gtomHi: '..xo....', gtomMid: '....xo..', gtomLo: '......xX' } },
+    simmons: { 4: { simHi: 'xx..', simMid: '..x.', simLo: '...x' }, 6: { simHi: 'xx....', simMid: '..xx..', simLo: '....xx' }, 8: { simHi: 'xxo.....', simMid: '...xxo..', simLo: '......xX' } },
   },
   12: {
     snare: { 3: { snare: 'gox' }, 6: { snare: 'gogoxX' } },
@@ -900,9 +957,12 @@ const CROSS_LEVEL = 0.85; // a layer sits a little under the beat it crosses
 // drawing it leaves the drums' own stream (fills, ghost notes) as it was.
 function crossNow(s) {
   const c = CROSS[s];
-  if (!c) return null;
+  if (!c || meter() !== FOUR) return null; // a cross-rhythm is against a 4/4 bar
   restream('drums.cross', s);
-  return within(stream('drums.cross'), () => (random() < c.chance ? pick(c.layers) : null));
+  return within(stream('drums.cross'), () => {
+    const r = random(), layer = pick(c.layers);
+    return rhythmChance(r, c.chance) ? layer : null;
+  });
 }
 
 // The hits layer `x` adds in the step from beat `pos` of bar `bar` (`unit` beats
@@ -943,23 +1003,24 @@ let sec = null;      // the song section the current bar is in, or null
 let rollFrom = null; // beat at which this section's roll starts
 let cross = null;    // the cross-rhythm layer this song plays, or null (see CROSS)
 
-function startBar(bar, p, steps) {
+function startBar(bar, p, steps, B) {
   curBar = bar;
   fill = null; fillFrom = 99;
   cross = crossNow(style);
-  sec = song.sectionAt(bar * 4);
+  sec = song.sectionAt(bar * B);
   const end = sec ? sec.start + sec.beats : 0;
-  rollFrom = sec?.build?.roll ? Math.max(sec.start, end - sec.build.rollBars * 4) : null;
-  const lastBar = !!sec && bar * 4 + 4 >= end;
-  if (sec && bar * 4 === sec.start && sec.crash) crashNext = true;
-  const wanted = rollFrom !== null && bar * 4 >= rollFrom ? false
+  rollFrom = sec?.build?.roll ? Math.max(sec.start, end - sec.build.rollBars * B) : null;
+  const lastBar = !!sec && bar * B + B >= end;
+  if (sec && bar * B === sec.start && sec.crash) crashNext = true;
+  const wanted = rollFrom !== null && bar * B >= rollFrom ? false
     : lastBar ? sec.fill && (!p.machine || !!song.sectionAt(end)?.hook)
     : p.machine ? !sec && bar % 16 === 15 && random() < 0.6
     : bar % 4 === 3 && (bar % 8 === 7 || random() < 0.55);
   if (p.fill && wanted) {
-    const beats = bar % 8 === 7 || lastBar ? 2 : 1;
-    const n = beats * steps / 4;
-    fill = FILLS[steps][typeof p.fill === 'string' ? p.fill : weighted(p.fill)][n];
+    // Six-eight fills its last big beat, a dotted quarter.
+    const beats = B === 3 && meter().name === '6/8' ? 1.5 : bar % 8 === 7 || lastBar ? 2 : 1;
+    const n = beats * steps / B;
+    fill = FILLS[4 * steps / B][typeof p.fill === 'string' ? p.fill : weighted(p.fill)][n];
     fillFrom = steps - n;
   }
   rollSteps = new Set();
@@ -974,21 +1035,23 @@ function strike(fn, track, t, at, level, v, human) {
 }
 
 function play(t, b) {
-  const p     = styleNow();
-  const steps = p.steps || 16;
-  const unit  = 4 / steps;
-  const bar   = Math.floor(b / 4 + 1e-6);
-  const i     = Math.round((b - bar * 4) / unit) % steps;
-  if (bar !== curBar) startBar(bar, p, steps);
+  const m     = meter();
+  const p     = styleIn(styleNow(), m);
+  const B     = m.beats;
+  const steps = m === FOUR ? p.steps || 16 : p.steps; // to the bar
+  const unit  = B / steps;
+  const bar   = Math.floor(b / B + 1e-6);
+  const i     = Math.round((b - bar * B) / unit) % steps;
+  if (bar !== curBar) startBar(bar, p, steps, B);
 
   const stepSec = unit * beat();
   let st = t;
-  if (steps === 16 && i % 2 === 1 && p.swing) st += (p.swing - 0.5) * 2 * stepSec;
+  if (steps === 4 * B && i % 2 === 1 && p.swing) st += (p.swing - 0.5) * 2 * stepSec;
 
   const density = 0.5 + state.density * 0.5;
   const bright  = 0.4 + state.brightness * 0.6;
 
-  const next = bar * 4 + (i + 1) * unit - b; // re-snap to the exact grid every step
+  const next = bar * B + (i + 1) * unit - b; // re-snap to the exact grid every step
   const end = sec ? sec.start + sec.beats : Infinity;
   if (b >= end - (sec?.gap ?? 0) - 1e-6) return next; // the silence before a drop
   const part = sec?.drums ?? 'full';
@@ -1052,7 +1115,7 @@ function play(t, b) {
   return next;
 }
 
-const voice = createVoice('drums', play, { entry: 4, onReset: () => { curBar = -1; crashNext = false; choke = null; sec = null; rollFrom = null; } });
+const voice = createVoice('drums', play, { entry: 'bar', onReset: () => { curBar = -1; crashNext = false; choke = null; sec = null; rollFrom = null; } });
 
 export const DRUM_STYLES = Object.keys(STYLES);
 

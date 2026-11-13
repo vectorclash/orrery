@@ -4,6 +4,7 @@ import { createVoice } from '../transport.js';
 import { logNote } from '../notes.js';
 import { harmony } from '../harmony.js';
 import { osc, gain, filter, send } from '../synth.js';
+import { barBeats, step16 } from '../meter.js';
 
 // House chord stab: a short, plucky minor-seventh chord on the off-beats and
 // syncopations -- the organ/M1 stab of deep house and garage. Every stab is
@@ -66,14 +67,14 @@ let phrase = -1;
 let prev = null;
 
 function play(t, b) {
-  const p = Math.floor(b / 16);
+  const p = Math.floor(b / (4 * barBeats()));
   if (p !== phrase) {
     phrase = p;
     if (!pattern || (state.composer < 2 && random() < 0.35)) { pattern = pick(patterns()); patternFor = state.language; }
   }
   // A genre chosen while it plays: its stabs straight away.
   if (state.composer >= 2 && patternFor !== state.language) { pattern = pick(patterns()); patternFor = state.language; }
-  const step = Math.round((b - Math.floor(b / 4) * 4) * 4) % 16;
+  const step = step16(b - Math.floor(b / barBeats()) * barBeats());
   if (pattern[step] === '.') return 0.25;
 
   const seg = state.composer >= 2 ? harmony.pushed(b) : harmony.at(b);

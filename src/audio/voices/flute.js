@@ -85,4 +85,4 @@ function play(t, b) {
   return ev.gap;
 }
 
-export const fluteVoice = createVoice('flute', play, { entry: 4, role: 'lead', onReset: phraser.reset });
+export const fluteVoice = createVoice('flute', play, { entry: 'bar', role: 'lead', onReset: phraser.reset });

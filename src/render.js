@@ -157,7 +157,8 @@ window.songLevels = async (plan, sampleRate) => {
   const hook = s.sections[i], build = s.sections[i - 1]?.build ? s.sections[i - 1] : null;
   const from = build ? build.start : hook.start;
   const spb = 60 / plan.state.tempo;
-  const beats = hook.start - from + Math.min(hook.beats, HOOK_BARS * 4);
+  const B = s.meter?.beats ?? 4;
+  const beats = hook.start - from + Math.min(hook.beats, HOOK_BARS * B);
   const durationSec = LOOKAHEAD + beats * spb;
   const ctx = new OfflineAudioContext(1, Math.round(durationSec * sampleRate), sampleRate);
   initAudio(ctx);
@@ -187,7 +188,7 @@ window.songLevels = async (plan, sampleRate) => {
   let buildTrimDb = 0;
   if (build) {
     const end = hook.start - build.gap;
-    const tail = meanSquare(at(Math.max(build.start, end - BUILD_TAIL_BARS * 4)), at(end));
+    const tail = meanSquare(at(Math.max(build.start, end - BUILD_TAIL_BARS * B)), at(end));
     const over = 10 * Math.log10(tail / levelMs) + DROP_LIFT_DB;
     if (over > 0) buildTrimDb = -Math.min(MOST_TRIM_DB, over);
   }

@@ -190,7 +190,7 @@ export function planVideo(take, options) {
     const last = shots[shots.length - 1];
     if (sec.kind === 'end' && last?.sec.role === 'outro') { last.t1 = Math.min(take.duration, sec.t1); continue; }
     const bars = style.cut?.[sec.role] ?? 0;
-    const len = bars ? bars * 4 * spb : Infinity;
+    const len = bars ? bars * (s?.meter?.beats ?? 4) * spb : Infinity; // the song's bars
     const lookFor = () => {
       if (options.look !== 'song') return options.look;
       return pick(style.looks[sec.role] ?? ['orrery']);

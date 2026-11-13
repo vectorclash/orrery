@@ -111,5 +111,7 @@ export function hookOfWritten(song) {
     chords: sec.prog,
     beats: line?.beats ?? 16,
     notes: line?.notes.length ? line.notes.map(n => [Math.round(n.at * 4), Math.max(1, Math.round(n.len * 4)), n.deg]) : null,
+    // A hook in another meter is played in it (see meterFor in song.js).
+    ...(song.meter && song.meter.name !== '4/4' ? { meter: song.meter.name } : {}),
   };
 }

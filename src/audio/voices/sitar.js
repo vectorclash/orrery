@@ -100,4 +100,4 @@ function play(t, b) {
   return ev.gap;
 }
 
-export const sitarVoice = createVoice('sitar', play, { entry: 4, role: 'lead', onReset: () => { phraser.reset(); prev = null; } });
+export const sitarVoice = createVoice('sitar', play, { entry: 'bar', role: 'lead', onReset: () => { phraser.reset(); prev = null; } });

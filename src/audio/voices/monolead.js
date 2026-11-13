@@ -64,6 +64,6 @@ function play(t, b) {
 }
 
 export const monoleadVoice = createVoice('monolead', play, {
-  entry: 4, role: 'lead',
+  entry: 'bar', role: 'lead',
   onReset: () => { last = null; phraser.reset(); },
 });

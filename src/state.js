@@ -42,8 +42,24 @@ export const state = {
   // writing better songs never changes one somebody saved.
   composer:    1,
   language:    'ANY',
+  // How a song's rhythm is drawn -- see RHYTHMS.
+  rhythm:      'auto',
   get rootBase() { return this.rootMidi + this.octaveShift * 12; },
 };
+
+// Edit mode's RHYTHM switch. 'auto': the per-song chances, now and then a cross-rhythm
+// layer in the drums (see CROSS in voices/drums.js) or an arpeggio in threes, now and
+// then a song in 3/4 or 6/8 (see meterFor in audio/song.js). 'plain': never, all 4/4.
+// 'cross': always the cross-rhythms, where the style has one -- the same layer the song
+// would draw by chance, so PLAIN and CROSS on one song are the same song with and
+// without -- and so always 4/4. 'odd': always another meter where the genre and kit
+// have one, else as AUTO. Share links store the index: only ever append.
+export const RHYTHMS = ['auto', 'plain', 'cross', 'odd'];
+
+// Whether a per-song rhythmic chance `chance` comes up for draw `r` (0-1).
+export function rhythmChance(r, chance) {
+  return state.rhythm === 'cross' || (state.rhythm !== 'plain' && r < chance);
+}
 
 // What new music is written with: the NEW in Edit mode's COMPOSER switch.
 export const LATEST_COMPOSER = 4;

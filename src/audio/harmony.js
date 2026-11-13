@@ -3,6 +3,7 @@ import { transport } from './transport.js';
 import { parseChord, chordScale, soundingPcs, isPent } from './chords.js';
 import { freeForm } from './language.js';
 import { lines } from './lines.js';
+import { barBeats, chordBeats } from './meter.js';
 
 // ─── Shared harmonic context ────────────────────────────────────────────────
 // Every harmonic and melodic voice reads the chord from here, so at any
@@ -148,7 +149,8 @@ function reroll(atBeat = segStart) {
   lastLen   = chordLen();
 }
 
-function chordLen() { return state.chordBeats || 4; }
+// A chord's length in beats: the Chords control's, in the song's meter (see meter.js).
+function chordLen() { return chordBeats(state.chordBeats || 4); }
 
 export const harmony = {
   reroll,
@@ -176,7 +178,7 @@ export const harmony = {
       // Mode switched live: the same chords, read in the new mode. Chord length
       // changed live: the same chord, on the next bar's grid.
       if (SCALE_NAMES[state.scaleIdx] !== formScale) write(written.tokens, written.at);
-      if (chordLen() !== lastLen) { written.at = Math.floor(lastBeat / 4) * 4; lastLen = chordLen(); }
+      if (chordLen() !== lastLen) { const B = barBeats(); written.at = Math.floor(lastBeat / B) * B; lastLen = chordLen(); }
       return;
     }
     if (SCALE_NAMES[state.scaleIdx] !== formScale) reroll(); // mode switched live

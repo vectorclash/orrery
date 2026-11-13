@@ -5,6 +5,7 @@ import { languageFor, writeProgressions, holdsFor, intervalsFor } from './langua
 import { loopLength } from './chords.js';
 import { writeMotif, lineOver, lineOfHook, thinned, harmonised, counterLine } from './hook.js';
 import { carriersIn, isAir } from './lines.js';
+import { METERS, FOUR, ODD_METERS, METER_GENRES, METER_DRUMS, METER_CHANCE, meterSource, withMeter, chordBeats } from './meter.js';
 
 // ─── Songs ────────────────────────────────────────────────────────────────────
 // A song keeps what makes it itself -- key, tempo, instruments, chord
@@ -144,13 +145,13 @@ const ANY_BARS = [4, 8, 12, 16, 24, 32, 36, 48, 64, 72, 96];
 // What a section's length should be a whole number of, so it starts its chords from
 // the top and its hook comes round whole: the loops' common length, when there is a
 // sensible one.
-function writtenUnit(progs, scale, cb) {
-  let unit = 16;
+function writtenUnit(progs, scale, cb, B) {
+  let unit = 4 * B;
   for (const p of new Set(Object.values(progs))) {
     const beats = loopLength(p, scale) * cb;
     if (Number.isInteger(beats)) unit = lcm(unit, beats);
   }
-  return unit <= 96 ? unit : 16;
+  return unit <= 24 * B ? unit : 4 * B;
 }
 // Which kinds of section take up the slack first when a song is short of its
 // length: the ones it's about.
@@ -258,6 +259,25 @@ export function formFor(plan) {
   return 'song';
 }
 
+// ─── Meter ────────────────────────────────────────────────────────────────────
+// The song's meter (see meter.js): now and then (METER_CHANCE) a waltz or a six-eight,
+// where its genre plays in one and its drums can; always, where it can, with RHYTHM
+// set to ODD; never with PLAIN or CROSS (cross-rhythms are against a 4/4 bar). Drawn
+// from the seed that writes the song, so MORE LIKE THIS keeps its meter with its hook
+// (if its kit can play it). A song given another's hook plays in that hook's meter;
+// composer 1 is always in 4/4.
+export function meterFor(plan) {
+  const { rhythm = 'auto', composer = 1, language } = plan.state;
+  if (plan.song?.hook) return METERS[plan.song.hook.meter] ?? FOUR;
+  if (!plan.song || composer < 2 || rhythm === 'plain' || rhythm === 'cross') return FOUR;
+  const drums = plan.voices.includes('drums') ? plan.drumStyle : null;
+  const fits = ODD_METERS.filter(m => METER_GENRES[m].includes(language) && (!drums || METER_DRUMS[m].includes(drums)));
+  if (!fits.length) return FOUR;
+  const r = seeded(hashSeed((plan.song.writing ?? plan.song.seed) >>> 0, 'meter'));
+  const chance = r(), which = fits[Math.floor(r() * fits.length)];
+  return rhythm === 'odd' || chance < METER_CHANCE ? METERS[which] : FOUR;
+}
+
 const gcd = (a, b) => (b ? gcd(b, a % b) : a);
 const lcm = (a, b) => a * b / gcd(a, b);
 
@@ -288,7 +308,7 @@ function everywhere(chords) {
 function writeSong(plan, seed, form) {
   const r     = seeded(hashSeed(seed, 'writing'));
   const scale = SCALE_NAMES[plan.state.scaleIdx];
-  const cb    = plan.state.chordBeats || 4;
+  const cb    = chordBeats(plan.state.chordBeats || 4);
   const lock  = plan.state.harmonyLock;
   const lang  = languageFor(plan.state.language, plan.state.composer);
   const spoken = intervalsFor(plan.state.language, plan.state.composer);
@@ -340,6 +360,11 @@ function writeSong(plan, seed, form) {
 // song.length is how long it should be, in seconds; without one, the song
 // draws its own.
 export function composeSong(plan, roleOf) {
+  const m = meterFor(plan);
+  return withMeter(m, () => composeIn(plan, roleOf, m));
+}
+
+function composeIn(plan, roleOf, meter) {
   const seed = plan.song.seed >>> 0;
   const r    = seeded(hashSeed(seed, 'form'));
   const pick = a => a[Math.floor(r() * a.length)];
@@ -395,15 +420,16 @@ export function composeSong(plan, roleOf) {
   // snapped to the nearest phrase length that is a whole number of units:
   // four bars, or the progression if it runs longer (eight bars of two-bar
   // chords), so a section starts its chords from the top.
-  const cb   = plan.state.chordBeats || 4;
-  const unit = writing ? writtenUnit(progs, writing.scale, cb) : lcm(4 * cb, 16) <= 32 ? lcm(4 * cb, 16) : 16;
+  const B    = meter.beats;
+  const cb   = chordBeats(plan.state.chordBeats || 4);
+  const unit = writing ? writtenUnit(progs, writing.scale, cb, B) : lcm(4 * cb, 4 * B) <= 8 * B ? lcm(4 * cb, 4 * B) : 4 * B;
   const spb  = 60 / plan.state.tempo;
-  const bar  = 4 * spb;
-  const hold = Math.max(HOLD, cb);
+  const bar  = B * spb;
+  const hold = Math.max(HOLD * B / 4, cb);
   const room = target - LOOKAHEAD - hold * spb - RING; // seconds for the sections
   const nearest = (options, want) => options.reduce((a, n) => (Math.abs(Math.log(n / want)) < Math.abs(Math.log(a / want)) ? n : a));
-  const barsOffered = writing && unit % 3 === 0 ? TWELVE_BARS : NICE_BARS;
-  let fits = barsOffered.filter(n => (n * 4) % unit === 0);
+  const barsOffered = writing && (unit / B) % 3 === 0 ? TWELVE_BARS : NICE_BARS;
+  let fits = barsOffered.filter(n => (n * B) % unit === 0);
   if (!fits.length) fits = barsOffered;
   const snap = want => nearest(fits, want);
   const bars = {};
@@ -482,9 +508,9 @@ export function composeSong(plan, roleOf) {
   for (let grew = true; grew;) {
     grew = false;
     for (const i of stretch) {
-      if (left < unit / 4 || lens[i] + unit / 4 > 2 * bars[kinds[i]]) continue;
-      lens[i] += unit / 4;
-      left -= unit / 4;
+      if (left < unit / B || lens[i] + unit / B > 2 * bars[kinds[i]]) continue;
+      lens[i] += unit / B;
+      left -= unit / B;
       grew = true;
     }
   }
@@ -509,7 +535,7 @@ export function composeSong(plan, roleOf) {
   let at = 0, shift = 0;
   kinds.forEach((kind, i) => {
     const k = KINDS[kind];
-    const beats = lens[i] * 4;
+    const beats = lens[i] * B;
     const next = kinds[i + 1];
     if (i === lastChorus && lift) shift = lift;
     seen[kind] = (seen[kind] ?? 0) + 1;
@@ -558,7 +584,7 @@ export function composeSong(plan, roleOf) {
   // Exactly its length, unless even its shortest form is longer.
   const seconds = Math.max(target, LOOKAHEAD + at * spb + RING);
   const song = { seed, form, sections, end: at, tempo: plan.state.tempo, target, seconds,
-    ring: seconds - LOOKAHEAD - at * spb };
+    ring: seconds - LOOKAHEAD - at * spb, meter };
   arrange(song, plan, roleOf);
   return song;
 }
@@ -575,15 +601,15 @@ function lastTonic(prog) {
 // In a hook section the next carrier, if there is one, plays under it: a counter-
 // melody, or the hook a third below on the last chorus or drop. Long ringing voices
 // take a busy line's bones rather than running its notes together.
-const busy = line => line.notes.length / (line.beats / 4) > 4;
+const busy = (line, B) => line.notes.length / (line.beats / B) > 4;
 
-function assignLines(s, build, carriers, voices) {
+function assignLines(s, build, carriers, voices, B) {
   s.lines = {};
   const line = build?.tease ? s.hookLine : s.line;
   const [first, second] = carriers;
   if (!line || !first) return;
   const add = name => { if (!voices.includes(name)) voices.push(name); };
-  const give = (name, l) => { s.lines[name] = isAir(name) && busy(l) ? thinned(l) : l; add(name); };
+  const give = (name, l) => { s.lines[name] = isAir(name) && busy(l, B) ? thinned(l) : l; add(name); };
   give(first, line);
   if (s.counter && second) give(second, s.final ? harmonised(line) : s.counter);
 }
@@ -597,8 +623,13 @@ const CHORD_VOICES = new Set(['rhodes', 'stab', 'guitar', 'pluck', 'harp', 'arpe
 // its builds build (see BUILDS). Kept apart from composing so a change of
 // instruments mid-song (Edit mode) rearranges the same song.
 export function arrange(song, plan, roleOf) {
+  withMeter(song.meter ?? FOUR, () => arrangeIn(song, plan, roleOf, song.meter ?? FOUR));
+}
+
+function arrangeIn(song, plan, roleOf, meter) {
   const build = buildFor(song, plan);
-  const cb = plan.state.chordBeats || 4;
+  const B = meter.beats;
+  const cb = chordBeats(plan.state.chordBeats || 4);
   const r = seeded(hashSeed(song.seed, 'parts'));
   const names = [...plan.voices.filter(n => n !== 'drums')].sort();
   // Shuffle, then a stable order per role: "the first motion voice" is the
@@ -616,14 +647,14 @@ export function arrange(song, plan, roleOf) {
     const b = s.kind === 'build' ? build : null;
     s.build = b;
     // The held chord starts on a chord change HOLD_BARS or so before the end.
-    s.holdFrom = b?.hold != null ? s.start + cb * Math.max(1, Math.floor((s.beats - 4 * HOLD_BARS) / cb)) : null;
+    s.holdFrom = b?.hold != null ? s.start + cb * Math.max(1, Math.floor((s.beats - B * HOLD_BARS) / cb)) : null;
     if (s.holdFrom >= s.start + s.beats) s.holdFrom = null;
     // The bar before a lifted key plays its dominant, in place of any held chord.
-    s.turnFrom = s.turn && s.beats > 4 ? s.start + s.beats - 4 : null;
+    s.turnFrom = s.turn && s.beats > B ? s.start + s.beats - B : null;
     const roles = b ? { ...s.roles, lead: b.tease ? 1 : 0, bass: b.bass || b.pedal, drums: b.drums } : s.roles;
     const voices = [];
     for (const role of ['bed', 'motion', 'lead', 'air']) voices.push(...byRole[role].slice(0, roles[role]));
-    if (carriers) assignLines(s, b, carriers, voices);
+    if (carriers) assignLines(s, b, carriers, voices, B);
     const drums = hasDrums && roles.drums ? roles.drums : null;
     let bass = hasBass && roles.bass;
     // A tune alone, with no drums, bass or chords under it, is a tune with nothing to say
@@ -672,6 +703,8 @@ export const song = {
     return sec.energy[0] + (sec.energy[1] - sec.energy[0]) * x;
   },
 };
+
+meterSource(() => song.current?.meter);
 
 // A song's whole length, as an export has it: from the lead-in before its
 // first downbeat to the end of its last chord's ring.

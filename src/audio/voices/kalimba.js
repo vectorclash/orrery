@@ -54,4 +54,4 @@ function play(t, b) {
   return ev.gap;
 }
 
-export const kalimbaVoice = createVoice('kalimba', play, { entry: 4, role: 'motion', onReset: phraser.reset });
+export const kalimbaVoice = createVoice('kalimba', play, { entry: 'bar', role: 'motion', onReset: phraser.reset });

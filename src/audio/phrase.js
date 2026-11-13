@@ -2,6 +2,7 @@ import { state, pick, rand, scaleNotes, random } from '../state.js';
 import { harmony } from './harmony.js';
 import { lines } from './lines.js';
 import { within, stream } from '../random.js';
+import { meter, accentAt, foldBeats } from './meter.js';
 
 // ─── Phrase generator ─────────────────────────────────────────────────────────
 // Melodic voices used to random-walk note by note, which is why they wandered.
@@ -99,20 +100,14 @@ function sharedMotif(phrase, own) {
 function soloist(name, beat) {
   const leads = ensemble.leads;
   if (leads.length < 2 || !leads.includes(name)) return true;
-  return leads[Math.floor(beat / 8) % leads.length] === name;
+  return leads[Math.floor(beat / (2 * meter().beats)) % leads.length] === name;
 }
 
 const mod = (n, m) => ((n % m) + m) % m;
 const gcd = (a, b) => (b ? gcd(b, a % b) : a);
 
-function metricAccent(pos) {
-  const on = (x, d) => Math.abs(x / d - Math.round(x / d)) < 1e-6;
-  if (on(pos, 4)) return 1.0;
-  if (on(pos, 2)) return 0.92;
-  if (on(pos, 1)) return 0.85;
-  if (on(pos, 0.5)) return 0.78;
-  return 0.72;
-}
+// How strong a note `pos` beats into the bar is, in the song's meter (see meter.js).
+const metricAccent = pos => accentAt(pos);
 
 const PHRASE_DYNAMICS = [0.9, 0.96, 1.0, 0.88]; // swell into bar 3, relax on the cadence
 
@@ -150,8 +145,9 @@ export function createPhraser({
     curBar = bar;
     const m = motifFor(bar);
     const inPhrase = bar % 4;
-    if (ostinato) { cell = m.rhythm; flip = 1; return; }
-    cell = inPhrase === 3 ? m.cadence : m.rhythm;
+    // A motif's cells fill a 4/4 bar: in another meter, folded into its bar.
+    if (ostinato) { cell = foldBeats(m.rhythm); flip = 1; return; }
+    cell = foldBeats(inPhrase === 3 ? m.cadence : m.rhythm);
     flip = inPhrase === 2 ? -1 : 1;
   }
 
@@ -197,8 +193,9 @@ export function createPhraser({
   function memoKey(bar, i) {
     const w = harmony.written;
     if (!w) return null;
-    const cycle = w.beats % 16 === 0 ? w.beats : 16 * w.beats / gcd(w.beats, 16);
-    return `${mod(bar * 4 - w.at, cycle)}:${i}`;
+    const B = meter().beats, four = 4 * B;
+    const cycle = w.beats % four === 0 ? w.beats : four * w.beats / gcd(w.beats, four);
+    return `${mod(bar * B - w.at, cycle)}:${i}`;
   }
 
   return {
@@ -206,14 +203,15 @@ export function createPhraser({
     next(beat) {
       const written = lines.next(name, beat);
       if (written) return written;
-      const bar = Math.floor(beat / 4 + 1e-9);
+      const B = meter().beats;
+      const bar = Math.floor(beat / B + 1e-9);
       if (bar !== curBar) startBar(bar);
-      const pos = beat - bar * 4;
+      const pos = beat - bar * B;
 
       // Locate the cell entry that starts at `pos`.
       let acc = 0, i = 0;
       while (i < cell.length && acc + Math.abs(cell[i]) <= pos + 1e-6) { acc += Math.abs(cell[i]); i++; }
-      if (i >= cell.length) return { midi: null, gap: 4 - pos };
+      if (i >= cell.length) return { midi: null, gap: B - pos };
       if (pos - acc > 1e-6) return { midi: null, gap: acc + Math.abs(cell[i]) - pos }; // joined mid-note
 
       const len = Math.abs(cell[i]);

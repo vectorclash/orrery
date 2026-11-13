@@ -1,5 +1,6 @@
 import { parseChord, degreeSemis, soundingPcs } from './chords.js';
 import { weighted } from './language.js';
+import { meter, accentAt, foldCell } from './meter.js';
 
 // ─── Hooks ────────────────────────────────────────────────────────────────────
 // What a listener takes away from a track is a figure they can hum, and composer 1
@@ -173,14 +174,13 @@ function isAvoid(deg, chord, scaleName) {
   return !pcs.includes(pc) && pcs.some(t => mod(pc - t, 12) === 1);
 }
 
-const accent = pos => {
-  const on = d => Math.abs(pos / d - Math.round(pos / d)) < 1e-6;
-  return on(4) ? 1 : on(2) ? 0.92 : on(1) ? 0.85 : on(0.5) ? 0.78 : 0.72;
-};
+// How strong a note `pos` beats into the bar is, in the meter being written (meter.js).
+const accent = pos => accentAt(pos);
 const SWELL = [0.9, 0.96, 1, 0.88]; // over four bars: up into the third, relaxing on the cadence
 
 function cycleFor(beats, motif) {
-  const bars = motif.kind === 'topline' && motif.long ? 32 : 16;
+  const B = meter().beats;
+  const bars = motif.kind === 'topline' && motif.long ? 8 * B : 4 * B;
   const c = lcm(beats, bars);
   return c <= 96 ? c : Math.max(beats, bars);
 }
@@ -190,12 +190,14 @@ function realiseBar(m, tl, scaleName, bar, cell, prev, out, { landing = false } 
   const anchor = m.centre + m.arc[bar % m.arc.length];
   const [down, up] = m.spoken?.span ?? [5, 6];
   const lo = m.centre - down, hi = m.centre + up;
-  let at = bar * 4, i = 0, last = prev, lastStep = 0;
+  const B = meter().beats;
+  cell = foldCell(cell);
+  let at = bar * B, i = 0, last = prev, lastStep = 0;
   const lastAt = cell.filter(x => x > 0).length - 1;
   for (const d of cell) {
     const len = Math.abs(d) / 4;
     if (d < 0) { at += len; continue; }
-    const chord = chordAt(tl, at), pos = at - bar * 4;
+    const chord = chordAt(tl, at), pos = at - bar * B;
     let deg;
     if (i === 0 && (m.kind === 'riff' || last === null)) {
       deg = nearestTone(anchor, chord, scaleName, 0);
@@ -231,9 +233,10 @@ function slid(m, notes, tl, scaleName) {
   return notes.map((n, k) => {
     const to = notes[k + 1];
     if (!to || !m.slides[n.i % m.slides.length]) return n;
-    const strong = accent(mod(to.at, 4)) >= 0.92 || to.len >= 1.5;
+    const B = meter().beats;
+    const strong = accent(mod(to.at, B)) >= 0.92 || to.len >= 1.5;
     const here = degreeSemis(n.deg, chordAt(tl, n.at), scaleName), there = degreeSemis(to.deg, chordAt(tl, to.at), scaleName);
-    if (!strong || accent(mod(n.at, 4)) >= 0.92 || Math.abs(there - here) !== 2) return n;
+    if (!strong || accent(mod(n.at, B)) >= 0.92 || Math.abs(there - here) !== 2) return n;
     if (!isTone(to.deg, chordAt(tl, to.at), scaleName)) return n;
     return { ...n, alt: Math.sign(there - here) };
   });
@@ -241,7 +244,8 @@ function slid(m, notes, tl, scaleName) {
 
 function realise(m, tokens, scaleName, cb) {
   const tl = timeline(tokens, scaleName, cb);
-  const beats = cycleFor(tl.beats, m), bars = Math.round(beats / 4);
+  const B = meter().beats;
+  const beats = cycleFor(tl.beats, m), bars = Math.round(beats / B);
   const notes = [];
   let last = null;
   for (let bar = 0; bar < bars; bar++) {
@@ -250,7 +254,7 @@ function realise(m, tokens, scaleName, cb) {
   }
   // The same, with a last bar that goes somewhere else: every so often, and on the
   // way out of a section, a figure that has come round four times turns.
-  const inLast = n => n.at >= (bars - 1) * 4 - 1e-9;
+  const inLast = n => n.at >= (bars - 1) * B - 1e-9;
   const fill = notes.filter(n => !inLast(n));
   realiseBar(m, tl, scaleName, bars - 1, m.turn ?? [...m.cells[0]].reverse(), last, fill, { landing: true });
   return finished({ beats, notes: slid(m, notes, tl, scaleName), fill: slid(m, fill, tl, scaleName) }, tl, scaleName);
@@ -326,7 +330,7 @@ function score(line, tl, scaleName, aim) {
     const chord = chordAt(tl, n.at), pcs = soundingPcs(chord), pc = mod(st[i], 12);
     const on = pcs.includes(pc);
     if (!on) off++;
-    const pos = mod(n.at, 4);
+    const pos = mod(n.at, meter().beats);
     if (accent(pos) >= 0.92 || n.len >= 1.5) {
       strong++;
       if (on) strongOn++;
@@ -347,7 +351,8 @@ function score(line, tl, scaleName, aim) {
 
   // From bar to bar: the first notes barely move.
   const bars = [];
-  notes.forEach((n, i) => { (bars[Math.floor(n.at / 4)] ??= []).push(i); });
+  const B = meter().beats;
+  notes.forEach((n, i) => { (bars[Math.floor(n.at / B)] ??= []).push(i); });
   const firsts = bars.filter(Boolean).map(b => st[b[0]]);
   if (firsts.length > 1) {
     const by = firsts.slice(1).map((x, i) => Math.abs(x - firsts[i]));
@@ -396,7 +401,8 @@ export function lineOfHook(hook, scaleName, cb) {
   const tl = timeline(hook.chords, scaleName, cb);
   const notes = hook.notes.map(([at16, len16, deg]) => {
     const at = at16 / 4, room = chordEndAt(tl, at);
-    return { at, len: Math.min(len16 / 4, room), deg, room, vel: +(accent(mod(at, 4)) * SWELL[Math.floor(at / 4) % 4]).toFixed(3) };
+    const B = meter().beats;
+    return { at, len: Math.min(len16 / 4, room), deg, room, vel: +(accent(mod(at, B)) * SWELL[Math.floor(at / B) % 4]).toFixed(3) };
   });
   const line = finished({ beats: hook.beats, notes, fill: null }, tl, scaleName);
   return { ...line, anchor: line.mean };
@@ -408,14 +414,14 @@ export function lineOfHook(hook, scaleName, cb) {
 // slow voice can play of a fast figure without running together. Two notes a bar
 // keep its shape; any fewer and it isn't the same tune.
 export function thinned(line) {
-  const out = [];
-  for (let bar = 0; bar * 4 < line.beats; bar++) {
-    const here = line.notes.filter(n => n.at >= bar * 4 - 1e-9 && n.at < (bar + 1) * 4 - 1e-9);
+  const out = [], { beats: B, strong } = meter();
+  for (let bar = 0; bar * B < line.beats; bar++) {
+    const here = line.notes.filter(n => n.at >= bar * B - 1e-9 && n.at < (bar + 1) * B - 1e-9);
     const nearest = beat => here.reduce((a, n) => (Math.abs(n.at - beat) < Math.abs(a.at - beat) ? n : a));
     if (!here.length) continue;
-    for (const n of new Set([nearest(bar * 4), nearest(bar * 4 + 2)])) out.push({ ...n, alt: undefined });
+    for (const n of new Set(strong.map(x => nearest(bar * B + x)))) out.push({ ...n, alt: undefined });
   }
-  out.forEach((n, i) => { n.len = Math.min((out[i + 1]?.at ?? line.beats) - n.at, 4, n.room ?? 4); });
+  out.forEach((n, i) => { n.len = Math.min((out[i + 1]?.at ?? line.beats) - n.at, B, n.room ?? B); });
   return { ...line, notes: out, fill: null };
 }
 
@@ -430,7 +436,8 @@ export function harmonised(line, by = -2) {
 // It leaves the hook all the room it needs and still gives the harmony a line.
 export function counterLine(tokens, scaleName, cb, centre = 2) {
   const tl = timeline(tokens, scaleName, cb);
-  const beats = lcm(tl.beats, 16) <= 96 ? lcm(tl.beats, 16) : tl.beats;
+  const bars4 = 4 * meter().beats;
+  const beats = lcm(tl.beats, bars4) <= 6 * bars4 ? lcm(tl.beats, bars4) : tl.beats;
   const notes = [];
   let last = centre;
   for (let at = 0; at < beats;) {

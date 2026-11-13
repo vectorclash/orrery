@@ -6,6 +6,7 @@ import { logChange } from './notes.js';
 import { transport } from './transport.js';
 import { ensemble } from './phrase.js';
 import { song, composeSong, arrange } from './song.js';
+import { barBeats } from './meter.js';
 import { lines } from './lines.js';
 import { languageOf, intervalsFor, LANGUAGE_NAMES } from './language.js';
 import { writeMotif, lineOver } from './hook.js';
@@ -203,7 +204,7 @@ export function requestEra() {
 export function changeLandsAt(before, after) {
   const now = audio.ctx.currentTime;
   let at = transport.beatAt(now + LOOKAHEAD);
-  for (const v of after) if (!before.includes(v)) at = Math.max(at, transport.nextBeat(now, v.entry));
+  for (const v of after) if (!before.includes(v)) at = Math.max(at, transport.nextBeat(now, v.entry === 'bar' ? barBeats() : v.entry));
   return at;
 }
 

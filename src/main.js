@@ -151,6 +151,7 @@ const songExportBtn        = document.getElementById('song-export-btn');
 const formBtns             = document.querySelectorAll('.form-btn');
 const newSongBtn           = document.getElementById('new-song-btn');
 const composerBtns         = document.querySelectorAll('.composer-btn');
+const rhythmBtns           = document.querySelectorAll('.rhythm-btn');
 const prevBtn              = document.getElementById('prev-btn');
 const songActions          = document.getElementById('song-actions');
 const keepBtn              = document.getElementById('keep-btn');
@@ -241,6 +242,7 @@ function showFeel() {
   sweepVal.textContent   = pct(state.sweep);
   roomSelect.value       = state.room;
   showComposer();
+  showRhythm();
   refreshSummaries();
 }
 
@@ -254,6 +256,15 @@ function showGenre() {
 function showComposer() {
   composerBtns.forEach(b => {
     const on = (b.dataset.composer === 'new') === (state.composer >= 2);
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-pressed', String(on));
+  });
+}
+
+// AUTO / PLAIN / CROSS: how a song's rhythm is drawn (see RHYTHMS in state.js).
+function showRhythm() {
+  rhythmBtns.forEach(b => {
+    const on = b.dataset.rhythm === state.rhythm;
     b.classList.toggle('active', on);
     b.setAttribute('aria-pressed', String(on));
   });
@@ -920,6 +931,7 @@ function stopInfinite() {
 function startEras() {
   unloadSong();
   state.composer    = LATEST_COMPOSER;
+  state.rhythm      = 'auto';
   state.language    = pick(LANGUAGE_NAMES);
   state.scaleIdx    = 0;
   state.rootMidi    = ROOT_BASE_MIDI;
@@ -955,7 +967,7 @@ function composeInfiniteSong() {
   const g = weightedGenre(recentGenres);
   let plan = null, loop = '';
   for (let tries = 0; tries < 8; tries++) {
-    plan = planFromKeys({ octaveShift: 0, ...genreFeel(g, true), composer: LATEST_COMPOSER }, rollKit(g, true), newSeed());
+    plan = planFromKeys({ octaveShift: 0, ...genreFeel(g, true), composer: LATEST_COMPOSER, rhythm: 'auto' }, rollKit(g, true), newSeed());
     loop = heldBy(songFor(plan));
     if (plan.state.scaleIdx !== songPlan?.state.scaleIdx && !recentLoops.includes(loop)) break;
   }
@@ -1441,6 +1453,7 @@ function manualPlan() {
       room:         roomSelect.value,
       composer:     state.composer,
       language:     state.language,
+      rhythm:       state.rhythm,
     },
     // A song picks from several the same way every time, so it plays as it
     // will export.
@@ -1924,15 +1937,20 @@ function showLength() {
   showManualKept();
   showGenre();
   const asSong = manualForm === 'song';
+  let meterName = null;
   if (!asSong) lengthValue.textContent = `${loopLength}s`;
   else {
     const any = Object.values(manualEnabled).some(v => v);
-    lengthValue.textContent = clock(any ? songSeconds(songFor(manualPlan())) : songLength);
+    const s = any ? songFor(manualPlan()) : null;
+    lengthValue.textContent = clock(s ? songSeconds(s) : songLength);
+    if (s && s.meter.name !== '4/4') meterName = s.meter.name;
   }
   songSummary.textContent = [
     asSong ? 'SONG' : 'LOOP',
     asSong ? lengthValue.textContent : clock(loopLength),
+    ...(meterName ? [meterName] : []),
     state.composer >= 2 ? 'LATEST COMPOSER' : 'ORIGINAL COMPOSER',
+    ...(state.rhythm === 'auto' ? [] : [`${state.rhythm.toUpperCase()} RHYTHM`]),
   ].join(' · ');
 }
 
@@ -1967,6 +1985,15 @@ composerBtns.forEach(b => b.addEventListener('click', () => {
   state.composer = wanted ? LATEST_COMPOSER : 1;
   if (wanted && state.language === 'ANY') state.language = genreOfKit(manualPlan())?.name ?? 'ANY';
   showComposer();
+  showLength();
+  replayManual();
+}));
+
+// The same song with the other rhythm: from the top, to compare them.
+rhythmBtns.forEach(b => b.addEventListener('click', () => {
+  if (b.dataset.rhythm === state.rhythm) return;
+  state.rhythm = b.dataset.rhythm;
+  showRhythm();
   showLength();
   replayManual();
 }));
@@ -2030,6 +2057,7 @@ function applyConfig(cfg) {
   state.room         = cfg.rm ?? state.room;
   state.composer     = cfg.cv ?? 1;
   state.language     = cfg.lg ?? 'ANY';
+  state.rhythm       = cfg.rh ?? 'auto';
   showFeel();
   setInstruments(new Set(cfg.m || []));
   if (cfg.song) {

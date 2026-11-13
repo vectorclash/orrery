@@ -1,6 +1,7 @@
 import { state, LOOKAHEAD } from '../state.js';
 import { within, stream } from '../random.js';
 import { asVoice, letGo } from './context.js';
+import { barBeats } from './meter.js';
 
 // ─── Transport: the shared musical clock ──────────────────────────────────────
 // Voices schedule in *beats* and convert to audio time here, so bar lines,
@@ -56,14 +57,16 @@ export const transport = {
 //
 // A voice plays and resets in its own random stream (see random.js), so what
 // it draws doesn't depend on how its notes fall across ticks.
+// `entry` 'bar' is the bar line, however long the song's bars are (see meter.js).
 export function createVoice(name, play, { entry = 1, role = null, onReset = null, release = 0.2 } = {}) {
   let next = null; // beat position of the next event
+  const grid = () => (entry === 'bar' ? barBeats() : entry);
   const voice = {
     name,
     role,
     entry,
     tick(now, horizon = now + LOOKAHEAD) {
-      if (next === null || transport.timeAt(next) < now) next = transport.nextBeat(now, entry);
+      if (next === null || transport.timeAt(next) < now) next = transport.nextBeat(now, grid());
       if (!(transport.timeAt(next) < horizon)) return;
       within(stream(name), () => asVoice(name, () => {
         while (transport.timeAt(next) < horizon) {
@@ -78,7 +81,7 @@ export function createVoice(name, play, { entry = 1, role = null, onReset = null
     // next `entry` line, as a voice joining then would.
     release(t) {
       letGo(name, t, release);
-      if (next !== null) next = Math.min(next, transport.nextBeat(t, entry));
+      if (next !== null) next = Math.min(next, transport.nextBeat(t, grid()));
     },
     // `atBeat` restarts the voice at a specific position (an era change);
     // voices holding long notes use it to release them at that moment.

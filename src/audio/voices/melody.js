@@ -61,4 +61,4 @@ function play(t, b) {
   return ev.gap;
 }
 
-export const melodyVoice = createVoice('melody', play, { entry: 4, role: 'lead', onReset: () => { last = null; phraser.reset(); } });
+export const melodyVoice = createVoice('melody', play, { entry: 'bar', role: 'lead', onReset: () => { last = null; phraser.reset(); } });

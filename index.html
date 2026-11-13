@@ -414,7 +414,7 @@
       letter-spacing: 0.12em;
       color: var(--ink-3);
     }
-    #form-row .kind-toggle, #composer-row .kind-toggle { background: transparent; }
+    #form-row .kind-toggle, #composer-row .kind-toggle, #rhythm-row .kind-toggle { background: transparent; }
     @media (max-width: 359px) { #song-row .ctrl-label { display: none; } }
 
     /* ─── Collapsible sections ──────────────────────────────────────────────── */
@@ -1183,6 +1183,16 @@
             <div class="kind-toggle" role="group" aria-label="Composer">
               <button class="kind-btn composer-btn" data-composer="1" title="The first composer: every link made before LATEST plays in it, note for note">ORIGINAL</button>
               <button class="kind-btn composer-btn" data-composer="new" title="The newest composer: writes chords in the genre's language and gives every song a hook">LATEST</button>
+            </div>
+          </div>
+
+          <div class="ctrl-row" id="rhythm-row">
+            <span class="ctrl-label">RHYTHM</span>
+            <div class="kind-toggle" role="group" aria-label="Rhythm">
+              <button class="kind-btn rhythm-btn" data-rhythm="auto" title="Now and then a cross-rhythm in the drums, an arpeggio in threes, or a song in 3/4 or 6/8">AUTO</button>
+              <button class="kind-btn rhythm-btn" data-rhythm="plain" title="Straight rhythms only: 4/4, no cross-rhythms, no threes">PLAIN</button>
+              <button class="kind-btn rhythm-btn" data-rhythm="cross" title="Always the cross-rhythm and the threes, where the drums and arpeggio have them">CROSS</button>
+              <button class="kind-btn rhythm-btn" data-rhythm="odd" title="A waltz (3/4) or a six-eight, where the genre and drums play in one: jazz, folk, orchestral, dream, ambient, epic, blues">ODD</button>
             </div>
           </div>
 

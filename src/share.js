@@ -3,9 +3,10 @@
 // Kept apart from main.js, which owns the UI, so it can be used without one: the
 // export renderer (render.js) exposes planFromShare for pages that embed it, such
 // as Chromaforge's ad builder, which renders a pasted link into its videos.
-import { state, ROOT_BASE_MIDI, pick } from './state.js';
+import { state, ROOT_BASE_MIDI, RHYTHMS, pick } from './state.js';
 import { ROOMS } from './audio/context.js';
 import { LANGUAGE_NAMES } from './audio/language.js';
+import { ODD_METERS } from './audio/meter.js';
 import { parseChord } from './audio/chords.js';
 
 // Canonical instrument order for the share-link bitmask. Spelled out rather
@@ -40,7 +41,9 @@ export const ALL_INST_KEYS = [
 //  tail length n(1), instBitmask bits 72 and up (n bytes),
 //  form(1): 1 = a song, seed(4, little-endian): the song's,
 //  length(2, little-endian): the song's, in seconds,
-//  composer(1), language(1): its place in LANGUAGE_NAMES,
+//  composer(1): its number in the low four bits, the RHYTHM switch's place in
+//  RHYTHMS in the next two, and a given hook's meter in the top two (0 4/4, then
+//  ODD_METERS's order), language(1): its place in LANGUAGE_NAMES,
 //  writing seed(4, little-endian): a song written from another's seed, if it is,
 //  hook: a song given another's hook (see audio/transcribe.js), if it is: its length in
 //  sixteenths(2, little-endian), its chord tokens' length(1) and text, its note count
@@ -63,6 +66,8 @@ export const ALL_INST_KEYS = [
 // byte for byte what they always were, and a link without one is composer 1's,
 // which is how every link made before composer 2 keeps its song. A loop from
 // composer 2 writes the form and song fields as zeros to reach it. A song that keeps
+// A rhythm other than AUTO writes the composer byte too, even composer 1's; a link
+// without one is AUTO, as every link was before the switch. A song that keeps
 // another's chords and hook (see writeSong in audio/song.js) adds that song's seed,
 // or the hook itself, in which case the seed is its own, to reach it.
 const FIXED_INST_BITS = 72;
@@ -76,10 +81,12 @@ const instByte = i => (i < 40 ? 6 + (i >> 3) : i < 48 ? 13 : i < 56 ? 15 : i < 6
 export function encodeConfig(enabled, song = null, feel = state) {
   const tail = Math.ceil(Math.max(0, ALL_INST_KEYS.length - FIXED_INST_BITS) / 8);
   const written = (feel.composer ?? 1) >= 2;
+  const rhythm = Math.max(0, RHYTHMS.indexOf(feel.rhythm));
+  const reaches = written || rhythm > 0; // the link goes as far as the composer byte
   const given = written && song?.hook ? hookBytes(song.hook) : [];
   const rewrites = written && (song?.writing != null || given.length > 0);
-  const b = new Uint8Array(tail || song || written ? TAIL_LEN + 1 + tail + (rewrites ? 13 + given.length : written ? 9 : song ? 7 : 0) : TAIL_LEN);
-  if (tail || song || written) b[TAIL_LEN] = tail;
+  const b = new Uint8Array(tail || song || reaches ? TAIL_LEN + 1 + tail + (rewrites ? 13 + given.length : reaches ? 9 : song ? 7 : 0) : TAIL_LEN);
+  if (tail || song || reaches) b[TAIL_LEN] = tail;
   const at = TAIL_LEN + 1 + tail;
   if (song) {
     const view = new DataView(b.buffer);
@@ -87,8 +94,9 @@ export function encodeConfig(enabled, song = null, feel = state) {
     view.setUint32(at + 1, song.seed >>> 0, true);
     view.setUint16(at + 5, song.length, true);
   }
-  if (written) {
-    b[at + 7] = feel.composer;
+  if (reaches) {
+    const hookMeter = ODD_METERS.indexOf(song?.hook?.meter) + 1;
+    b[at + 7] = (feel.composer ?? 1) | rhythm << 4 | (written ? hookMeter : 0) << 6;
     b[at + 8] = Math.max(0, LANGUAGE_NAMES.indexOf(feel.language));
   }
   if (rewrites) {
@@ -127,7 +135,7 @@ function hookBytes({ beats, chords, notes }) {
 
 // A hook that's been cut short or damaged would play as something else, or stop the song
 // being written at all: it throws, and decodeConfig refuses the link.
-function readHook(b, from) {
+function readHook(b, from, meter) {
   const sixteenths = b[from] | (b[from + 1] << 8), size = b[from + 2];
   let i = from + 3 + size;
   const chords = String.fromCharCode(...b.subarray(from + 3, i)).split(' ');
@@ -141,7 +149,7 @@ function readHook(b, from) {
     at += b[i];
     notes.push([at, b[i + 1], b[i + 2] - 64]);
   }
-  return { chords, beats: sixteenths / 4, notes: count ? notes : null };
+  return { chords, beats: sixteenths / 4, notes: count ? notes : null, ...(meter ? { meter } : {}) };
 }
 
 export function decodeConfig(str) {
@@ -157,7 +165,7 @@ export function decodeConfig(str) {
       seed:   view.getUint32(at + 1, true),
       length: b.length >= at + 7 ? view.getUint16(at + 5, true) : undefined,
       ...(b.length >= at + 13 ? { writing: view.getUint32(at + 9, true) } : {}),
-      ...(b.length > at + 13 ? { hook: readHook(b, at + 13) } : {}),
+      ...(b.length > at + 13 ? { hook: readHook(b, at + 13, ODD_METERS[((b[at + 7] ?? 0) >> 6) - 1]) } : {}),
     } : undefined;
     return {
       r: ROOT_BASE_MIDI + (b[0] % 12), s: b[1], t: b[2],
@@ -169,7 +177,8 @@ export function decodeConfig(str) {
       pu: b[17] !== undefined ? b[17] / 100 : 0,
       sw: b[18] !== undefined ? b[18] / 100 : 0,
       song,
-      cv: b[at + 7] ?? 1,
+      cv: (b[at + 7] ?? 1) & 15,
+      rh: RHYTHMS[((b[at + 7] ?? 0) >> 4) & 3] ?? 'auto',
       lg: LANGUAGE_NAMES[b[at + 8]] ?? 'ANY',
     };
   } catch { return null; }
@@ -201,6 +210,7 @@ export function planFromConfig(cfg) {
       sweep:        cfg.sw,
       composer:     cfg.cv ?? 1,
       language:     cfg.lg ?? 'ANY',
+      rhythm:       cfg.rh ?? 'auto',
     },
     // A song picks from several by its seed, as Edit mode does.
     bassStyle: !bassSubs.length ? null : cfg.song ? bassSubs[cfg.song.seed % bassSubs.length] : pick(bassSubs),

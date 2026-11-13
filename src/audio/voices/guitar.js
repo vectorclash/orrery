@@ -4,6 +4,7 @@ import { createVoice } from '../transport.js';
 import { logNote } from '../notes.js';
 import { harmony } from '../harmony.js';
 import { gain, filter, send, pluckBuffer, playBuffer, settle } from '../synth.js';
+import { barBeats, step16 } from '../meter.js';
 
 // Disco rhythm guitar: the "chicken scratch" of Nile Rodgers and every
 // nu-disco record since -- a clean, bright guitar strummed in sixteenths, the
@@ -135,14 +136,14 @@ function picked(t, notes, kind, nth) {
 }
 
 function play(t, b) {
-  const p = Math.floor(b / 16);
+  const p = Math.floor(b / (4 * barBeats()));
   if (p !== phrase) {
     phrase = p;
     if (!pattern || (state.composer < 2 && random() < 0.35)) { pattern = pick(patterns()); patternFor = state.language; }
   }
   // A genre chosen while it plays: its guitar straight away.
   if (state.composer >= 2 && patternFor !== state.language) { pattern = pick(patterns()); patternFor = state.language; }
-  const step = Math.round((b - Math.floor(b / 4) * 4) * 4) % 16;
+  const step = step16(b - Math.floor(b / barBeats()) * barBeats());
   const kind = pattern[step];
   if (kind === '.') return 0.25;
   if (kind === 'p' || kind === 'd') {
@@ -157,7 +158,7 @@ function play(t, b) {
 // Draws nothing on reset -- every voice is reset at the start of a session, playing or not,
 // and a draw here would shift the shared random sequence under the voices that are playing.
 export const guitarVoice = createVoice('guitar', play, {
-  entry: 4,
+  entry: 'bar',
   role: 'motion',
   onReset: () => { phrase = -1; pattern = null; prev = null; segAt = null; },
 });

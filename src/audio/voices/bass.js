@@ -5,6 +5,7 @@ import { logNote } from '../notes.js';
 import { harmony, bassRoot } from '../harmony.js';
 import { song } from '../song.js';
 import { osc, gain, filter, perc, ahr, lfo, pluckBuffer, playBuffer, shaper, settle } from '../synth.js';
+import { meter, barBeats, step16, heldFor } from '../meter.js';
 
 // ─── Bass ─────────────────────────────────────────────────────────────────────
 // Every style is tied to the harmonic rhythm: the chord root lands on the
@@ -102,6 +103,33 @@ const FIGURES_FOR = {
   BLUES: 'blues',
 };
 const figuresFor = language => FIGURES[FIGURES_FOR[language] ?? 'any'];
+// The same, written for the songs in 3/4 and 6/8 (see meter.js): two bars of twelve
+// sixteenths. The waltz's root on one and the chord on two and three, its turn on
+// three; six-eight's two big beats, the root on the first and the fifth or a walk on
+// the second. A figure plays the one in the same place in its family here, so a
+// section keeps one line; a family without its own reads its 4/4 figure folded.
+const METER_FIGURES = {
+  '3/4': {
+    folk: ['R---F---F---' + 'R---F---3-A-', 'R-------F-O-' + 'R-------3-A-', 'R---F-R-F---' + 'R---3---A---', 'R---F---O---' + 'R---3---A---'],
+    held: ['R-----------' + 'R-------F---', 'R---R---F---' + 'R---R---A---', 'R-------F---' + 'R-------A---', 'R-----------' + 'R---F---A---'],
+    any:  ['R---F---F---' + 'R---F---A---', 'R-------F---' + 'R---3---A---', 'R---O---F---' + 'R---F---A---', 'R-------F-A-' + 'R-------O-A-',
+      'R-----F-----' + 'R-----F---A-', 'R-.RO-.RF-.R' + 'R-.R3-.RF-.A'],
+  },
+  '6/8': {
+    folk:  ['R-----F-----' + 'R-----3---A-', 'R---F-R---F-' + 'R---F-3---A-', 'R-F-R-F-O-F-' + 'R-F-R-3-F-A-', 'R---R-F---F-' + 'R---R-3---A-'],
+    held:  ['R-----------' + 'R-----F-----', 'R-----F-----' + 'R-----A-----', 'R---R-F---F-' + 'R---R-3---A-', 'R-----------' + 'R-----F---A-'],
+    blues: ['R-3-F-6-F-3-' + 'R-3-F-6-7-A-', 'R---F-6---F-' + 'R---F-6-7-A-', 'R-.R3-F-.F6-' + 'R-.R3-F-.F7A', 'R-----F---6-' + 'R---3-F---A-'],
+    any:   ['R-----F-----' + 'R-----F---A-', 'R---F-R---F-' + 'R---F-R---A-', 'R-F-R-F-R-F-' + 'R-F-R-F-3-A-', 'R-----O---F-' + 'R-----3---A-',
+      'R---F-O---F-' + 'R---F-3---A-', 'R-.R-.F-.F-.' + 'R-.R-.3-.A-.'],
+  },
+};
+// Figure `fig` of family `family`, as written for this meter, or null to fold it.
+function meterFigure(fig, family) {
+  const own = METER_FIGURES[meter().name]?.[family];
+  if (!own) return null;
+  const at = FIGURES[family].indexOf(fig);
+  return own[(at < 0 ? 0 : at) % own.length];
+}
 let figure = FIGURES.any[0];
 let figureFor = null; // the language `figure` was drawn for
 
@@ -176,13 +204,17 @@ let synthFor = null;
 // One sixteenth of a two-bar figure: `sound(t, midi, seconds)` plays a note; a dead
 // note (x) goes to `dead(t, midi)`. Bars are counted from the section's first, so a
 // figure's turn falls on its second.
-function figureStep(fig, t, b, pos, sound, dead = null) {
+// A figure written for the song's meter (`own`) is read as it is; a 4/4 one, in another
+// meter, a bar at a time through its 4/4 bar (see meter.js).
+function figureStep(fig, t, b, pos, sound, dead = null, own = false) {
   const from = song.current ? song.sectionAt(b).start : 0;
-  const half = Math.floor((b - from) / 4 + 1e-9) % 2;
-  const i = Math.round(pos * 4) % 16, k = half * 16 + i, ch = fig[k];
+  const half = Math.floor((b - from) / barBeats() + 1e-9) % 2;
+  const steps = meter().steps;
+  const i = own ? Math.round(pos * 4) % steps : step16(pos), k = half * (own ? steps : 16) + i, ch = fig[k];
   if (ch === '.' || ch === '-') return 0.25;
   let n = 1;
-  while (i + n < 16 && fig[k + n] === '-') n++;
+  if (own) while (i + n < steps && fig[k + n] === '-') n++;
+  else n = heldFor(fig, i, half * 16);
   if (ch === 'x') { dead?.(t, prev ?? root(harmony.at(b))); return 0.25; }
   const midi = resolve(ch, b, n / 4);
   prev = midi;
@@ -345,12 +377,15 @@ function resolveAcid(code, b) {
 // note on the last beat before a change, and in between chord tones (on
 // strong beats) or scale steps that head toward the next root without
 // reaching it early.
+// A walking bass's step: a beat, or in six-eight a big beat, a dotted quarter.
+const walkStep = () => (meter().name === '6/8' ? 1.5 : 1);
+
 function walkNote(b) {
   const seg = harmony.at(b);
   const k = b - seg.start, left = seg.end - b;
   if (k < 1e-6 || prev === null) return root(seg);
   const target = nextRoot(seg);
-  if (left <= 1 + 1e-6) return approach(target, prev);
+  if (left <= walkStep() + 1e-6) return approach(target, prev);
   const pcs = harmony.voiced(seg);
   const options = [];
   for (let m = prev - 5; m <= prev + 5; m++) {
@@ -652,7 +687,7 @@ function play(t, b) {
   const sec = song.sectionAt(b), build = sec?.build;
   if (build?.kickOut && b >= sec.start + sec.beats - sec.gap - build.kickOut - 1e-6) return 0.25; // out with the kick
   if (build?.pedal) return pedal(t, b, sec);
-  const bar = Math.floor(b / 4 + 1e-9), pos = b - bar * 4;
+  const B = barBeats(), bar = Math.floor(b / B + 1e-9), pos = b - bar * B;
   if (bar !== curBar) {
     curBar = bar;
     if (state.composer >= 2) {
@@ -678,7 +713,7 @@ function play(t, b) {
     }
   }
   if (style === 'acid') {
-    const i = Math.round(pos * 4) % 16, k = (bar % 2) * 16 + i;
+    const i = step16(pos), k = (bar % 2) * 16 + i;
     const s = acidSeq[k];
     if (!s) return 0.25;
     const midi = resolveAcid(s.code, b);
@@ -690,10 +725,9 @@ function play(t, b) {
   }
   if (style === 'deep' || style === 'rolling') {
     const pat = style === 'deep' ? deepPattern : rollPattern;
-    const i = Math.round(pos * 4) % 16, ch = pat[i];
+    const i = step16(pos), ch = pat[i];
     if (ch !== '.' && ch !== '-') {
-      let n = 1;
-      while (i + n < 16 && pat[i + n] === '-') n++;
+      const n = heldFor(pat, i);
       const midi = resolve(ch, b, n / 4);
       prev = midi;
       if (style === 'deep') deepBass(t, midi, room(b, n / 4) * beat() * 0.85);
@@ -707,10 +741,9 @@ function play(t, b) {
     // draws its pattern. Without this it throws on every tick until it does, and takes
     // every voice after it in the tick with it.
     groovePattern ??= pick(GROOVE_PATTERNS[style]);
-    const pat = groovePattern, i = Math.round(pos * 4) % 16, ch = pat[i];
+    const pat = groovePattern, i = step16(pos), ch = pat[i];
     if (ch === '.' || ch === '-') return 0.25;
-    let n = 1;
-    while (i + n < 16 && pat[i + n] === '-') n++;
+    const n = heldFor(pat, i);
     const seg = harmony.at(b);
     const beats = Math.min(n / 4, seg.end - b); // never held across a chord change
     const midi = resolve(ch, b, n / 4);
@@ -735,18 +768,20 @@ function play(t, b) {
   }
 
   if (style === 'walking') {
+    const step = walkStep();
     prev = walkNote(b);
-    uprightBass(t, prev, beat() * 0.95, { level: 0.5 * UPRIGHT_TRIM });
-    return 1;
+    uprightBass(t, prev, beat() * 0.95 * step, { level: 0.5 * UPRIGHT_TRIM });
+    return step;
   }
 
   if (style === 'plucked' && state.composer >= 2) {
     // A genre chosen while a loop plays brings its own bass line straight away.
     if (figureFor !== state.language) { figure = pick(figuresFor(state.language)); figureFor = state.language; }
-    return figureStep(figure, t, b, pos,
+    const own = meterFigure(figure, FIGURES_FOR[state.language] ?? 'any');
+    return figureStep(own ?? figure, t, b, pos,
       (at, midi, sec) => fingerBass(at, midi, sec * 0.9, { level: 0.42 * FINGER_TRIM }),
       // A dead note: the finger lands on a muted string.
-      (at, midi) => fingerBass(at, midi, beat() * 0.12, { level: 0.42 * FINGER_TRIM * 0.45, t60: 0.08 }));
+      (at, midi) => fingerBass(at, midi, beat() * 0.12, { level: 0.42 * FINGER_TRIM * 0.45, t60: 0.08 }), !!own);
   }
 
   if (style === 'synth' && state.composer >= 2) {
@@ -766,14 +801,13 @@ function play(t, b) {
       if (acc > pos) return acc - pos;
       acc += len;
     }
-    return 4 - pos;
+    return B - pos;
   }
 
   // synth: one sixteenth step at a time
-  const i = Math.round(pos * 4) % 16, ch = pattern[i];
+  const i = step16(pos), ch = pattern[i];
   if (ch !== '.' && ch !== '-') {
-    let n = 1;
-    while (i + n < 16 && pattern[i + n] === '-') n++;
+    const n = heldFor(pattern, i);
     const midi = resolve(ch, b, n / 4);
     prev = midi;
     synthBass(t, midi, room(b, n / 4) * beat() * 0.9);

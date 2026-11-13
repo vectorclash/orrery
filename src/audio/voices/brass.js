@@ -80,4 +80,4 @@ function play(t, b) {
   return ev.gap;
 }
 
-export const brassVoice = createVoice('brass', play, { entry: 4, role: 'lead', onReset: phraser.reset });
+export const brassVoice = createVoice('brass', play, { entry: 'bar', role: 'lead', onReset: phraser.reset });

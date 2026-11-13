@@ -56,6 +56,6 @@ function play(t, b) {
 }
 
 export const vibraphoneVoice = createVoice('vibraphone', play, {
-  entry: 4, role: 'lead',
+  entry: 'bar', role: 'lead',
   onReset: () => { phraser.reset(); motor = pick([0, 3.8, 5.5, 5.5]); },
 });

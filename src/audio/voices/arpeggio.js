@@ -1,5 +1,5 @@
 import { audio, getVoiceBus } from '../context.js';
-import { state, beat, pick, lerp, register, midiToHz, random } from '../../state.js';
+import { state, beat, pick, lerp, register, midiToHz, random, rhythmChance } from '../../state.js';
 import { createVoice } from '../transport.js';
 import { logNote } from '../notes.js';
 import { harmony } from '../harmony.js';
@@ -7,6 +7,7 @@ import { song } from '../song.js';
 import { lines } from '../lines.js';
 import { osc, gain, filter, send } from '../synth.js';
 import { restream, within, stream } from '../../random.js';
+import { barBeats, isFour } from '../meter.js';
 
 // Arpeggiator. The step counter runs off the global beat grid, so the figure
 // stays locked to the bar and simply re-maps onto each new chord (a real arp
@@ -36,7 +37,10 @@ let threes = null; // the group, or null for the pattern
 
 function drawThrees() {
   restream('arpeggio.threes', 'song');
-  threes = within(stream('arpeggio.threes'), () => (random() < 0.35 ? pick(THREES) : null));
+  threes = within(stream('arpeggio.threes'), () => {
+    const r = random(), group = pick(THREES);
+    return rhythmChance(r, 0.35) ? group : null;
+  });
 }
 
 function chordNotes(b) {
@@ -53,10 +57,10 @@ function play(t, b) {
     if (line.midi !== null) note(t, line.midi, line.dur * beat() * 0.85, line.vel >= 0.92 ? 1 : 0.78);
     return line.gap;
   }
-  const p = Math.floor(b / 16);
+  const p = Math.floor(b / (4 * barBeats()));
   if (p !== phrase) { phrase = p; if (state.composer < 2 && random() < 0.5) pattern = pick(Object.keys(PATTERNS)); }
   const notes = chordNotes(b);
-  if (threes) {
+  if (threes && isFour()) {
     const top = song.current ? song.sectionAt(b)?.start ?? 0 : 0;
     const n = Math.round(((b - top) % 16) / rate);
     note(t, notes[threes[n % 3]], rate * beat() * 0.85, n % 3 === 0 ? 1 : 0.72);
