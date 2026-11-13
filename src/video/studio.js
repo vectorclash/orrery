@@ -107,19 +107,19 @@ function previewSize() {
 }
 
 // ─── Loading a song ───────────────────────────────────────────────────────────
-async function measureLevel(p) {
-  // As Orrery's own export does (main.js): the hook measured alone, in a renderer of its own.
+async function measureLevels(p) {
+  // As Orrery's own export does (main.js): the hook and its build measured, in a renderer of its own.
   const frame = document.createElement('iframe');
   frame.style.display = 'none';
   frame.srcdoc = `<script type="module" src="src/render.js"></script>`;
   const ready = new Promise((res, rej) => { frame.onload = () => res(frame.contentWindow); frame.onerror = rej; });
   document.body.appendChild(frame);
-  try { return await (await ready).levelOfSong(p, SAMPLE_RATE); } finally { frame.remove(); }
+  try { return await (await ready).songLevels(p, SAMPLE_RATE); } finally { frame.remove(); }
 }
 
-// A plan, ready to render: a song's level measured first.
+// A plan, ready to render: a song's levels measured first.
 async function readyPlan(p) {
-  if (p.song && p.song.levelMs === undefined) return { ...p, song: { ...p.song, levelMs: await measureLevel(p) } };
+  if (p.song && p.song.levelMs === undefined) return { ...p, song: { ...p.song, ...await measureLevels(p) } };
   return p;
 }
 

@@ -1,4 +1,4 @@
-import { audio, beginSession, setEchoTime, setRoom, clearSpace, updateLowCuts, updateLevel, noteClock, gateGap } from './context.js';
+import { audio, beginSession, setEchoTime, setRoom, clearSpace, updateLowCuts, updateLevel, noteClock, gateGap, easeLevel, presetLevel } from './context.js';
 import { state, SCALE_NAMES, TICK_MS, LOOKAHEAD, ROOT_BASE_MIDI, rand, pick, beat, random, clamp } from '../state.js';
 import { seedStreams, reseedStreams, restream, newSeed, stream } from '../random.js';
 import { harmony } from './harmony.js';
@@ -99,6 +99,7 @@ export function applyPlan(plan) {
   if (plan.drumStyle) drumsVoice.setStyle(plan.drumStyle);
   if (plan.song) {
     song.current = composeSong(plan, roleOf);
+    song.current.buildTrimDb = plan.song.buildTrimDb ?? 0;
     song.base = { ...state };
     setActiveVoices([]);
   } else {
@@ -163,6 +164,10 @@ function restart(t, from) {
   songBass = false;
   heard = null;
   audio.level.holdsAt = song.current ? levelHoldsAt : null;
+  const g = audio.sectionGain.gain;
+  g.cancelScheduledValues(0);
+  g.setValueAtTime(1, t);
+  trimmed = null;
 }
 
 // ─── Space ────────────────────────────────────────────────────────────────────
@@ -299,7 +304,30 @@ function onBeat(b) {
 // Where a section's lines stop (see lines.set).
 const restOf = sec => (state.composer >= 4 && sec.turnFrom != null ? sec.turnFrom : Infinity);
 
+// A build is turned down by the song's buildTrimDb (see songLevels in render.js), so
+// the drop lands louder than its last bars: eased down over its first two bars,
+// while the build is still thin, and straight back up on the next section's
+// downbeat, under the drop's impact.
+let trimmed = null; // the gain a build was turned down to, or null
+
+function trimFor(sec, b) {
+  const g = audio.sectionGain.gain, t = transport.timeAt(b);
+  const trim = sec.build ? song.current.buildTrimDb : 0;
+  if (trim < 0) {
+    g.cancelScheduledValues(t);
+    g.setValueAtTime(1, t);
+    trimmed = 10 ** (trim / 20);
+    g.linearRampToValueAtTime(trimmed, transport.timeAt(b + Math.min(8, sec.beats / 2)));
+  } else if (trimmed !== null) {
+    g.cancelScheduledValues(t - 0.02);
+    g.setValueAtTime(trimmed, t - 0.02); // where the ramp ended: a build is longer than it
+    g.linearRampToValueAtTime(1, t);
+    trimmed = null;
+  }
+}
+
 function enterSection(sec, b) {
+  trimFor(sec, b);
   reseedStreams(sec.kind);
   // A build that teases the hook plays its motif, as the drop will.
   const hook = sec.hook || !!sec.build?.tease;
@@ -334,6 +362,20 @@ function levelHoldsAt(t) {
   return !sec || !sec.hook || song.energyAt(sec, b) < 0.6;
 }
 
+// A live song's levels, measured once it had started (see songLevels in render.js
+// and main.js): the build trim for builds still to come, and the leveller eased to
+// the song's level if it hasn't yet heard a hook of its own to set it by.
+// `ease` false: the song has only just started, so the leveller goes straight there.
+export function setSongLevels({ levelMs, buildTrimDb }, ease = true) {
+  const s = song.current;
+  if (!s) return;
+  s.buildTrimDb = buildTrimDb ?? 0;
+  const first = s.sections.find(x => x.hook && x.energy[0] >= 0.6);
+  if (!levelMs || !first || songBeat >= first.start) return;
+  if (ease) easeLevel(levelMs, audio.ctx.currentTime);
+  else presetLevel(levelMs);
+}
+
 // Whether the loaded song has played its last chord.
 export const songOver = () => !!song.current && songBeat > song.current.end;
 
@@ -353,6 +395,12 @@ export function unloadSong() {
   song.current = null;
   lines.clear();
   if (audio.level) audio.level.holdsAt = null;
+  if (audio.sectionGain && trimmed !== null) {
+    const g = audio.sectionGain.gain, t = audio.ctx.currentTime;
+    g.cancelScheduledValues(t);
+    g.setTargetAtTime(1, t, 0.05);
+    trimmed = null;
+  }
 }
 
 // The song's own feel and key, which the sections vary from: Edit mode's

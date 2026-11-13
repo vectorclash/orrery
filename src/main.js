@@ -12,7 +12,7 @@ import {
   junoVoice, solinaVoice, synthbrassVoice, monoleadVoice,
   stabVoice, voxVoice, sawpluckVoice, guitarVoice,
   activeVoices, eraTimer, ERA_DURATION, requestEra, eraDue, eraBegan, changeLandsAt,
-  songFor, songOver, unloadSong, resumeSession, setSongFeel, rearrangeSong,
+  songFor, songOver, unloadSong, resumeSession, setSongFeel, rearrangeSong, setSongLevels,
 } from './audio/scheduler.js';
 import { transport } from './audio/transport.js';
 import { song, songSeconds, formFor } from './audio/song.js';
@@ -1052,6 +1052,7 @@ function startSong(plan) {
   songEntry = entryFor(plan);
   applyPlan(plan);
   startSession(audio.ctx.currentTime + START_DELAY);
+  measureLive(plan);
   tick();
   updateSongDisplay();
   updateKindUI();
@@ -1459,9 +1460,50 @@ function manualPlan() {
 
 async function manualInit() {
   if (!await startAudio()) return false;
-  applyPlan(manualPlan());
+  const plan = manualPlan();
+  applyPlan(plan);
   startSession(audio.ctx.currentTime + START_DELAY);
+  measureLive(plan);
   return true;
+}
+
+// ─── A live song's levels ─────────────────────────────────────────────────────
+// What an export measures before it renders (see songLevels in src/render.js), a
+// song playing here is measured as it starts, in a renderer of its own: its level,
+// so the leveller doesn't sit at the last song's gain until the first drop and then
+// pull that drop down, and its build trim, so the drop lands louder than the build.
+// A song measured before starts at its levels straight away; a new one eases to
+// them when they come, in its intro. Only the song playing is measured: skipping on
+// while one is measured measures the newest next. At half the usual sample rate,
+// which reads the same level (it's a mean square of the K-weighted mix) for half
+// the work.
+const measured = new Map(); // plan, as JSON → { levelMs, buildTrimDb }
+let measuring = null, measureNext = null; // the plan being measured, and the one after
+let playingKey = null; // the song that started last, as JSON
+
+function measureLive(plan) {
+  playingKey = plan.song ? JSON.stringify(plan) : null;
+  if (!plan.song) return;
+  const key = playingKey;
+  const known = measured.get(key) ?? (plan.song.levelMs !== undefined ? plan.song : null);
+  if (known) { setSongLevels(known, false); return; }
+  if (measuring) { measureNext = plan; return; }
+  measuring = key;
+  const { frame, ready } = openRenderer();
+  ready.then(w => w.songLevels(plan, 22050))
+    .then(levels => {
+      measured.set(key, { levelMs: levels.levelMs, buildTrimDb: levels.buildTrimDb });
+      if (measured.size > 40) measured.delete(measured.keys().next().value);
+      if (song.current && playingKey === key) setSongLevels(levels);
+    })
+    .catch(err => console.error(err))
+    .finally(() => {
+      frame.remove();
+      measuring = null;
+      const next = measureNext;
+      measureNext = null;
+      if (next && playingKey === JSON.stringify(next)) measureLive(next);
+    });
 }
 
 // genre_key_scale_bpm.wav, and a song's seed: each song its own file.
@@ -1728,18 +1770,19 @@ async function hookOf(plan) {
   }
 }
 
-// A song is first measured -- its hook alone, a fraction of the work (the
-// first tenth of the progress) -- so the leveller starts at the song's level
-// (see levelOfSong in src/render.js). Null if cancelled meanwhile.
+// A song is first measured -- its first hook and the build into it, a fraction of
+// the work (the first tenth of the progress) -- so the leveller starts at the song's
+// level and the drop lands louder than its build (see songLevels in src/render.js).
+// Null if cancelled meanwhile.
 async function renderInFrame(plan, durationSec, onProgress) {
   const sampleRate = audio.ctx?.sampleRate ?? 48000;
   const id = exportId;
   let share = 1;
   if (plan.song && plan.song.levelMs === undefined) {
-    const levelMs = await (await loadRenderer()).levelOfSong(plan, sampleRate);
+    const levels = await (await loadRenderer()).songLevels(plan, sampleRate);
     exportFrame?.remove();
     if (exportId !== id) return null;
-    plan = { ...plan, song: { ...plan.song, levelMs } };
+    plan = { ...plan, song: { ...plan.song, ...levels } };
     onProgress(0.1);
     share = 0.9;
   }

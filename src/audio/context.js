@@ -603,8 +603,7 @@ export function rideLevel(now) {
   if (lv.holdsAt?.(now)) return;
   if (10 * Math.log10(e + 1e-12) < LEVEL_TARGET_DB - LEVEL_GATE_DB) return;
   lv.ms = lv.ms === null ? e : lv.ms + (e - lv.ms) * (1 - Math.exp(-dt / LEVEL_TAU));
-  const gainDb = Math.max(-LEVEL_RANGE_DB, Math.min(LEVEL_RANGE_DB, LEVEL_TARGET_DB - 10 * Math.log10(lv.ms)));
-  audio.leveler.gain.setTargetAtTime(dbToGain(gainDb), now, 1.0);
+  audio.leveler.gain.setTargetAtTime(dbToGain(levelGainDb(lv.ms)), now, 1.0);
 }
 
 // Width. How wide a mix comes out depends on who is playing: measured over 60
@@ -652,12 +651,22 @@ export function rideWidth(now) {
 
 // Starts the leveller as if it had already been listening to a mix of mean
 // square `ms`: an export of a song starts at the level its hooks will set,
-// rather than finding it at the first chorus (see levelOfSong).
+// rather than finding it at the first chorus (see songLevels in render.js).
 export function presetLevel(ms) {
   audio.level.ms = ms;
-  const gainDb = Math.max(-LEVEL_RANGE_DB, Math.min(LEVEL_RANGE_DB, LEVEL_TARGET_DB - 10 * Math.log10(ms)));
-  audio.leveler.gain.value = dbToGain(gainDb);
+  audio.leveler.gain.cancelScheduledValues(0);
+  audio.leveler.gain.value = dbToGain(levelGainDb(ms));
 }
+
+// The same, found once the music has started (a live song's level is measured as it
+// plays, see main.js): eased there from audio time `t`, slowly enough not to be heard
+// as a move, in the quiet of an intro.
+export function easeLevel(ms, t) {
+  audio.level.ms = ms;
+  audio.leveler.gain.setTargetAtTime(dbToGain(levelGainDb(ms)), t, 1.5);
+}
+
+const levelGainDb = ms => Math.max(-LEVEL_RANGE_DB, Math.min(LEVEL_RANGE_DB, LEVEL_TARGET_DB - 10 * Math.log10(ms)));
 
 // ─── Making sure sound actually comes out ────────────────────────────────────
 // A context that sat in a background tab can come back in a state other than
@@ -924,7 +933,12 @@ export function initAudio(ctx = null) {
   // blanket over the cymbals and the breath of things: a mastering engineer's air shelf.
   const air = audio.ctx.createBiquadFilter();
   air.type = 'highshelf'; air.frequency.value = 6000; air.gain.value = 2;
-  highpass.connect(lowMids); lowMids.connect(air); air.connect(leveler);
+  // A song's sections can be set a little under the rest here: a build that would
+  // otherwise end louder than the drop it leads to (see enterSection in scheduler.js).
+  // After the meter's tap, so the leveller never hears it.
+  const sectionGain = audio.ctx.createGain();
+  audio.sectionGain = sectionGain;
+  highpass.connect(lowMids); lowMids.connect(air); air.connect(sectionGain); sectionGain.connect(leveler);
   leveler.connect(compressor);
   compressor.connect(makeup);
   makeup.connect(saturator);

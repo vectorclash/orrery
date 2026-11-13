@@ -128,38 +128,73 @@ function listener(heard, durationSec) {
 }
 
 // ─── A song's level ───────────────────────────────────────────────────────────
-// What a song's first hook section (its first chorus, drop or swell) reads on
-// the leveller's meter, as a mean square: the level the leveller settles at
-// there, and so the one an export of the song should start at (renderExport
-// takes it as plan.song.levelMs). Otherwise the leveller only finds it at the
-// first chorus, and everything before plays at whatever gain it had.
-// Each section of a song is seeded on its own, so the hook rendered alone is
-// the hook as it plays in the song. The meter listens before the leveller, so
-// its gain doesn't matter. The ticks run ahead of the render, as Firefox's
-// exports do, so it works in every browser. Null for a song with no hook.
-window.levelOfSong = async (plan, sampleRate) => {
-  const hook = songFor(plan).sections.find(x => x.hook && x.energy[0] >= 0.6);
-  if (!hook) return null;
-  const durationSec = LOOKAHEAD + hook.beats * 60 / plan.state.tempo;
+// How loud a song's first hook section (its first chorus, drop or swell) reads
+// on the leveller's meter, as a mean square over its first HOOK_BARS: the level
+// the leveller settles at there, and so the one a song should start at, live or
+// exported (plan.song.levelMs). Otherwise the leveller only finds it at the first
+// chorus: everything before plays at whatever gain it had (live, the last song's),
+// and the drop sinks as the leveller pulls it down.
+//
+// And how loud the end of the build into it reads (the last BUILD_TAIL_BARS before
+// its silent beat), so that a build can be turned down just enough for the drop to
+// land the louder by DROP_LIFT_DB, about 3 dB once the compressor has had its share (plan.song.buildTrimDb, see enterSection in
+// scheduler.js). Measured over 22 songs, a drop came in a median of 1.4 dB over its
+// build's last bars, and under it in a sparse one (drums, bass, an arpeggio): the
+// roll and the riser peak there, and a drop of a few instruments can't top them.
+//
+// One render from the top of the build (or of the hook, if no build leads to it),
+// as they play in the song: each section is seeded on its own, so starting at the
+// build is the song from there. The meter listens before the leveller and the build
+// trim, so neither changes what it reads. The ticks run ahead of the render, as
+// Firefox's exports do, so it works in every browser, a few at a time so a probe
+// made while music plays (see main.js) never holds the page up long.
+// { levelMs: null, buildTrimDb: 0 } for a song with no hook.
+const HOOK_BARS = 8, BUILD_TAIL_BARS = 4, DROP_LIFT_DB = 4, MOST_TRIM_DB = 6;
+window.songLevels = async (plan, sampleRate) => {
+  const s = songFor(plan);
+  const i = s.sections.findIndex(x => x.hook && x.energy[0] >= 0.6);
+  if (i < 0) return { levelMs: null, buildTrimDb: 0 };
+  const hook = s.sections[i], build = s.sections[i - 1]?.build ? s.sections[i - 1] : null;
+  const from = build ? build.start : hook.start;
+  const spb = 60 / plan.state.tempo;
+  const beats = hook.start - from + Math.min(hook.beats, HOOK_BARS * 4);
+  const durationSec = LOOKAHEAD + beats * spb;
   const ctx = new OfflineAudioContext(1, Math.round(durationSec * sampleRate), sampleRate);
   initAudio(ctx);
   applyPlan(plan);
-  startSession(LOOKAHEAD, hook.start);
+  startSession(LOOKAHEAD, from);
   const opts = { skipBass: !plan.bassStyle, skipEvolve: true };
   let now = 0;
   Object.defineProperty(ctx, 'currentTime', { get: () => now, configurable: true });
-  for (let t = 0; t < durationSec; t += TICK_MS / 1000) { now = t; tick(opts); }
+  for (let k = 0, t = 0; t < durationSec; k++, t += TICK_MS / 1000) {
+    now = t;
+    tick(opts);
+    if (k % 8 === 7) await new Promise(r => setTimeout(r, 0));
+  }
   delete ctx.currentTime;
 
   // Only the meter's signal, mono, as the analyser hears it.
   audio.masterOut.disconnect();
   audio.meter.connect(ctx.destination);
   const d = (await ctx.startRendering()).getChannelData(0);
-  let e = 0;
-  const from = Math.round(LOOKAHEAD * sampleRate);
-  for (let i = from; i < d.length; i++) e += d[i] * d[i];
-  return e / Math.max(1, d.length - from);
+  const at = b => Math.min(d.length, Math.round((LOOKAHEAD + (b - from) * spb) * sampleRate));
+  const meanSquare = (a, b) => {
+    let e = 0;
+    for (let j = a; j < b; j++) e += d[j] * d[j];
+    return e / Math.max(1, b - a);
+  };
+  const levelMs = meanSquare(at(hook.start), d.length);
+  let buildTrimDb = 0;
+  if (build) {
+    const end = hook.start - build.gap;
+    const tail = meanSquare(at(Math.max(build.start, end - BUILD_TAIL_BARS * 4)), at(end));
+    const over = 10 * Math.log10(tail / levelMs) + DROP_LIFT_DB;
+    if (over > 0) buildTrimDb = -Math.min(MOST_TRIM_DB, over);
+  }
+  return { levelMs, buildTrimDb };
 };
+// The level alone (see songLevels), for pages that don't yet ask for both.
+window.levelOfSong = async (plan, sampleRate) => (await window.songLevels(plan, sampleRate)).levelMs;
 
 // A song's hook, as notes (see transcribe.js): its first hook section played against a
 // stand-in clock, nothing rendered, and what its voices do written down. Each section is
