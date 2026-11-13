@@ -1,7 +1,7 @@
 import { audio, getVoiceBus, noise, voiceIn } from '../context.js';
 import { state, beat, rand, pick, fold, midiToHz, random } from '../../state.js';
 import { createVoice } from '../transport.js';
-import { seeded, hashSeed } from '../../random.js';
+import { seeded, hashSeed, restream, within, stream } from '../../random.js';
 import { song } from '../song.js';
 import { logHit } from '../notes.js';
 import { osc, gain, filter, send, perc, shaper } from '../synth.js';
@@ -834,6 +834,101 @@ function rollHit(b, from, end, i, steps) {
   return 0.35 + 0.8 * x;
 }
 
+// ─── Cross-rhythms ─────────────────────────────────────────────────────────────
+// A layer played against a style's grid, the way the genre does it (every composer). A song draws
+// one or none (see crossNow) and plays it wherever the whole kit plays: a chorus,
+// a drop, a swell, a loop. Two kinds:
+//   tuplet   -- `line`'s steps spread evenly over `over` beats (4, a bar, if not
+//               given) from beat `from` (0) of the bar, and again every `over` beats
+//               to the bar's end: twelve over a sixteen-step bar is three against
+//               four, six over two beats is triplet eighths over straight ones, eight
+//               over a twelve-step bar is two against three.
+//   cycle    -- `cycle`'s steps on the style's own grid, going round on its own
+//               length rather than the bar's, so it drifts across the bar and comes
+//               back to the downbeat every few bars (a polymeter, techno's three-step
+//               percussion loop); from the top every 8 bars and every section.
+//   replaces -- the style's track the layer plays instead of, where it plays.
+// `chance` is how often a song in the style has one.
+const CROSS = {
+  // Triplet hats: through the back half of the bar, or the whole bar.
+  trap:     { chance: 0.6, layers: [
+    { track: 'hat', replaces: 'hat', from: 2, over: 2, line: 'xooxoo' },
+    { track: 'hat', replaces: 'hat', line: 'xoox.ox.oxoo' } ] },
+  drill:    { chance: 0.6, layers: [
+    { track: 'hat', replaces: 'hat', line: 'x.ox.ox.oxo.' },
+    { track: 'rim', line: '..o..g..o..g' } ] },
+  halftime: { chance: 0.5, layers: [
+    { track: 'hat', replaces: 'hat', from: 2, over: 2, line: 'xoxoxo' },
+    { track: 'rim', line: 'g..g..g..g..' } ] },
+  // The African dance styles: shakers and congas in triplets over a straight kick.
+  afro_house: { chance: 0.6, layers: [
+    { track: 'shaker', replaces: 'shaker', line: 'xgoxgoxgoxgo' },
+    { track: 'congaHi', replaces: 'congaHi', line: '.o..o..og.o.' } ] },
+  amapiano: { chance: 0.6, layers: [
+    { track: 'shaker', replaces: 'shaker', line: 'xgoxgoxgoxgo' },
+    { track: 'congaHi', replaces: 'congaHi', from: 2, over: 2, line: 'o.oo.o' } ] },
+  afrobeats: { chance: 0.5, layers: [
+    { track: 'congaHi', replaces: 'congaHi', line: '..o..o.o..o.' },
+    { track: 'shaker', replaces: 'shaker', line: 'xgoxgoxgoxgo' } ] },
+  // And the other way round: straight eighths over a twelve-eight bell.
+  afro:     { chance: 0.5, layers: [
+    { track: 'tamb', line: 'xgogxgog' },
+    { track: 'congaLo', line: '..o...o.' } ] },
+  // Club percussion going round in threes and fives.
+  techno:   { chance: 0.6, layers: [
+    { track: 'rim', replaces: 'rim', cycle: 'x..' },
+    { track: 'tomHi', cycle: 'o....' },
+    { track: 'congaHi', cycle: 'o..g.o' } ] },
+  deep_house: { chance: 0.5, layers: [
+    { track: 'congaHi', cycle: 'o..g.' },
+    { track: 'rim', replaces: 'rim', cycle: 'g..' } ] },
+  house:    { chance: 0.5, layers: [ { track: 'rim', cycle: 'o..' }, { track: 'congaHi', cycle: 'o..g.' } ] },
+  trance:   { chance: 0.4, layers: [ { track: 'rim', cycle: 'g..' } ] },
+  // Toms and cross-stick in threes against the bar.
+  cinematic: { chance: 0.6, layers: [
+    { track: 'tomHi', replaces: 'tomHi', line: 'xooxoo' },
+    { track: 'tomHi', replaces: 'tomHi', from: 2, over: 2, line: 'xoo' } ] },
+  swing:    { chance: 0.5, layers: [
+    { track: 'rim', from: 2, over: 2, line: 'goo' },
+    { track: 'rim', line: 'goo' } ] },
+  minimal:  { chance: 0.4, layers: [ { track: 'rim', line: 'ggg' } ] },
+};
+const CROSS_LEVEL = 0.85; // a layer sits a little under the beat it crosses
+
+// The cross-rhythm style `s` plays in this song, or null. Drawn from a stream of its
+// own, re-derived each time, so every section and every bar gets the same answer, and
+// drawing it leaves the drums' own stream (fills, ghost notes) as it was.
+function crossNow(s) {
+  const c = CROSS[s];
+  if (!c) return null;
+  restream('drums.cross', s);
+  return within(stream('drums.cross'), () => (random() < c.chance ? pick(c.layers) : null));
+}
+
+// The hits layer `x` adds in the step from beat `pos` of bar `bar` (`unit` beats
+// long, step `i` of `steps`), each [offset in beats from the step, character].
+function crossHits(x, bar, pos, unit, i, steps) {
+  if (x.cycle) {
+    const top = Math.max(bar - bar % 8, sec ? Math.round(sec.start / 4) : 0);
+    return [[0, x.cycle[((bar - top) * steps + i) % x.cycle.length]]];
+  }
+  const out = [], from = x.from ?? 0, over = x.over ?? 4, n = x.line.length;
+  for (let at = from; at < 4 - 1e-6; at += over) {
+    for (let k = 0; k < n; k++) {
+      const sp = at + k * over / n;
+      if (sp >= pos - 1e-6 && sp < pos + unit - 1e-6) out.push([sp - pos, x.line[k]]);
+    }
+  }
+  return out;
+}
+
+// Whether layer `x` has the style's `track` at beat `pos` of the bar.
+function crossReplaces(x, track, pos) {
+  if (x.replaces !== track) return false;
+  if (x.cycle || x.from === undefined) return true;
+  return pos >= x.from - 1e-6;
+}
+
 // ─── Sequencer ────────────────────────────────────────────────────────────────
 // One key of `weights` ({ key: weight }), drawn in proportion to its weight.
 function weighted(weights) {
@@ -846,10 +941,12 @@ let style = 'four_four';
 let curBar = -1, fill = null, fillFrom = 99, crashNext = false, rollSteps = new Set();
 let sec = null;      // the song section the current bar is in, or null
 let rollFrom = null; // beat at which this section's roll starts
+let cross = null;    // the cross-rhythm layer this song plays, or null (see CROSS)
 
 function startBar(bar, p, steps) {
   curBar = bar;
   fill = null; fillFrom = 99;
+  cross = crossNow(style);
   sec = song.sectionAt(bar * 4);
   const end = sec ? sec.start + sec.beats : 0;
   rollFrom = sec?.build?.roll ? Math.max(sec.start, end - sec.build.rollBars * 4) : null;
@@ -867,6 +964,13 @@ function startBar(bar, p, steps) {
   }
   rollSteps = new Set();
   if (p.rolls) for (const s of [6, 7, 14, 15]) if (random() < 0.3) rollSteps.add(s);
+}
+
+// One hit of a cross-rhythm layer (see play).
+function strike(fn, track, t, at, level, v, human) {
+  if (human) { at += rand(-0.004, 0.004); v *= rand(0.9, 1.07); }
+  fn(Math.max(t, at), level * v, v);
+  logHit(track, Math.max(t, at), Math.min(1, v));
 }
 
 function play(t, b) {
@@ -891,6 +995,7 @@ function play(t, b) {
   const build = sec?.build;
   const rolling = rollFrom !== null && b >= rollFrom - 1e-6;
   const noKick = !!build?.kickOut && b >= end - sec.gap - build.kickOut - 1e-6;
+  const crossing = !!cross && part === 'full' && !rolling;
 
   const hits = [];
   if (i === 0 && crashNext) { hits.push(['crash', 1]); crashNext = false; }
@@ -901,7 +1006,11 @@ function play(t, b) {
     if (part === 'light' && ACCENTS.has(track)) continue;
     if (rolling && ROLLED[build.roll].includes(track)) continue;
     if (noKick && KICKS.includes(track)) continue;
+    if (crossing && crossReplaces(cross, track, i * unit)) continue;
     hits.push([track, line[i]]);
+  }
+  if (crossing && !(fill && i >= fillFrom)) {
+    for (const [off, ch] of crossHits(cross, bar, i * unit, unit, i, steps)) hits.push([cross.track, ch, off]);
   }
   if (fill && part !== 'roll') {
     for (const [track, line] of Object.entries(fill)) hits.push([track, line[i - fillFrom]]);
@@ -914,13 +1023,19 @@ function play(t, b) {
     if (v) hits.push([tracks[Math.round((b - rollFrom) / unit) % tracks.length], v * (build.roll === 'kick' ? 0.8 : 1)]);
   }
 
-  for (const [track, ch] of hits) {
+  for (const [track, ch, off] of hits) {
+    if (ch === '?' && off !== undefined) continue; // a layer has no '?': and no draw from the drums' stream
     let v = typeof ch === 'number' ? ch : ch === '?' ? (random() < 0.35 ? VEL.g : 0) : VEL[ch] || 0;
     if (!v) continue;
+    if (off !== undefined) v *= CROSS_LEVEL;
     if (track !== 'crash' && sec) v *= PART_LEVEL[part];
     const [fn, level] = KIT[(p.acoustic && ACOUSTIC[track]) || STRUCK[track] || track];
     const scale = ['hat', 'ohat', 'ride', 'shaker', 'crash', 'swish', 'sweep', 'chick', 'tamb'].includes(track) ? bright : density;
-    let at = st;
+    // A tuplet's hit falls between the grid's steps, at its own time, unswung.
+    let at = off ? t + off * beat() : st;
+    // A layer's hits draw (their feel, the sounds' own variation) from a stream of
+    // their own, so the kit's ghost notes, fills and sounds are as they'd be without it.
+    if (off !== undefined) { within(stream('drums.feel'), () => strike(fn, track, t, at, level * scale, v, p.human)); continue; }
     if (p.human) { at += rand(-0.004, 0.004); v *= rand(0.9, 1.07); }
     if (track === 'hat' && rollSteps.has(i)) {
       const n = pick([2, 3, 4]);

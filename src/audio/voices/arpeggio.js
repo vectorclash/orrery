@@ -3,8 +3,10 @@ import { state, beat, pick, lerp, register, midiToHz, random } from '../../state
 import { createVoice } from '../transport.js';
 import { logNote } from '../notes.js';
 import { harmony } from '../harmony.js';
+import { song } from '../song.js';
 import { lines } from '../lines.js';
 import { osc, gain, filter, send } from '../synth.js';
+import { restream, within, stream } from '../../random.js';
 
 // Arpeggiator. The step counter runs off the global beat grid, so the figure
 // stays locked to the bar and simply re-maps onto each new chord (a real arp
@@ -23,6 +25,20 @@ let pattern = 'up';
 let rate    = 0.25;
 let phrase  = -1;
 
+// Threes: now and then a song's arpeggio goes round in groups of three, three
+// chord tones a group with the accent on the first, against the bar's four: in
+// sixteenths the accents fall a dotted eighth apart, three against four (the
+// synthwave and trance arp); in eighths a dotted quarter apart. It comes back to
+// the downbeat every three bars, and starts again each four bars of a section. Drawn from
+// a stream of its own, once a song, so it leaves the arp's other draws as they were.
+const THREES = [[0, 1, 2], [0, 2, 1], [0, 1, 3], [2, 1, 0]];
+let threes = null; // the group, or null for the pattern
+
+function drawThrees() {
+  restream('arpeggio.threes', 'song');
+  threes = within(stream('arpeggio.threes'), () => (random() < 0.35 ? pick(THREES) : null));
+}
+
 function chordNotes(b) {
   const seg  = harmony.at(b);
   const base = register(56, 28, 73);
@@ -39,8 +55,14 @@ function play(t, b) {
   }
   const p = Math.floor(b / 16);
   if (p !== phrase) { phrase = p; if (state.composer < 2 && random() < 0.5) pattern = pick(Object.keys(PATTERNS)); }
-  const step  = Math.round(b / rate);
   const notes = chordNotes(b);
+  if (threes) {
+    const top = song.current ? song.sectionAt(b)?.start ?? 0 : 0;
+    const n = Math.round(((b - top) % 16) / rate);
+    note(t, notes[threes[n % 3]], rate * beat() * 0.85, n % 3 === 0 ? 1 : 0.72);
+    return rate;
+  }
+  const step  = Math.round(b / rate);
   const seq   = PATTERNS[pattern](notes.length);
   note(t, notes[seq[step % seq.length]], rate * beat() * 0.85, step % 4 === 0 ? 1 : 0.78);
   return rate;
@@ -73,5 +95,6 @@ export const arpeggioVoice = createVoice('arpeggio', play, {
     phrase = -1;
     pattern = pick(Object.keys(PATTERNS));
     rate = state.tempo > 110 ? pick([0.25, 0.5, 0.5]) : pick([0.25, 0.25, 0.5]);
+    drawThrees();
   },
 });
