@@ -7,7 +7,7 @@ import { song } from '../song.js';
 import { lines } from '../lines.js';
 import { osc, gain, filter, send } from '../synth.js';
 import { restream, within, stream } from '../../random.js';
-import { barBeats, isFour } from '../meter.js';
+import { barIndex, inBar, isFour } from '../meter.js';
 
 // Arpeggiator. The step counter runs off the global beat grid, so the figure
 // stays locked to the bar and simply re-maps onto each new chord (a real arp
@@ -57,7 +57,7 @@ function play(t, b) {
     if (line.midi !== null) note(t, line.midi, line.dur * beat() * 0.85, line.vel >= 0.92 ? 1 : 0.78);
     return line.gap;
   }
-  const p = Math.floor(b / (4 * barBeats()));
+  const p = Math.floor(barIndex(b) / 4);
   if (p !== phrase) { phrase = p; if (state.composer < 2 && random() < 0.5) pattern = pick(Object.keys(PATTERNS)); }
   const notes = chordNotes(b);
   if (threes && isFour()) {
@@ -66,7 +66,8 @@ function play(t, b) {
     note(t, notes[threes[n % 3]], rate * beat() * 0.85, n % 3 === 0 ? 1 : 0.72);
     return rate;
   }
-  const step  = Math.round(b / rate);
+  // Counted from the bar line in another meter, so the accent stays on its downbeat.
+  const step  = isFour() ? Math.round(b / rate) : Math.round(inBar(b, 1e-9) / rate);
   const seq   = PATTERNS[pattern](notes.length);
   note(t, notes[seq[step % seq.length]], rate * beat() * 0.85, step % 4 === 0 ? 1 : 0.78);
   return rate;

@@ -49,12 +49,16 @@ export const state = {
 
 // Edit mode's RHYTHM switch. 'auto': the per-song chances, now and then a cross-rhythm
 // layer in the drums (see CROSS in voices/drums.js) or an arpeggio in threes, now and
-// then a song in 3/4 or 6/8 (see meterFor in audio/song.js). 'plain': never, all 4/4.
+// then a song in 3/4, 6/8, 5/4 or 7/8 (see meterFor in audio/song.js), or one that
+// changes meter for a bar or a bridge. 'plain': never, all 4/4.
 // 'cross': always the cross-rhythms, where the style has one -- the same layer the song
 // would draw by chance, so PLAIN and CROSS on one song are the same song with and
 // without -- and so always 4/4. 'odd': always another meter where the genre and kit
-// have one, else as AUTO. Share links store the index: only ever append.
-export const RHYTHMS = ['auto', 'plain', 'cross', 'odd'];
+// have one, else as AUTO. 'shift': always a change of meter within a 4/4 song (a 2/4 or
+// 6/4 bar before the chorus, or a bridge in 3/4 or 6/8; see changeFor in audio/song.js),
+// where the song has a chorus to change before. Share links store the index: only ever
+// append.
+export const RHYTHMS = ['auto', 'plain', 'cross', 'odd', 'shift'];
 
 // Whether a per-song rhythmic chance `chance` comes up for draw `r` (0-1).
 export function rhythmChance(r, chance) {

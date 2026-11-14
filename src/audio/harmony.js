@@ -3,7 +3,7 @@ import { transport } from './transport.js';
 import { parseChord, chordScale, soundingPcs, isPent } from './chords.js';
 import { freeForm } from './language.js';
 import { lines } from './lines.js';
-import { barBeats, chordBeats } from './meter.js';
+import { barStart, chordBeats } from './meter.js';
 
 // ─── Shared harmonic context ────────────────────────────────────────────────
 // Every harmonic and melodic voice reads the chord from here, so at any
@@ -112,7 +112,12 @@ let formScale = null;
 let written = null;
 let lastBeat = 0;
 
+// A chord held past its time, to beat `to` (a 6/4 bar's last two beats, see song.js):
+// { from, to, seg }, or null. Any new form lets go of it.
+let held = null;
+
 function write(tokens, atBeat) {
+  held = null;
   formScale = SCALE_NAMES[state.scaleIdx];
   const chords = tokens.map(t => parseChord(t, formScale));
   written = { tokens, chords, at: atBeat, total: chords.reduce((s, c) => s + c.dur, 0) };
@@ -136,6 +141,7 @@ function writtenAt(beat) {
 }
 
 function reroll(atBeat = segStart) {
+  held = null;
   if (state.composer >= 2) {
     write(freeForm(random, state.language, SCALE_NAMES[state.scaleIdx], state.harmonyLock, state.composer), atBeat);
     return;
@@ -161,6 +167,7 @@ export const harmony = {
   // Composer 2's `prog` is chord tokens, and it has no `colours`: its chords say.
   setForm(prog, colours, atBeat) {
     if (typeof prog[0] === 'string') { write(prog, atBeat); return; }
+    held      = null;
     written   = null;
     formScale = SCALE_NAMES[state.scaleIdx];
     form      = prog;
@@ -178,7 +185,7 @@ export const harmony = {
       // Mode switched live: the same chords, read in the new mode. Chord length
       // changed live: the same chord, on the next bar's grid.
       if (SCALE_NAMES[state.scaleIdx] !== formScale) write(written.tokens, written.at);
-      if (chordLen() !== lastLen) { const B = barBeats(); written.at = Math.floor(lastBeat / B) * B; lastLen = chordLen(); }
+      if (chordLen() !== lastLen) { written.at = barStart(lastBeat); lastLen = chordLen(); }
       return;
     }
     if (SCALE_NAMES[state.scaleIdx] !== formScale) reroll(); // mode switched live
@@ -196,8 +203,14 @@ export const harmony = {
     }
   },
 
+  // The chord sounding just before beat `from`, held to beat `to`.
+  hold(from, to) {
+    const seg = this.at(from - 1e-6);
+    held = { from, to, seg: { ...seg, end: to } };
+  },
+
   // Beat position of the next chord change.
-  get nextChange() { return written ? writtenAt(lastBeat).end : segStart + chordLen(); },
+  get nextChange() { return held ? held.to : written ? writtenAt(lastBeat).end : segStart + chordLen(); },
 
   // The written form playing (composer 2's), or null: its chord tokens, where it
   // starts and how long a time round it is, in beats.
@@ -205,6 +218,7 @@ export const harmony = {
 
   // The chord segment containing musical position `beat`.
   at(beat) {
+    if (held && beat >= held.from - 1e-9 && beat < held.to - 1e-9) return held.seg;
     if (written) return writtenAt(beat);
     const len  = chordLen();
     const k    = Math.floor((beat - segStart) / len + 1e-9);

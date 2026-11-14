@@ -5,7 +5,7 @@ import { languageFor, writeProgressions, holdsFor, intervalsFor } from './langua
 import { loopLength } from './chords.js';
 import { writeMotif, lineOver, lineOfHook, thinned, harmonised, counterLine } from './hook.js';
 import { carriersIn, isAir } from './lines.js';
-import { METERS, FOUR, ODD_METERS, METER_GENRES, METER_DRUMS, METER_CHANCE, meterSource, withMeter, chordBeats } from './meter.js';
+import { METERS, FOUR, METER_GENRES, METER_DRUMS, METER_CHANCE, BOLD_CHANCE, GENTLE_METERS, BOLD_METERS, meterSource, gridSource, withMeter, chordBeats } from './meter.js';
 
 // ─── Songs ────────────────────────────────────────────────────────────────────
 // A song keeps what makes it itself -- key, tempo, instruments, chord
@@ -149,7 +149,8 @@ function writtenUnit(progs, scale, cb, B) {
   let unit = 4 * B;
   for (const p of new Set(Object.values(progs))) {
     const beats = loopLength(p, scale) * cb;
-    if (Number.isInteger(beats)) unit = lcm(unit, beats);
+    // Whole beats; half beats too where the bar is (7/8), since its bars are.
+    if (Number.isInteger(B % 1 ? beats * 2 : beats)) unit = lcm(unit, beats);
   }
   return unit <= 24 * B ? unit : 4 * B;
 }
@@ -261,21 +262,54 @@ export function formFor(plan) {
 
 // ─── Meter ────────────────────────────────────────────────────────────────────
 // The song's meter (see meter.js): now and then (METER_CHANCE) a waltz or a six-eight,
-// where its genre plays in one and its drums can; always, where it can, with RHYTHM
-// set to ODD; never with PLAIN or CROSS (cross-rhythms are against a 4/4 bar). Drawn
+// more rarely (BOLD_CHANCE) five-four or seven-eight, where its genre plays in one and
+// its drums can; always one of them, where it can, with RHYTHM set to ODD; never with
+// PLAIN or CROSS (cross-rhythms are against a 4/4 bar), or SHIFT, which changes meter
+// within a 4/4 song (see changeFor). Drawn
 // from the seed that writes the song, so MORE LIKE THIS keeps its meter with its hook
 // (if its kit can play it). A song given another's hook plays in that hook's meter;
 // composer 1 is always in 4/4.
 export function meterFor(plan) {
   const { rhythm = 'auto', composer = 1, language } = plan.state;
   if (plan.song?.hook) return METERS[plan.song.hook.meter] ?? FOUR;
-  if (!plan.song || composer < 2 || rhythm === 'plain' || rhythm === 'cross') return FOUR;
+  if (!plan.song || composer < 2 || rhythm === 'plain' || rhythm === 'cross' || rhythm === 'shift') return FOUR;
   const drums = plan.voices.includes('drums') ? plan.drumStyle : null;
-  const fits = ODD_METERS.filter(m => METER_GENRES[m].includes(language) && (!drums || METER_DRUMS[m].includes(drums)));
-  if (!fits.length) return FOUR;
+  const fits = m => METER_GENRES[m].includes(language) && (!drums || METER_DRUMS[m].includes(drums));
+  const gentle = GENTLE_METERS.filter(fits), bold = BOLD_METERS.filter(fits);
+  if (!gentle.length && !bold.length) return FOUR;
   const r = seeded(hashSeed((plan.song.writing ?? plan.song.seed) >>> 0, 'meter'));
-  const chance = r(), which = fits[Math.floor(r() * fits.length)];
-  return rhythm === 'odd' || chance < METER_CHANCE ? METERS[which] : FOUR;
+  const chance = r(), g = r(), b = r();
+  if (rhythm === 'odd') { const all = [...gentle, ...bold]; return METERS[all[Math.floor(g * all.length)]]; }
+  if (gentle.length && chance < METER_CHANCE) return METERS[gentle[Math.floor(g * gentle.length)]];
+  const from = gentle.length ? METER_CHANCE : 0;
+  if (bold.length && chance >= from && chance < from + BOLD_CHANCE) return METERS[bold[Math.floor(b * bold.length)]];
+  return FOUR;
+}
+
+// A change of meter in a 4/4 song, now and then (CHANGE_CHANCE), always with RHYTHM set
+// to SHIFT, never with PLAIN, CROSS or ODD. The ones songs make:
+//   short  -- the section before a chorus drops the last two beats of its last bar,
+//             a bar of 2/4, and the chorus comes in early
+//   long   -- that bar gains two beats, a bar of 6/4, the chord held over them
+//   bridge -- the bridge in 3/4 or 6/8, where the genre and kit play in one
+// Every section before a chorus does it, the same each time. Song form only, and only
+// composers 2 and up: composer 1's tunes are transcribed (see transcribe.js) on 4/4
+// bars. Drawn from the seed that writes the song, so MORE LIKE THIS keeps it.
+const CHANGE_CHANCE = 0.1;
+const CHANGE_BEFORE = new Set(['verse', 'pre', 'bridge']); // the sections a short or long bar ends
+function changeFor(plan, form, kinds, meter) {
+  const { rhythm = 'auto', composer = 1, language } = plan.state;
+  if (form !== 'song' || meter !== FOUR || plan.song.hook || composer < 2) return null;
+  if (rhythm !== 'auto' && rhythm !== 'shift') return null;
+  const drums = plan.voices.includes('drums') ? plan.drumStyle : null;
+  const bridges = !kinds.includes('bridge') ? []
+    : GENTLE_METERS.filter(m => METER_GENRES[m].includes(language) && (!drums || METER_DRUMS[m].includes(drums)));
+  const options = ['short', 'long', ...(bridges.length ? ['bridge'] : [])];
+  const r = seeded(hashSeed((plan.song.writing ?? plan.song.seed) >>> 0, 'change'));
+  const chance = r(), k = r(), m = r();
+  if (rhythm === 'auto' && chance >= CHANGE_CHANCE) return null;
+  const kind = options[Math.floor(k * options.length)];
+  return kind === 'bridge' ? { kind, meter: METERS[bridges[Math.floor(m * bridges.length)]] } : { kind };
 }
 
 const gcd = (a, b) => (b ? gcd(b, a % b) : a);
@@ -305,7 +339,7 @@ function everywhere(chords) {
   return Object.fromEntries(['main', 'chorus', 'verse', 'theme', 'pre', 'bridge', 'break', 'drift'].map(k => [k, chords]));
 }
 
-function writeSong(plan, seed, form) {
+function writeSong(plan, seed, form, change = null) {
   const r     = seeded(hashSeed(seed, 'writing'));
   const scale = SCALE_NAMES[plan.state.scaleIdx];
   const cb    = chordBeats(plan.state.chordBeats || 4);
@@ -331,14 +365,20 @@ function writeSong(plan, seed, form) {
   const riff = hook.kind === 'riff';
   const verse  = riff ? null : writeMotif(r, lang, progs.verse, scale, cb, lock, { kind: 'topline', centres: [0, 2, 2, 4], spoken });
   const pre    = riff ? null : writeMotif(r, lang, progs.pre, scale, cb, lock, { kind: 'riff', centres: [4, 5, 7], spoken });
-  const bridge = writeMotif(r, lang, progs.bridge, scale, cb, lock, { kind: riff ? 'topline' : 'riff', palette: lang.hook.topline, centres: [2, 4, 5], spoken });
+  // A bridge in another meter (see changeFor) is written in it, over its chords' length there.
+  const bm = change?.kind === 'bridge' ? change.meter : null;
+  const inBridge = fn => (bm ? withMeter(bm, fn) : fn());
+  const bcb = bm ? chordBeats(plan.state.chordBeats || 4, bm) : cb;
+  const bridge = inBridge(() => writeMotif(r, lang, progs.bridge, scale, bcb, lock, { kind: riff ? 'topline' : 'riff', palette: lang.hook.topline, centres: [2, 4, 5], spoken }));
   const hints  = r() < 0.5;
 
   const anchor = lineOver(hook, hookProg, scale, cb).mean; // where the hook sits, see `place` in lines.js
   const memo = new Map();
   const over = (motif, prog) => {
     const key = `${motif === hook ? 'h' : motif === verse ? 'v' : motif === pre ? 'p' : 'b'}|${prog.join(' ')}`;
-    if (!memo.has(key)) memo.set(key, { ...lineOver(motif, prog, scale, cb), anchor });
+    if (!memo.has(key)) memo.set(key, motif === bridge && bm
+      ? inBridge(() => ({ ...lineOver(motif, prog, scale, bcb), anchor }))
+      : { ...lineOver(motif, prog, scale, cb), anchor });
     return memo.get(key);
   };
   const lineFor = (kind, prog) => {
@@ -381,7 +421,8 @@ function composeIn(plan, roleOf, meter) {
 
   // Chords: a progression per part of the song, distinct where it matters.
   // Composer 2 writes them from the language, with the song's lines.
-  const writing = plan.state.composer >= 2 ? writeSong(plan, plan.song.writing ?? seed, form) : null;
+  const change = changeFor(plan, form, kinds, meter);
+  const writing = plan.state.composer >= 2 ? writeSong(plan, plan.song.writing ?? seed, form, change) : null;
   const progs = writing ? writing.progs : {};
   let colours = null;
   if (!writing) {
@@ -532,11 +573,24 @@ function composeIn(plan, roleOf, meter) {
 
   const sections = [];
   const seen = {};
-  let at = 0, shift = 0;
+  let at = 0, shift = 0, barsSoFar = 0, changed = false;
   kinds.forEach((kind, i) => {
     const k = KINDS[kind];
-    const beats = lens[i] * B;
     const next = kinds[i + 1];
+    // A change of meter (see changeFor): a bridge in its own, as many bars of it as
+    // come nearest the 4/4 bars it would have had, in fours; or two beats less or more
+    // on the bar before a chorus, the 6/4 bar's last two holding its chord (extraFrom).
+    let beats = lens[i] * B, own = null, extraFrom = null, bars = lens[i];
+    if (change?.kind === 'bridge' && kind === 'bridge') {
+      own = change.meter;
+      bars = Math.max(4, Math.round(lens[i] * B / own.beats / 4) * 4);
+      beats = bars * own.beats;
+      changed = true;
+    } else if (change && change.kind !== 'bridge' && next === 'chorus' && CHANGE_BEFORE.has(kind) && lens[i] >= 2) {
+      if (change.kind === 'short') beats -= 2;
+      else { extraFrom = at + beats; beats += 2; bars += 1; }
+      changed = true;
+    }
     if (i === lastChorus && lift) shift = lift;
     seen[kind] = (seen[kind] ?? 0) + 1;
     const final = kind === 'chorus' && i === lastChorus || kind === 'drop' && i === kinds.lastIndexOf('drop');
@@ -565,26 +619,32 @@ function composeIn(plan, roleOf, meter) {
       impact:   kind === 'drop' || (kind === 'chorus' && final),
       downlift: kind === 'breakdown',
       crash:    kind === 'chorus' || kind === 'drop' || kind === 'swell',
+      meter:    own,        // its own meter, or null for the song's
+      bar0:     barsSoFar,  // the bars before it
+      extraFrom,
     });
     at += beats;
+    barsSoFar += bars;
   });
 
   // A fill lands on a crash.
   for (let i = 1; i < sections.length; i++) sections[i].crash ||= sections[i - 1].fill;
 
-  // The end: the tonic, held.
+  // The end: the tonic, held. A change of meter's beats come off its hold, as far as
+  // they can, so the song is still its length.
+  const endHeld = Math.max(hold, endBeats - (at - lens.reduce((a, n) => a + n, 0) * B));
   sections.push({
-    kind: 'end', label: KINDS.end.label, n: 1, start: at, beats: endBeats,
+    kind: 'end', label: KINDS.end.label, n: 1, start: at, beats: changed ? endHeld : endBeats, meter: null, bar0: barsSoFar, extraFrom: null,
     energy: KINDS.end.energy, prog: writing ? [lastTonic(progs.main)] : [0], colours: writing ? null : [1], roles: RECIPES.end(r), hook: false, shift,
     line: null, hookLine: null, counter: null, turn: null,
     fill: false, gap: 0, swell: false, impact: false, downlift: false, crash: false,
   });
-  at += endBeats;
+  at += changed ? endHeld : endBeats;
 
   // Exactly its length, unless even its shortest form is longer.
   const seconds = Math.max(target, LOOKAHEAD + at * spb + RING);
   const song = { seed, form, sections, end: at, tempo: plan.state.tempo, target, seconds,
-    ring: seconds - LOOKAHEAD - at * spb, meter };
+    ring: seconds - LOOKAHEAD - at * spb, meter, change: changed ? change : null };
   arrange(song, plan, roleOf);
   return song;
 }
@@ -647,14 +707,16 @@ function arrangeIn(song, plan, roleOf, meter) {
     const b = s.kind === 'build' ? build : null;
     s.build = b;
     // The held chord starts on a chord change HOLD_BARS or so before the end.
-    s.holdFrom = b?.hold != null ? s.start + cb * Math.max(1, Math.floor((s.beats - B * HOLD_BARS) / cb)) : null;
+    s.holdFrom = b?.hold != null ? s.start + cb * Math.max(1, Math.floor((s.beats - B * HOLD_BARS) / cb)) : null; // builds: never a section of its own meter
     if (s.holdFrom >= s.start + s.beats) s.holdFrom = null;
     // The bar before a lifted key plays its dominant, in place of any held chord.
-    s.turnFrom = s.turn && s.beats > B ? s.start + s.beats - B : null;
+    const sB = (s.meter ?? meter).beats;
+    // Its last bar's first beat (a short or long last bar is a bar of its own).
+    s.turnFrom = s.turn && s.beats > sB ? s.start + Math.floor((s.beats - 1e-9) / sB) * sB : null;
     const roles = b ? { ...s.roles, lead: b.tease ? 1 : 0, bass: b.bass || b.pedal, drums: b.drums } : s.roles;
     const voices = [];
     for (const role of ['bed', 'motion', 'lead', 'air']) voices.push(...byRole[role].slice(0, roles[role]));
-    if (carriers) assignLines(s, b, carriers, voices, B);
+    if (carriers) withMeter(s.meter ?? meter, () => assignLines(s, b, carriers, voices, sB));
     const drums = hasDrums && roles.drums ? roles.drums : null;
     let bass = hasBass && roles.bass;
     // A tune alone, with no drums, bass or chords under it, is a tune with nothing to say
@@ -704,7 +766,11 @@ export const song = {
   },
 };
 
-meterSource(() => song.current?.meter);
+// What's playing now (see meter.js): set by the conductor at each section of a song
+// that changes meter (song.current.now); the song's own meter, counted from beat 0,
+// otherwise.
+meterSource(() => song.current?.now?.meter ?? song.current?.meter);
+gridSource(() => song.current?.now?.grid ?? null);
 
 // A song's whole length, as an export has it: from the lead-in before its
 // first downbeat to the end of its last chord's ring.

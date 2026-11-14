@@ -5,7 +5,7 @@ import { logNote } from '../notes.js';
 import { harmony } from '../harmony.js';
 import { lines } from '../lines.js';
 import { osc, gain, filter, send, lfo } from '../synth.js';
-import { barBeats, isFour, step16 } from '../meter.js';
+import { barIndex, inBar, isFour, step16 } from '../meter.js';
 
 // Vocal chop: the pitched, chopped-up vocal hook of house, garage and future
 // bass. There are no samples here, so the voice is synthesised the way a
@@ -88,14 +88,14 @@ function play(t, b) {
     if (line.midi !== null) chop(t, line.midi, line.dur * beat() * 0.92, VOWEL_NAMES[line.i % VOWEL_NAMES.length], false);
     return line.gap;
   }
-  const p = Math.floor(b / (4 * barBeats()));
+  const p = Math.floor(barIndex(b) / 4);
   if (p !== phrase) {
     phrase = p;
     if (!hook.length || (state.composer < 2 && random() < 0.3)) hook = makeHook();
   }
   // Two bars of sixteenths; in another meter, each read from its 4/4 bar (see meter.js).
-  const B = barBeats(), two = b - Math.floor(b / (2 * B)) * 2 * B, half = two >= B - 1e-9 ? 1 : 0;
-  const step = isFour() ? Math.round(two * 4) % 32 : half * 16 + step16(two - half * B);
+  const half = barIndex(b) % 2, pos = inBar(b);
+  const step = isFour() ? Math.round((half * 4 + pos) * 4) % 32 : half * 16 + step16(pos);
   const c = hook.find(h => h.step === step);
   if (!c) return 0.25;
   const base = register(72, 60, 84);

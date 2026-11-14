@@ -4,7 +4,7 @@ import { createVoice } from '../transport.js';
 import { logNote } from '../notes.js';
 import { harmony } from '../harmony.js';
 import { osc, gain, filter, send, perc, shaper } from '../synth.js';
-import { barBeats, foldHits } from '../meter.js';
+import { barBeats, barIndex, inBar, foldHits } from '../meter.js';
 
 // Electric piano comping. The tone is two-operator FM, the standard way to
 // synthesise a tine piano: a 1:1 modulator whose depth follows velocity gives
@@ -161,7 +161,7 @@ function strike(t, b, lenBeats) {
 }
 
 function play(t, b) {
-  const B = barBeats(), bar = Math.floor(b / B + 1e-9), pos = b - bar * B;
+  const B = barBeats(), bar = barIndex(b, 1e-9), pos = inBar(b, 1e-9);
   if (bar !== curBar) {
     curBar = bar;
     if (bar % 2 === 0 && random() < 0.5) comp = pick(comps());

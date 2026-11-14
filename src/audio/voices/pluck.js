@@ -5,7 +5,7 @@ import { logNote } from '../notes.js';
 import { harmony } from '../harmony.js';
 import { song } from '../song.js';
 import { gain, send, pluckBuffer, playBuffer, settle, desk } from '../synth.js';
-import { barBeats, step16 } from '../meter.js';
+import { barBeats, inBar, step16 } from '../meter.js';
 
 // Fingerpicked steel-string guitar (Travis picking). The thumb alternates
 // root and fifth in the bass on each beat; the fingers pick upper chord tones
@@ -42,7 +42,7 @@ let arp = null, arpFor = null; // the pattern, and the language and section it w
 function picking(t, b, arps, trim) {
   const key = `${state.language}|${song.current ? song.sectionAt(b).start : ''}`;
   if (arpFor !== key) { arp = pick(arps); arpFor = key; }
-  const step = step16(b - Math.floor(b / barBeats()) * barBeats()), ch = arp[step];
+  const step = step16(inBar(b)), ch = arp[step];
   if (ch === '.') return 0.25;
   const seg = harmony.at(b), pcs = harmony.pcs(seg.degree, 3);
   const ring = Math.min(2.2, beat() * 4);
@@ -71,8 +71,7 @@ function play(t, b) {
   if (family) return picking(t, b, ARPS[family], ARPS_TRIM[family]);
   const seg  = harmony.at(b);
   const pcs  = harmony.pcs(seg.degree, 3);
-  const B    = barBeats();
-  const i    = Math.round((b - Math.floor(b / B) * B) * 2) % (2 * B); // eighth within the bar
+  const i    = Math.round(inBar(b) * 2) % (2 * barBeats()); // eighth within the bar
   const ring = Math.min(2.2, beat() * 4);
 
   if (i % 2 === 0) {

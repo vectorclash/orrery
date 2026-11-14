@@ -415,6 +415,12 @@
       color: var(--ink-3);
     }
     #form-row .kind-toggle, #composer-row .kind-toggle, #rhythm-row .kind-toggle { background: transparent; }
+    /* RHYTHM's five don't fit a phone at the usual padding: there the strip takes the
+       row's width and shares it evenly, rather than pushing the panel sideways. */
+    @media (max-width: 520px) {
+      #rhythm-row .kind-toggle { flex: 1 1 0; min-width: 0; }
+      #rhythm-row .kind-btn { flex: 1 1 0; min-width: 0; padding-left: 0; padding-right: 0; letter-spacing: 0.04em; }
+    }
     @media (max-width: 359px) { #song-row .ctrl-label { display: none; } }
 
     /* ─── Collapsible sections ──────────────────────────────────────────────── */
@@ -1189,10 +1195,11 @@
           <div class="ctrl-row" id="rhythm-row">
             <span class="ctrl-label">RHYTHM</span>
             <div class="kind-toggle" role="group" aria-label="Rhythm">
-              <button class="kind-btn rhythm-btn" data-rhythm="auto" title="Now and then a cross-rhythm in the drums, an arpeggio in threes, or a song in 3/4 or 6/8">AUTO</button>
+              <button class="kind-btn rhythm-btn" data-rhythm="auto" title="Now and then a cross-rhythm in the drums, an arpeggio in threes, a song in 3/4, 6/8, 5/4 or 7/8, or a change of meter for a bar or a bridge">AUTO</button>
               <button class="kind-btn rhythm-btn" data-rhythm="plain" title="Straight rhythms only: 4/4, no cross-rhythms, no threes">PLAIN</button>
               <button class="kind-btn rhythm-btn" data-rhythm="cross" title="Always the cross-rhythm and the threes, where the drums and arpeggio have them">CROSS</button>
-              <button class="kind-btn rhythm-btn" data-rhythm="odd" title="A waltz (3/4) or a six-eight, where the genre and drums play in one: jazz, folk, orchestral, dream, ambient, epic, blues">ODD</button>
+              <button class="kind-btn rhythm-btn" data-rhythm="odd" title="Another meter, where the genre and drums play in one: 3/4 or 6/8 (jazz, folk, orchestral, dream, ambient, epic, blues), 5/4 (jazz, dark, epic, elec) or 7/8 (techno, elec, dark)">ODD</button>
+              <button class="kind-btn rhythm-btn" data-rhythm="shift" title="A change of meter in a 4/4 song: a 2/4 or 6/4 bar before the chorus, or a bridge in 3/4 or 6/8">SHIFT</button>
             </div>
           </div>
 

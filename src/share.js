@@ -41,9 +41,10 @@ export const ALL_INST_KEYS = [
 //  tail length n(1), instBitmask bits 72 and up (n bytes),
 //  form(1): 1 = a song, seed(4, little-endian): the song's,
 //  length(2, little-endian): the song's, in seconds,
-//  composer(1): its number in the low four bits, the RHYTHM switch's place in
-//  RHYTHMS in the next two, and a given hook's meter in the top two (0 4/4, then
-//  ODD_METERS's order), language(1): its place in LANGUAGE_NAMES,
+//  composer(1): its number in the low three bits, the RHYTHM switch's place in
+//  RHYTHMS in bits 4-5, and a given hook's meter (0 4/4, then ODD_METERS's order) in
+//  bits 6-7 and, for the fourth and up, bit 3; language(1): its place in LANGUAGE_NAMES
+//  in the low seven bits, and the rhythm's third bit (SHIFT and up) in the top one,
 //  writing seed(4, little-endian): a song written from another's seed, if it is,
 //  hook: a song given another's hook (see audio/transcribe.js), if it is: its length in
 //  sixteenths(2, little-endian), its chord tokens' length(1) and text, its note count
@@ -96,8 +97,9 @@ export function encodeConfig(enabled, song = null, feel = state) {
   }
   if (reaches) {
     const hookMeter = ODD_METERS.indexOf(song?.hook?.meter) + 1;
-    b[at + 7] = (feel.composer ?? 1) | rhythm << 4 | (written ? hookMeter : 0) << 6;
-    b[at + 8] = Math.max(0, LANGUAGE_NAMES.indexOf(feel.language));
+    const hm = written ? hookMeter : 0;
+    b[at + 7] = (feel.composer ?? 1) | (hm >> 2) << 3 | (rhythm & 3) << 4 | (hm & 3) << 6;
+    b[at + 8] = Math.max(0, LANGUAGE_NAMES.indexOf(feel.language)) | (rhythm >> 2) << 7;
   }
   if (rewrites) {
     new DataView(b.buffer).setUint32(at + 9, (song.writing ?? song.seed) >>> 0, true);
@@ -152,6 +154,8 @@ function readHook(b, from, meter) {
   return { chords, beats: sixteenths / 4, notes: count ? notes : null, ...(meter ? { meter } : {}) };
 }
 
+const hookMeterOf = c => (c >> 6) | ((c >> 3) & 1) << 2;
+
 export function decodeConfig(str) {
   try {
     const pad = str + '==='.slice(0, (4 - str.length % 4) % 4);
@@ -165,7 +169,7 @@ export function decodeConfig(str) {
       seed:   view.getUint32(at + 1, true),
       length: b.length >= at + 7 ? view.getUint16(at + 5, true) : undefined,
       ...(b.length >= at + 13 ? { writing: view.getUint32(at + 9, true) } : {}),
-      ...(b.length > at + 13 ? { hook: readHook(b, at + 13, ODD_METERS[((b[at + 7] ?? 0) >> 6) - 1]) } : {}),
+      ...(b.length > at + 13 ? { hook: readHook(b, at + 13, ODD_METERS[hookMeterOf(b[at + 7] ?? 0) - 1]) } : {}),
     } : undefined;
     return {
       r: ROOT_BASE_MIDI + (b[0] % 12), s: b[1], t: b[2],
@@ -177,9 +181,9 @@ export function decodeConfig(str) {
       pu: b[17] !== undefined ? b[17] / 100 : 0,
       sw: b[18] !== undefined ? b[18] / 100 : 0,
       song,
-      cv: (b[at + 7] ?? 1) & 15,
-      rh: RHYTHMS[((b[at + 7] ?? 0) >> 4) & 3] ?? 'auto',
-      lg: LANGUAGE_NAMES[b[at + 8]] ?? 'ANY',
+      cv: (b[at + 7] ?? 1) & 7,
+      rh: RHYTHMS[(((b[at + 7] ?? 0) >> 4) & 3) | ((b[at + 8] ?? 0) >> 7) << 2] ?? 'auto',
+      lg: LANGUAGE_NAMES[(b[at + 8] ?? 0) & 127] ?? 'ANY',
     };
   } catch { return null; }
 }

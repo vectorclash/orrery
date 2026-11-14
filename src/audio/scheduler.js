@@ -6,7 +6,7 @@ import { logChange } from './notes.js';
 import { transport } from './transport.js';
 import { ensemble } from './phrase.js';
 import { song, composeSong, arrange } from './song.js';
-import { barBeats } from './meter.js';
+import { barBeats, barOrigin } from './meter.js';
 import { lines } from './lines.js';
 import { languageOf, intervalsFor, LANGUAGE_NAMES } from './language.js';
 import { writeMotif, lineOver } from './hook.js';
@@ -204,7 +204,7 @@ export function requestEra() {
 export function changeLandsAt(before, after) {
   const now = audio.ctx.currentTime;
   let at = transport.beatAt(now + LOOKAHEAD);
-  for (const v of after) if (!before.includes(v)) at = Math.max(at, transport.nextBeat(now, v.entry === 'bar' ? barBeats() : v.entry));
+  for (const v of after) if (!before.includes(v)) at = Math.max(at, (v.entry === 'bar' ? transport.nextBeat(now, barBeats(), barOrigin()) : transport.nextBeat(now, v.entry)));
   return at;
 }
 
@@ -273,12 +273,15 @@ function drift() {
 let songBeat = 0;     // the next beat the conductor acts on
 let songBass = false; // whether the bass plays in this section
 
+// It acts on every beat, or every half beat in a meter whose bars end on one (7/8),
+// so a section that starts mid-beat still starts.
 function conduct(now, skipBass) {
   const end = song.current.end;
+  const step = barBeats() % 1 ? 0.5 : 1;
   while (songBeat <= end && transport.timeAt(songBeat) < now + LOOKAHEAD) {
     runVoices(now, transport.timeAt(songBeat), skipBass || !songBass);
     onBeat(songBeat);
-    songBeat++;
+    songBeat += step;
   }
   runVoices(now, now + LOOKAHEAD, skipBass || !songBass);
 }
@@ -303,7 +306,8 @@ function onBeat(b) {
 }
 
 // Where a section's lines stop (see lines.set).
-const restOf = sec => (state.composer >= 4 && sec.turnFrom != null ? sec.turnFrom : Infinity);
+// A 6/4 bar's held beats are the chords' alone too (see changeFor in song.js).
+const restOf = sec => Math.min(state.composer >= 4 && sec.turnFrom != null ? sec.turnFrom : Infinity, sec.extraFrom ?? Infinity);
 
 // A build is turned down by the song's buildTrimDb (see songLevels in render.js), so
 // the drop lands louder than its last bars: eased down over its first two bars,
@@ -328,6 +332,8 @@ function trimFor(sec, b) {
 }
 
 function enterSection(sec, b) {
+  // In a song that changes meter, this section's meter and the bars it counts from.
+  if (song.current.change) song.current.now = { meter: sec.meter ?? song.current.meter, grid: { at: sec.start, bar: sec.bar0 } };
   trimFor(sec, b);
   reseedStreams(sec.kind);
   // A build that teases the hook plays its motif, as the drop will.
@@ -335,6 +341,9 @@ function enterSection(sec, b) {
   restream('ensemble', hook ? 'hook' : sec.kind);
   state.rootMidi = ROOT_BASE_MIDI + ((song.base.rootMidi - ROOT_BASE_MIDI + sec.shift) % 12 + 12) % 12;
   harmony.setForm(sec.prog, sec.colours, b);
+  // A 6/4 bar's last two beats hold its chord: set now, so a voice looking ahead to
+  // them (a Rhodes anticipating the next chord) already sees it held.
+  if (sec.extraFrom != null && !sec.turnFrom) harmony.hold(sec.extraFrom, sec.start + sec.beats);
   ensemble.reset();
   ensemble.hold = hook || state.composer >= 2;
   lines.set(sec.lines, b, sec.beats, sec.shift, restOf(sec));

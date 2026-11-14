@@ -5,7 +5,7 @@ import { logNote } from '../notes.js';
 import { harmony, bassRoot } from '../harmony.js';
 import { song } from '../song.js';
 import { osc, gain, filter, perc, ahr, lfo, pluckBuffer, playBuffer, shaper, settle } from '../synth.js';
-import { meter, barBeats, step16, heldFor } from '../meter.js';
+import { meter, isFour, barBeats, barIndex, inBar, step16, heldFor, toPulse } from '../meter.js';
 
 // ─── Bass ─────────────────────────────────────────────────────────────────────
 // Every style is tied to the harmonic rhythm: the chord root lands on the
@@ -122,6 +122,20 @@ const METER_FIGURES = {
     any:   ['R-----F-----' + 'R-----F---A-', 'R---F-R---F-' + 'R---F-R---A-', 'R-F-R-F-R-F-' + 'R-F-R-F-3-A-', 'R-----O---F-' + 'R-----3---A-',
       'R---F-O---F-' + 'R---F-3---A-', 'R-.R-.F-.F-.' + 'R-.R-.3-.A-.'],
   },
+  // Three and two: the root starting each group, the turn at the end of the two.
+  '5/4': {
+    held: ['R-----------F-------' + 'R-----------A-------', 'R-------R---F-------' + 'R-------F---A-------',
+      'R-----------R---F---' + 'R-----------F---A---', 'R-------------------' + 'R-----------F-------'],
+    any:  ['R-------F---R---F---' + 'R-------F---R---A---', 'R---R---F---R---O---' + 'R---R---F---3---A---',
+      'R-----R-F---R-----A-' + 'R-----R-F---F-----A-', 'R--R--O-F---R--R--A-' + 'R--R--O-F---R--3--A-'],
+  },
+  // Two, two and three: a note on each group, the longest last.
+  '7/8': {
+    held: ['R-------F-----' + 'R-------A-----', 'R-------------' + 'R-------F-----',
+      'R---R---F-----' + 'R---R---A-----', 'R-------R---F-' + 'R-------F---A-'],
+    any:  ['R---F---R---F-' + 'R---F---R---A-', 'R-R-F-F-R-R-O-' + 'R-R-F-F-R-3-A-',
+      'R--R--O-F---A-' + 'R--R--O-3---A-', 'R-------F---A-' + 'R-------O---A-'],
+  },
 };
 // Figure `fig` of family `family`, as written for this meter, or null to fold it.
 function meterFigure(fig, family) {
@@ -214,7 +228,7 @@ function figureStep(fig, t, b, pos, sound, dead = null, own = false) {
   if (ch === '.' || ch === '-') return 0.25;
   let n = 1;
   if (own) while (i + n < steps && fig[k + n] === '-') n++;
-  else n = heldFor(fig, i, half * 16);
+  else n = heldFor(fig, pos, half * 16);
   if (ch === 'x') { dead?.(t, prev ?? root(harmony.at(b))); return 0.25; }
   const midi = resolve(ch, b, n / 4);
   prev = midi;
@@ -377,15 +391,19 @@ function resolveAcid(code, b) {
 // note on the last beat before a change, and in between chord tones (on
 // strong beats) or scale steps that head toward the next root without
 // reaching it early.
-// A walking bass's step: a beat, or in six-eight a big beat, a dotted quarter.
-const walkStep = () => (meter().name === '6/8' ? 1.5 : 1);
+// A walking bass's step, from `b`: a beat, or to the meter's next pulse (see meter.js):
+// six-eight's big beats, seven-eight's two, two and three.
+const walkStep = b => {
+  if (isFour()) return 1;
+  return toPulse(inBar(b, 1e-9));
+};
 
 function walkNote(b) {
   const seg = harmony.at(b);
   const k = b - seg.start, left = seg.end - b;
   if (k < 1e-6 || prev === null) return root(seg);
   const target = nextRoot(seg);
-  if (left <= walkStep() + 1e-6) return approach(target, prev);
+  if (left <= walkStep(b) + 1e-6) return approach(target, prev);
   const pcs = harmony.voiced(seg);
   const options = [];
   for (let m = prev - 5; m <= prev + 5; m++) {
@@ -687,7 +705,7 @@ function play(t, b) {
   const sec = song.sectionAt(b), build = sec?.build;
   if (build?.kickOut && b >= sec.start + sec.beats - sec.gap - build.kickOut - 1e-6) return 0.25; // out with the kick
   if (build?.pedal) return pedal(t, b, sec);
-  const B = barBeats(), bar = Math.floor(b / B + 1e-9), pos = b - bar * B;
+  const B = barBeats(), bar = barIndex(b, 1e-9), pos = inBar(b, 1e-9);
   if (bar !== curBar) {
     curBar = bar;
     if (state.composer >= 2) {
@@ -727,7 +745,7 @@ function play(t, b) {
     const pat = style === 'deep' ? deepPattern : rollPattern;
     const i = step16(pos), ch = pat[i];
     if (ch !== '.' && ch !== '-') {
-      const n = heldFor(pat, i);
+      const n = heldFor(pat, pos);
       const midi = resolve(ch, b, n / 4);
       prev = midi;
       if (style === 'deep') deepBass(t, midi, room(b, n / 4) * beat() * 0.85);
@@ -743,7 +761,7 @@ function play(t, b) {
     groovePattern ??= pick(GROOVE_PATTERNS[style]);
     const pat = groovePattern, i = step16(pos), ch = pat[i];
     if (ch === '.' || ch === '-') return 0.25;
-    const n = heldFor(pat, i);
+    const n = heldFor(pat, pos);
     const seg = harmony.at(b);
     const beats = Math.min(n / 4, seg.end - b); // never held across a chord change
     const midi = resolve(ch, b, n / 4);
@@ -768,7 +786,7 @@ function play(t, b) {
   }
 
   if (style === 'walking') {
-    const step = walkStep();
+    const step = walkStep(b);
     prev = walkNote(b);
     uprightBass(t, prev, beat() * 0.95 * step, { level: 0.5 * UPRIGHT_TRIM });
     return step;
@@ -807,7 +825,7 @@ function play(t, b) {
   // synth: one sixteenth step at a time
   const i = step16(pos), ch = pattern[i];
   if (ch !== '.' && ch !== '-') {
-    const n = heldFor(pattern, i);
+    const n = heldFor(pattern, pos);
     const midi = resolve(ch, b, n / 4);
     prev = midi;
     synthBass(t, midi, room(b, n / 4) * beat() * 0.9);

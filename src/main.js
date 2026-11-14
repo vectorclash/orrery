@@ -1944,6 +1944,7 @@ function showLength() {
     const s = any ? songFor(manualPlan()) : null;
     lengthValue.textContent = clock(s ? songSeconds(s) : songLength);
     if (s && s.meter.name !== '4/4') meterName = s.meter.name;
+    else if (s?.change) meterName = s.change.kind === 'bridge' ? `${s.change.meter.name} BRIDGE` : s.change.kind === 'short' ? '2/4 BAR' : '6/4 BAR';
   }
   songSummary.textContent = [
     asSong ? 'SONG' : 'LOOP',

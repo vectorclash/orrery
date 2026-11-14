@@ -2,7 +2,7 @@ import { state, pick, rand, scaleNotes, random } from '../state.js';
 import { harmony } from './harmony.js';
 import { lines } from './lines.js';
 import { within, stream } from '../random.js';
-import { meter, accentAt, foldBeats } from './meter.js';
+import { meter, accentAt, foldBeats, barIndex, inBar } from './meter.js';
 
 // ─── Phrase generator ─────────────────────────────────────────────────────────
 // Melodic voices used to random-walk note by note, which is why they wandered.
@@ -100,7 +100,7 @@ function sharedMotif(phrase, own) {
 function soloist(name, beat) {
   const leads = ensemble.leads;
   if (leads.length < 2 || !leads.includes(name)) return true;
-  return leads[Math.floor(beat / (2 * meter().beats)) % leads.length] === name;
+  return leads[Math.floor(barIndex(beat) / 2) % leads.length] === name;
 }
 
 const mod = (n, m) => ((n % m) + m) % m;
@@ -190,12 +190,12 @@ export function createPhraser({
   // this each note is worked out from the one before and the tune drifts: measured
   // on composer 1, the rhythm repeats every time and the pitches 60% of the time.
   const played = new Map();
-  function memoKey(bar, i) {
+  function memoKey(start, i) { // `start`: the bar's first beat
     const w = harmony.written;
     if (!w) return null;
-    const B = meter().beats, four = 4 * B;
+    const four = 4 * meter().beats;
     const cycle = w.beats % four === 0 ? w.beats : four * w.beats / gcd(w.beats, four);
-    return `${mod(bar * B - w.at, cycle)}:${i}`;
+    return `${mod(start - w.at, cycle)}:${i}`;
   }
 
   return {
@@ -204,9 +204,9 @@ export function createPhraser({
       const written = lines.next(name, beat);
       if (written) return written;
       const B = meter().beats;
-      const bar = Math.floor(beat / B + 1e-9);
+      const bar = barIndex(beat, 1e-9);
       if (bar !== curBar) startBar(bar);
-      const pos = beat - bar * B;
+      const pos = inBar(beat, 1e-9);
 
       // Locate the cell entry that starts at `pos`.
       let acc = 0, i = 0;
@@ -230,7 +230,7 @@ export function createPhraser({
       const m        = motifFor(bar);
       const inPhrase = bar % 4;
       const lastNote = cell.slice(i + 1).every(x => x < 0);
-      const key      = memoKey(bar, i);
+      const key      = memoKey(beat - pos, i);
       if (key && played.has(key)) {
         const midi = played.get(key);
         lastStep = lastMidi === null ? 0 : nearestIndex(notes, midi) - nearestIndex(notes, lastMidi);

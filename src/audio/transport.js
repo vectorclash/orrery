@@ -1,7 +1,7 @@
 import { state, LOOKAHEAD } from '../state.js';
 import { within, stream } from '../random.js';
 import { asVoice, letGo } from './context.js';
-import { barBeats } from './meter.js';
+import { barBeats, barOrigin } from './meter.js';
 
 // ─── Transport: the shared musical clock ──────────────────────────────────────
 // Voices schedule in *beats* and convert to audio time here, so bar lines,
@@ -32,8 +32,9 @@ export const transport = {
   beatAt(t) { return anchorBeat + (t - anchorTime) * bpm / 60; },
   timeAt(b) { return anchorTime + (b - anchorBeat) * 60 / bpm; },
 
-  // First beat position at or after audio time `t` on a `div`-beat grid.
-  nextBeat(t, div = 1) { return Math.ceil(this.beatAt(t) / div - 1e-6) * div; },
+  // First beat position at or after audio time `t` on a `div`-beat grid counted from
+  // beat `from`.
+  nextBeat(t, div = 1, from = 0) { return Math.ceil((this.beatAt(t) - from) / div - 1e-6) * div + from; },
 
   // Apply a tempo change exactly at beat `b` (used when an era changes tempo
   // on a chord change) rather than at whatever moment the next tick notices.
@@ -61,12 +62,13 @@ export const transport = {
 export function createVoice(name, play, { entry = 1, role = null, onReset = null, release = 0.2 } = {}) {
   let next = null; // beat position of the next event
   const grid = () => (entry === 'bar' ? barBeats() : entry);
+  const from = () => (entry === 'bar' ? barOrigin() : 0);
   const voice = {
     name,
     role,
     entry,
     tick(now, horizon = now + LOOKAHEAD) {
-      if (next === null || transport.timeAt(next) < now) next = transport.nextBeat(now, grid());
+      if (next === null || transport.timeAt(next) < now) next = transport.nextBeat(now, grid(), from());
       if (!(transport.timeAt(next) < horizon)) return;
       within(stream(name), () => asVoice(name, () => {
         while (transport.timeAt(next) < horizon) {
@@ -81,7 +83,7 @@ export function createVoice(name, play, { entry = 1, role = null, onReset = null
     // next `entry` line, as a voice joining then would.
     release(t) {
       letGo(name, t, release);
-      if (next !== null) next = Math.min(next, transport.nextBeat(t, grid()));
+      if (next !== null) next = Math.min(next, transport.nextBeat(t, grid(), from()));
     },
     // `atBeat` restarts the voice at a specific position (an era change);
     // voices holding long notes use it to release them at that moment.

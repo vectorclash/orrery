@@ -1,6 +1,7 @@
 import { audio } from '../context.js';
 import { state, beat } from '../../state.js';
 import { createVoice } from '../transport.js';
+import { isFour, inBar, toPulse } from '../meter.js';
 
 // ─── Pump ─────────────────────────────────────────────────────────────────────
 // The sidechain "breathing" of house and EDM: everything but the drums dips on
@@ -18,19 +19,25 @@ const RELEASE  = 0.17;  // of a beat: the swell back
 
 let ducking = false;
 
-function play(t) {
+// To the next beat; in another meter, its next pulse, where its kick lands (meter.js).
+function next(b) {
+  if (isFour()) return 1;
+  return toPulse(inBar(b, 1e-9));
+}
+
+function play(t, b) {
   const g = audio.pumped.gain;
   if (state.pump <= 0) {
     if (ducking) {
       g.setTargetAtTime(1, t, 0.03);
       ducking = false;
     }
-    return 1;
+    return next(b);
   }
   ducking = true;
   g.setTargetAtTime(1 - MAX_DUCK * state.pump, t, ATTACK);
   g.setTargetAtTime(1, t + ATTACK * 4, beat() * RELEASE);
-  return 1;
+  return next(b);
 }
 
 export const pumpVoice = createVoice('pump', play, { onReset: () => { ducking = false; } });

@@ -5,7 +5,7 @@ import { seeded, hashSeed, restream, within, stream } from '../../random.js';
 import { song } from '../song.js';
 import { logHit } from '../notes.js';
 import { osc, gain, filter, send, perc, shaper } from '../synth.js';
-import { meter, FOUR, METER_DRUMS } from '../meter.js';
+import { meter, FOUR, METER_DRUMS, barIndex, barStart } from '../meter.js';
 
 // ─── Kit ──────────────────────────────────────────────────────────────────────
 // Each piece takes (t, velocity). Kick/snare/clap sit centre; the rest are
@@ -795,6 +795,28 @@ const METER_TRACKS = {
     shuffle:   { steps: 12, tracks: { kick: 'x.........x.', snare: '......x....g', hat: 'x.o.o.x.o.o.' } },
     minimal:   { steps: 12, tracks: { kick: 'x...........', snare: '......x.....' } },
   },
+  // Five-four as three and two (Take Five): the kick on one and four, where each group
+  // starts, the backbeat on three and five; jazz's ride keeps its skip on two and four.
+  '5/4': {
+    swing:     { steps: 15, tracks: { ride: 'x..x.xx..x.xx..', hat: '...o.....o.....', kick: 'f........f.....', snare: '..?..?..?..?..?' } },
+    brushes:   { steps: 15, tracks: { sweep: 'x..x..x..x..x..', brush: 'o.?x.go.?o.?x.g', chick: '...o.....o.....', kick: 'f........f.....' } },
+    four_four: { steps: 20, tracks: { kick: 'x.......x...x.......', snare: '....x...........x...', hat: 'x.o.x.o.x.o.x.o.x.o.' } },
+    breakbeat: { steps: 20, tracks: { kick: 'x......x..x.x.....x.', snare: '....x.......x...x.g.', hat: 'x.og.go.xg.gx.ogx.o.' } },
+    cinematic: { steps: 20, tracks: { taiko: 'X...........x.......', tomLo: 'x..x..x.....x..x....', tomHi: '....o.......o...o.o.' } },
+    halftime:  { steps: 20, tracks: { kick: 'x.....x.....x.......', snare: '........x.......x...', clap: '........x.......x...', hat: 'x.o.x.o.x.o.x.o.x.o.' } },
+    minimal:   { steps: 20, tracks: { kick: 'x...........x.......', snare: '........x.......x...' } },
+    ghost:     { steps: 20, tracks: { kick: 'x...........x.....x.', snare: '........x.......x...', hat: '..x.....x.....x.....' } },
+  },
+  // Seven-eight as two, two and three: a kick on each group (the third one longer),
+  // the backbeat on the second group and inside the third.
+  '7/8': {
+    techno:    { steps: 14, tracks: { k909: 'X...x...X.....', hat: 'xg.gxg.gxg.gxg', ohat: '..x...x...x...', rim: '...g.......g..', clap: '....g.......g.' } },
+    four_four: { steps: 14, tracks: { kick: 'x.......x.....', snare: '....x.....x...', hat: 'x.o.x.o.x.o.o.' } },
+    breakbeat: { steps: 14, tracks: { kick: 'x......x..x...', snare: '....x.......x.', hat: 'x.og.go.xg.gx.' } },
+    cinematic: { steps: 14, tracks: { taiko: 'X.......x.....', tomLo: 'x..x..x.x..x..', tomHi: '....o.....o.o.' } },
+    minimal:   { steps: 14, tracks: { kick: 'x.......x.....', snare: '....x.....x...' } },
+    ghost:     { steps: 14, tracks: { kick: 'x.........x...', snare: '....x.......x.', hat: '..x.....x.....' } },
+  },
 };
 for (const [m, styles] of Object.entries(METER_TRACKS)) {
   for (const [name, { steps, tracks }] of Object.entries(styles)) {
@@ -969,7 +991,7 @@ function crossNow(s) {
 // long, step `i` of `steps`), each [offset in beats from the step, character].
 function crossHits(x, bar, pos, unit, i, steps) {
   if (x.cycle) {
-    const top = Math.max(bar - bar % 8, sec ? Math.round(sec.start / 4) : 0);
+    const top = Math.max(bar - bar % 8, sec ? sec.bar0 ?? Math.round(sec.start / 4) : 0);
     return [[0, x.cycle[((bar - top) * steps + i) % x.cycle.length]]];
   }
   const out = [], from = x.from ?? 0, over = x.over ?? 4, n = x.line.length;
@@ -1002,26 +1024,31 @@ let curBar = -1, fill = null, fillFrom = 99, crashNext = false, rollSteps = new 
 let sec = null;      // the song section the current bar is in, or null
 let rollFrom = null; // beat at which this section's roll starts
 let cross = null;    // the cross-rhythm layer this song plays, or null (see CROSS)
+let barSteps = 16;   // the steps the current bar has: fewer in a section's short last bar
 
-function startBar(bar, p, steps, B) {
+// The bar from beat `at`, bar number `bar`: in a song that changes meter, a section's
+// last bar can be short (a 2/4 bar before a chorus) or start late (the 6/4 bar's last
+// two beats), and its fill goes at its own end.
+function startBar(bar, p, steps, B, at) {
   curBar = bar;
   fill = null; fillFrom = 99;
   cross = crossNow(style);
-  sec = song.sectionAt(bar * B);
+  sec = song.sectionAt(at);
   const end = sec ? sec.start + sec.beats : 0;
+  barSteps = sec ? Math.min(steps, Math.round(steps * (end - at) / B)) : steps;
   rollFrom = sec?.build?.roll ? Math.max(sec.start, end - sec.build.rollBars * B) : null;
-  const lastBar = !!sec && bar * B + B >= end;
-  if (sec && bar * B === sec.start && sec.crash) crashNext = true;
-  const wanted = rollFrom !== null && bar * B >= rollFrom ? false
+  const lastBar = !!sec && at + B >= end;
+  if (sec && at === sec.start && sec.crash) crashNext = true;
+  const wanted = rollFrom !== null && at >= rollFrom ? false
     : lastBar ? sec.fill && (!p.machine || !!song.sectionAt(end)?.hook)
     : p.machine ? !sec && bar % 16 === 15 && random() < 0.6
     : bar % 4 === 3 && (bar % 8 === 7 || random() < 0.55);
   if (p.fill && wanted) {
     // Six-eight fills its last big beat, a dotted quarter.
-    const beats = B === 3 && meter().name === '6/8' ? 1.5 : bar % 8 === 7 || lastBar ? 2 : 1;
-    const n = beats * steps / B;
+    const beats = meter().fill ?? (bar % 8 === 7 || lastBar ? 2 : 1);
+    const n = Math.min(beats * steps / B, barSteps);
     fill = FILLS[4 * steps / B][typeof p.fill === 'string' ? p.fill : weighted(p.fill)][n];
-    fillFrom = steps - n;
+    fillFrom = barSteps - n;
   }
   rollSteps = new Set();
   if (p.rolls) for (const s of [6, 7, 14, 15]) if (random() < 0.3) rollSteps.add(s);
@@ -1040,9 +1067,10 @@ function play(t, b) {
   const B     = m.beats;
   const steps = m === FOUR ? p.steps || 16 : p.steps; // to the bar
   const unit  = B / steps;
-  const bar   = Math.floor(b / B + 1e-6);
-  const i     = Math.round((b - bar * B) / unit) % steps;
-  if (bar !== curBar) startBar(bar, p, steps, B);
+  const bar   = barIndex(b, 1e-6);
+  const at    = barStart(b, 1e-6);
+  const i     = Math.round((b - at) / unit) % steps;
+  if (bar !== curBar) startBar(bar, p, steps, B, at);
 
   const stepSec = unit * beat();
   let st = t;
@@ -1051,7 +1079,7 @@ function play(t, b) {
   const density = 0.5 + state.density * 0.5;
   const bright  = 0.4 + state.brightness * 0.6;
 
-  const next = bar * B + (i + 1) * unit - b; // re-snap to the exact grid every step
+  const next = at + (i + 1) * unit - b; // re-snap to the exact grid every step
   const end = sec ? sec.start + sec.beats : Infinity;
   if (b >= end - (sec?.gap ?? 0) - 1e-6) return next; // the silence before a drop
   const part = sec?.drums ?? 'full';
@@ -1077,11 +1105,11 @@ function play(t, b) {
   }
   if (fill && part !== 'roll') {
     for (const [track, line] of Object.entries(fill)) hits.push([track, line[i - fillFrom]]);
-    if (i === steps - 1) crashNext = true;
+    if (i === barSteps - 1) crashNext = true;
   }
   if (rolling) {
     const v = rollHit(b, rollFrom, end - sec.gap, i, steps);
-    const tracks = rollTracks(p, build.roll);
+    const tracks = rollTracks(styleNow(), build.roll); // its 4/4 bar says which is its backbeat
     // A kick roll's sixteenths would swamp everything at a snare's level.
     if (v) hits.push([tracks[Math.round((b - rollFrom) / unit) % tracks.length], v * (build.roll === 'kick' ? 0.8 : 1)]);
   }
