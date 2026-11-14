@@ -415,12 +415,11 @@
       color: var(--ink-3);
     }
     #form-row .kind-toggle, #composer-row .kind-toggle, #rhythm-row .kind-toggle { background: transparent; }
-    /* RHYTHM's five don't fit a phone at the usual padding: there the strip takes the
-       row's width and shares it evenly, rather than pushing the panel sideways. */
-    @media (max-width: 520px) {
-      #rhythm-row .kind-toggle { flex: 1 1 0; min-width: 0; }
-      #rhythm-row .kind-btn { flex: 1 1 0; min-width: 0; padding-left: 0; padding-right: 0; letter-spacing: 0.04em; }
-    }
+    /* RHYTHM's five don't fit the panel at the usual padding, on a phone or in the
+       desktop panel's fixed width: the strip takes the row's width and shares it
+       evenly, rather than running past the panel's edge. */
+    #rhythm-row .kind-toggle { flex: 1 1 0; min-width: 0; }
+    #rhythm-row .kind-btn { flex: 1 1 0; min-width: 0; padding-left: 0; padding-right: 0; letter-spacing: 0.06em; }
     @media (max-width: 359px) { #song-row .ctrl-label { display: none; } }
 
     /* ─── Collapsible sections ──────────────────────────────────────────────── */
