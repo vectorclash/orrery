@@ -116,7 +116,15 @@ function configure(next) {
   }
   return plan && {
     sections: plan.sections.map(s => ({ label: s.label ?? s.kind.toUpperCase(), role: s.role, t0: Math.max(0, s.t0), t1: Math.min(take.duration, s.t1) })),
+    rhythm: rhythmOf(take.plan),
   };
+}
+
+// The song's meter, for the upload's description (youtube.js): { meter, change }.
+function rhythmOf(p) {
+  if (!p.song) return null;
+  const s = songFor(p);
+  return { meter: s.meter.name, change: s.change && { kind: s.change.kind, meter: s.change.meter?.name ?? null } };
 }
 
 async function useTitles() {

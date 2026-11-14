@@ -51,7 +51,7 @@ let ctx = null, buffer = null, source = null, startedAt = 0, offset = 0, playing
 let shown = null;                 // while playing: the time of the frame on the screen
 let jumped = false;               // the playhead was moved: the next frame drawn starts afresh
 let making = null;                // the frame of a video being made
-let autoStyle = 'CLUB', autoIntensity = 1, sections = [];
+let autoStyle = 'CLUB', autoIntensity = 1, sections = [], rhythm = null;
 
 const style = () => (settings.style === 'AUTO' ? autoStyle : settings.style);
 const outSize = () => settings.size.split('x').map(Number);
@@ -188,7 +188,7 @@ async function apply() {
   showSettings();
   if (!preview) return;
   const got = preview.configure(stageSettings());
-  if (got) showSections(got.sections);
+  if (got) { rhythm = got.rhythm ?? null; showSections(got.sections); }
   redraw();
 }
 
@@ -361,7 +361,7 @@ function showYoutube() {
   const taken = Object.entries(settings.youtube.given).filter(([k]) => k !== key).map(([, title]) => title);
   const t = lastText = youtubeText({
     p: plan, key: describe(plan, loaded.duration).key, name: songName(),
-    style: style(), sections, duration: loaded.duration, taken,
+    style: style(), sections, duration: loaded.duration, taken, rhythm,
   });
   const show = (id, text, limit) => {
     $(id).value = text;
