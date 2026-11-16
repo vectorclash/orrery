@@ -150,6 +150,36 @@
       #kaleido-btn .lbl { display: none; }
     }
 
+    /* ─── YouTube link ────────────────────────────────────────────────────── */
+    /* The channel, in the top-right corner: the kaleidoscope's mirror, styled
+       the same, and like it an icon alone on narrow screens. */
+    #youtube-link {
+      pointer-events: all;
+      position: fixed;
+      top: 20px;
+      right: calc(20px + env(safe-area-inset-right, 0px));
+      z-index: 2;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--chip);
+      border: 1px solid var(--line-2);
+      color: var(--ink-3);
+      font-size: 11px;
+      padding: 8px 16px;
+      letter-spacing: 3px;
+      text-decoration: none;
+      line-height: normal;
+      transition: color 0.2s, background 0.2s;
+      -webkit-tap-highlight-color: transparent;
+    }
+    #youtube-link svg { width: 1.6em; height: 1.6em; margin: -0.3em 0; }
+    @media (hover: hover) { #youtube-link:hover { color: var(--ink-1); } }
+    @media (max-width: 759px) {
+      #youtube-link { right: calc(16px + env(safe-area-inset-right, 0px)); padding: 8px 12px; }
+      #youtube-link .lbl { display: none; }
+    }
+
     /* ─── Infinite mode UI ────────────────────────────────────────────────── */
     /* Full-width and centred with text-align, not translateX(-50%): NEXT
        grows the row's width, and a %-transform on a box whose size is
@@ -337,7 +367,7 @@
        bottom and stays in reach, with nothing behind the sheet showing
        through. Its height is what's left between the mode tabs and the
        transport. */
-    #library {
+    #library, #genre-picker {
       --transport-h: calc(1.15 * clamp(18px, 5vw, 28px) + 2 * clamp(14px, 3.6vw, 20px) + 2px);
       --ui-bottom: calc(32px + env(safe-area-inset-bottom, 0px));
       pointer-events: all;
@@ -350,9 +380,9 @@
       border: 1px solid var(--line-2);
       text-align: left;
     }
-    .library-open #infinite-kind, .library-open #song-actions,
-    .library-open #state-line { display: none; }
-    .library-open #infinite-controls { margin-bottom: 0; }
+    .sheet-open #infinite-kind, .sheet-open #song-actions,
+    .sheet-open #state-line { display: none; }
+    .sheet-open #infinite-controls { margin-bottom: 0; }
     #library-head {
       display: flex;
       justify-content: space-between;
@@ -360,6 +390,27 @@
       gap: 10px;
       padding: 12px clamp(14px, 3.5vw, 22px);
       border-bottom: 1px solid var(--line-3);
+    }
+    /* The genre picker: one sheet like the library, every genre a toggle. */
+    #genre-picker-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      padding: 12px clamp(14px, 3.5vw, 22px);
+      border-bottom: 1px solid var(--line-3);
+    }
+    .genre-picker-actions { display: flex; gap: 6px; }
+    #genre-picker-list {
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      padding: 14px clamp(14px, 3.5vw, 22px);
+      flex: 0 1 auto;
+    }
+    #genre-picker-foot {
+      padding: 10px clamp(14px, 3.5vw, 22px);
+      border-top: 1px solid var(--line-3);
+      text-align: center;
     }
     #library-foot {
       display: flex;
@@ -653,10 +704,8 @@
     @media (min-aspect-ratio: 5/4) and (min-width: 760px) and (max-height: 480px) {
       #manual-ui { --edge: 12px; }
     }
-    /* Clear of the tabs (which end ~103px right of centre) at 440px wide. */
-    @media (min-aspect-ratio: 5/4) and (min-width: 1140px) {
-      #manual-ui { --top-clear: 20px; }
-    }
+    /* It stays below the top row even when wide enough to clear the tabs: the
+       YouTube link has the top-right corner. */
 
     /* control rows */
     .ctrl-row {
@@ -832,7 +881,6 @@
       gap: 10px;
       flex: 1;
     }
-    .genre-group { display: flex; flex-direction: column; gap: 7px; }
     #genre-hint { margin-bottom: 12px; color: var(--ink-2); line-height: 1.5; }
     .genre-row {
       display: flex;
@@ -923,7 +971,7 @@
         --pad: 14px;
       }
       #infinite-ui { bottom: calc(24px + env(safe-area-inset-bottom, 0px)); }
-      #library { --ui-bottom: calc(24px + env(safe-area-inset-bottom, 0px)); }
+      #library, #genre-picker { --ui-bottom: calc(24px + env(safe-area-inset-bottom, 0px)); }
       /* On a phone the row's buttons go under its name, as one strip the
          width of the row, rather than bunched at the left. */
       .library-actions { flex: 1 1 100%; display: grid; grid-template-columns: repeat(3, 1fr); }
@@ -938,6 +986,8 @@
       .mode-tab { font-size: 12px; padding: 12px 18px; letter-spacing: 2px; }
       #kaleido-btn { font-size: 12px; padding: 12px; }
       #kaleido-btn .lbl { letter-spacing: 2px; padding: 0 6px; }
+      #youtube-link { font-size: 12px; padding: 12px; }
+      #youtube-link .lbl { letter-spacing: 2px; padding-right: 6px; }
 
       .ctrl-row { margin-bottom: 18px; }
       .ctrl-label, .group-label { font-size: 12px; letter-spacing: 0.08em; }
@@ -978,7 +1028,7 @@
       #infinite-kind, #song-actions { margin-bottom: 6px; }
       #state-line { line-height: 1.5; }
       #state-line .np-players { display: none; }
-      #library { --ui-bottom: calc(10px + env(safe-area-inset-bottom, 0px)); --transport-h: calc(16px * 1.15 + 22px); margin-bottom: 8px; }
+      #library, #genre-picker { --ui-bottom: calc(10px + env(safe-area-inset-bottom, 0px)); --transport-h: calc(16px * 1.15 + 22px); margin-bottom: 8px; }
 
       /* The sheet's bars and buttons tighter, so the settings get the height. */
       #panel-hide-btn { padding: 8px 0; }
@@ -1006,6 +1056,12 @@
       </svg><span class="lbl">KALEIDOSCOPE</span>
     </button>
 
+    <a id="youtube-link" href="https://www.youtube.com/@Orrery-Vectorclash" target="_blank" rel="noopener" aria-label="Orrery on YouTube" title="Orrery on YouTube">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true">
+        <rect x="2" y="5" width="20" height="14" rx="4"/><path d="M10 9v6l5-3Z" fill="currentColor"/>
+      </svg><span class="lbl">YOUTUBE</span>
+    </a>
+
     <!-- Infinite mode -->
     <div id="infinite-ui">
       <div id="library" role="dialog" aria-label="Library" hidden>
@@ -1021,6 +1077,17 @@
           <button id="library-copy" class="kind-action" title="Copy a link that brings all these songs into another browser">COPY LIBRARY</button>
         </div>
       </div>
+      <div id="genre-picker" role="dialog" aria-label="Genres Infinite plays" hidden>
+        <div id="genre-picker-head">
+          <span class="group-label">GENRES IN SONGS</span>
+          <div class="genre-picker-actions">
+            <button id="genre-picker-all" class="kind-action" title="Every genre">ALL</button>
+            <button id="genre-picker-close" class="kind-action">CLOSE</button>
+          </div>
+        </div>
+        <div id="genre-picker-list" class="genre-row"></div>
+        <div id="genre-picker-foot" class="group-label"></div>
+      </div>
       <div id="infinite-controls">
         <button id="prev-btn" tabindex="-1" aria-hidden="true" title="Back to the top of this song, or just after it starts, to the one before">PREV</button>
         <button id="start-btn" title="Play or pause (Space)">PLAY</button>
@@ -1031,6 +1098,7 @@
           <button class="kind-btn" data-kind="eras" title="Everything changes every 38 seconds">ERAS</button>
           <button class="kind-btn" data-kind="songs" title="One song after another: intro, verses and choruses or builds and drops, outro">SONGS</button>
         </div>
+        <button id="genres-btn" class="kind-action" hidden aria-expanded="false" aria-controls="genre-picker" title="Choose which genres the songs come from">GENRES</button>
         <button id="library-btn" class="kind-action" hidden aria-expanded="false" aria-controls="library" title="The songs you've kept, and the ones you've heard lately">LIBRARY</button>
       </div>
       <div id="song-actions" hidden>

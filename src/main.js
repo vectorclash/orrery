@@ -362,16 +362,52 @@ function rollKit(g, writes = state.composer >= 2) {
   return keys;
 }
 
+// The genre's kit with guests: one or two of its extras swapped for voices from
+// elsewhere, now and then its bass too. The drums stay, since they decide the
+// song's form and meter, and so do the first core voice and the hook's carriers,
+// so it's still recognisably the genre -- amapiano with a harp, techno with brass.
+// Most guests come from another genre's kit (electronic-weighted, like the genres),
+// some from every voice, so the ones in no kit (sitar) turn up too.
+const ALL_VOICES = SIMPLE_VOICES.map(v => v.key);
+function guestVoice(g, keys) {
+  const other = weightedGenre(g).kit;
+  const pool = Math.random() < 0.75 ? [...other.cores.flat(), ...other.extra] : ALL_VOICES;
+  const free = pool.filter(v => !keys.has(v));
+  return free.length ? pick(free) : null;
+}
+function crossKit(g, writes = state.composer >= 2) {
+  const keys = rollKit(g, writes);
+  const keep = new Set([...keys].filter(k => k.includes(':')));
+  const first = [...keys].find(k => !k.includes(':') && g.kit.cores[0].includes(k));
+  if (first) keep.add(first);
+  if (writes) for (const v of voicesOf(g.name).filter(v => !isAir(v)).slice(0, 2)) if (keys.has(v)) keep.add(v);
+  const guests = Math.random() < 0.6 ? 1 : 2;
+  for (let i = 0; i < guests; i++) {
+    const out = [...keys].filter(k => !keep.has(k));
+    const guest = guestVoice(g, keys);
+    if (!guest) break;
+    if (out.length) keys.delete(pick(out));
+    keys.add(guest);
+    keep.add(guest);
+  }
+  if (Math.random() < 0.25) {
+    const bass = [...keys].find(k => k.startsWith('bass:'));
+    const b = pick(weightedGenre(g).kit.bass);
+    if (bass && b) { keys.delete(bass); keys.add(`bass:${b}`); }
+  }
+  return keys;
+}
+
 // A link keeps the composer that wrote it, so a song from an earlier NEW goes on
 // playing as it was. Anything drawn afresh gets the latest.
 function latestComposer() {
   if (state.composer >= 2) state.composer = LATEST_COMPOSER;
 }
 
-function applyGenre(g, { vary = false, keeping = {} } = {}) {
+function applyGenre(g, { vary = false, keeping = {}, guests = false } = {}) {
   latestComposer();
   applyFeel({ ...genreFeel(g, vary), ...keeping });
-  setInstruments(rollKit(g));
+  setInstruments(guests ? crossKit(g) : rollKit(g));
   setGenreHighlight(genreButtons.get(g));
 }
 
@@ -409,15 +445,14 @@ function weightedGenre(except = null) {
   return pool[pool.length - 1];
 }
 
-for (const [label, electronic] of [['ELECTRONIC', true], ['CLASSIC', false]]) {
-  const group = document.createElement('div');
-  group.className = 'genre-group';
-  const name = document.createElement('span');
-  name.className = 'group-label';
-  name.textContent = label;
+// One list, A to Z: the electronic/classic split read as a ranking, and a genre's
+// place in it was something to learn before finding it. (The random picks still
+// weight electronic genres, see GENRE_WEIGHT.)
+const GENRES_AZ = [...GENRES].sort((a, b) => a.name.localeCompare(b.name));
+{
   const row = document.createElement('div');
   row.className = 'genre-row';
-  for (const g of GENRES.filter(x => !!x.electronic === electronic)) {
+  for (const g of GENRES_AZ) {
     const btn = document.createElement('button');
     btn.className = 'genre-btn';
     btn.textContent = g.name;
@@ -429,8 +464,7 @@ for (const [label, electronic] of [['ELECTRONIC', true], ['CLASSIC', false]]) {
     genreButtons.set(g, btn);
     row.appendChild(btn);
   }
-  group.append(name, row);
-  genreBtnsEl.appendChild(group);
+  genreBtnsEl.appendChild(row);
 }
 
 // ─── Randomize ────────────────────────────────────────────────────────────────
@@ -494,17 +528,21 @@ function freeInstruments() {
   setInstruments(keys);
 }
 
-// All of it, the song's seed with the rest: in SONG form, another song.
-const WILDCARD = 0.1;
+// All of it, the song's seed with the rest: in SONG form, another song. Of the
+// rolls, WILDCARD are anything at all, CROSSED a genre's kit with guests (crossKit),
+// and the rest the genre's own kit.
+const WILDCARD = 0.2;
+const CROSSED  = 0.45;
 function randomizeAll() {
   latestComposer();
   manualWriting = null;
   manualHook = null;
-  if (Math.random() < WILDCARD) {
+  const r = Math.random();
+  if (r < WILDCARD) {
     freeFeel();
     freeInstruments();
   } else {
-    applyGenre(weightedGenre(), { vary: true });
+    applyGenre(weightedGenre(), { vary: true, guests: r < WILDCARD + CROSSED });
   }
   manualSongSeed = newSeed();
   if (manualForm === 'song') {
@@ -959,15 +997,20 @@ function startEras() {
 // played lately. A few tries at that, then it takes what it has.
 const RECENT_GENRES = 4;
 const RECENT_LOOPS  = 8;
+const INFINITE_CROSSED = 0.35; // songs whose kit has guests from other genres (crossKit)
 const recentGenres = [];
 const recentLoops  = [];
 const heldBy = s => s.sections.find(x => x.hook)?.prog.join(' ') ?? '';
 
 function composeInfiniteSong() {
-  const g = weightedGenre(recentGenres);
+  const allowed = GENRES.filter(x => !genresOff.has(x.name));
+  const fresh = allowed.filter(x => !recentGenres.includes(x));
+  const g = weightedGenre(GENRES.filter(x => !(fresh.length ? fresh
+    : allowed.length > 1 ? allowed.filter(y => y !== recentGenres.at(-1)) : allowed).includes(x)));
+  const kit = Math.random() < INFINITE_CROSSED ? crossKit : rollKit;
   let plan = null, loop = '';
   for (let tries = 0; tries < 8; tries++) {
-    plan = planFromKeys({ octaveShift: 0, ...genreFeel(g, true), composer: LATEST_COMPOSER, rhythm: 'auto' }, rollKit(g, true), newSeed());
+    plan = planFromKeys({ octaveShift: 0, ...genreFeel(g, true), composer: LATEST_COMPOSER, rhythm: 'auto' }, kit(g, true), newSeed());
     loop = heldBy(songFor(plan));
     if (plan.state.scaleIdx !== songPlan?.state.scaleIdx && !recentLoops.includes(loop)) break;
   }
@@ -1361,11 +1404,76 @@ libraryCopyBtn.addEventListener('click', () => {
 function setLibraryOpen(open) {
   if (!open) arrived = null;
   libraryEl.hidden = !open;
-  infiniteUi.classList.toggle('library-open', open);
+  if (open) setGenrePickerOpen(false);
+  infiniteUi.classList.toggle('sheet-open', open);
   libraryBtn.classList.toggle('on', open);
   libraryBtn.setAttribute('aria-expanded', String(open));
   if (open) showLibrary();
 }
+
+// ─── The genre picker ─────────────────────────────────────────────────────────
+// Which genres SONGS draws from. Stored as the ones turned off, so a genre added
+// later is on until you say otherwise. At least one stays on: the last can't be
+// turned off. It takes effect from the next song.
+const GENRES_OFF_KEY = 'orrery.genresOff';
+const genresOff = new Set((() => {
+  try {
+    const list = JSON.parse(localStorage.getItem(GENRES_OFF_KEY));
+    return Array.isArray(list) ? list.filter(n => GENRES.some(g => g.name === n)) : [];
+  } catch { return []; }
+})());
+if (genresOff.size >= GENRES.length) genresOff.clear();
+const genresBtn        = document.getElementById('genres-btn');
+const genrePickerEl    = document.getElementById('genre-picker');
+const genrePickerList  = document.getElementById('genre-picker-list');
+const genrePickerFoot  = document.getElementById('genre-picker-foot');
+const genrePickerAll   = document.getElementById('genre-picker-all');
+const genrePickerClose = document.getElementById('genre-picker-close');
+const pickerButtons = new Map();
+
+function saveGenresOff() {
+  try { localStorage.setItem(GENRES_OFF_KEY, JSON.stringify([...genresOff])); } catch { /* private window */ }
+}
+function showGenrePicker() {
+  const on = GENRES.length - genresOff.size;
+  for (const [g, btn] of pickerButtons) {
+    const chosen = !genresOff.has(g.name);
+    btn.classList.toggle('active', chosen);
+    btn.setAttribute('aria-pressed', String(chosen));
+    btn.title = chosen && on === 1 ? 'At least one genre stays on' : '';
+  }
+  genrePickerAll.disabled = genresOff.size === 0;
+  genrePickerFoot.textContent = on === GENRES.length ? 'EVERY GENRE'
+    : `${on} OF ${GENRES.length} GENRES${infiniteRunning && songPlan ? ', FROM THE NEXT SONG' : ''}`;
+  genresBtn.textContent = genresOff.size ? `GENRES ${on}` : 'GENRES';
+}
+for (const g of GENRES_AZ) {
+  const btn = document.createElement('button');
+  btn.className = 'genre-btn';
+  btn.textContent = g.name;
+  btn.addEventListener('click', () => {
+    if (genresOff.has(g.name)) genresOff.delete(g.name);
+    else if (GENRES.length - genresOff.size > 1) genresOff.add(g.name);
+    saveGenresOff();
+    showGenrePicker();
+  });
+  pickerButtons.set(g, btn);
+  genrePickerList.appendChild(btn);
+}
+genrePickerAll.addEventListener('click', () => { genresOff.clear(); saveGenresOff(); showGenrePicker(); });
+
+function setGenrePickerOpen(open) {
+  if (open) setLibraryOpen(false);
+  genrePickerEl.hidden = !open;
+  infiniteUi.classList.toggle('sheet-open', open || !libraryEl.hidden);
+  genresBtn.classList.toggle('on', open);
+  genresBtn.setAttribute('aria-expanded', String(open));
+  if (open) showGenrePicker();
+}
+genresBtn.addEventListener('click', () => setGenrePickerOpen(genrePickerEl.hidden));
+genrePickerClose.addEventListener('click', () => setGenrePickerOpen(false));
+window.addEventListener('keydown', e => { if (e.key === 'Escape' && !genrePickerEl.hidden) setGenrePickerOpen(false); });
+showGenrePicker();
 libraryBtn.addEventListener('click', () => setLibraryOpen(libraryEl.hidden));
 libraryCloseBtn.addEventListener('click', () => setLibraryOpen(false));
 libraryTabs.forEach(b => b.addEventListener('click', () => { libraryTab = b.dataset.tab; showLibrary(); }));
@@ -1382,7 +1490,8 @@ function updateKindUI() {
   nextBtn.title = infiniteKind === 'songs' ? 'Next song' : 'Move on to the next era';
   songActions.hidden = infiniteKind !== 'songs' || !songPlan;
   libraryBtn.hidden = infiniteKind !== 'songs';
-  if (infiniteKind !== 'songs') setLibraryOpen(false);
+  genresBtn.hidden = infiniteKind !== 'songs';
+  if (infiniteKind !== 'songs') { setLibraryOpen(false); setGenrePickerOpen(false); }
 }
 kindBtns.forEach(b => b.addEventListener('click', () => {
   if (b.dataset.kind === infiniteKind) return;
