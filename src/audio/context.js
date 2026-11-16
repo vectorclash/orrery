@@ -305,6 +305,7 @@ const VOICE_PAN = {
   brass: 0.3, vibraphone: 0.45, clavinet: -0.5, sitar: 0.5, kalimba: -0.35,
   synthbrass: -0.25, monolead: 0.15, // juno and solina are centred: their chorus spreads them
   stab: -0.2, vox: 0.25, sawpluck: 0.35, guitar: 0.4,
+  cowbell: 0.3, // the piano places its own notes across the field; the FM piano's chorus spreads it
   'kit:hat': 0.3, 'kit:ride': -0.35, 'kit:crash': -0.25, 'kit:tomHi': -0.3,
   'kit:tomLo': 0.3, 'kit:perc': -0.4, 'kit:shaker': 0.45, 'kit:rim': 0.12, 'kit:tamb': -0.45,
 };
@@ -316,7 +317,7 @@ const VOICE_PAN = {
 // ensemble reads in depth, not just side to side.
 const VOICE_DISTANCE = {
   arpeggio: 3, harp: 3, pluck: 3, kalimba: 3, mallet: 3, clavinet: 3, rhodes: 3, vibraphone: 3, organ: 3,
-  stab: 3, sawpluck: 3, vox: 3, guitar: 3,
+  stab: 3, sawpluck: 3, vox: 3, guitar: 3, piano: 3, epiano: 3,
   pad: 6, strings: 6, choir: 6, drone: 6, supersaw: 6, juno: 6, solina: 6, synthbrass: 6,
   texture: 6, glass: 6, bell: 6,
 };
@@ -332,8 +333,8 @@ const VOICE_DISTANCE = {
 const VOICE_LOW_CUT = {
   pad: 110, strings: 110, choir: 110, organ: 110, drone: 110, supersaw: 110, juno: 110, solina: 110, synthbrass: 110,
   arpeggio: 120, harp: 120, pluck: 120, kalimba: 120, mallet: 120, clavinet: 120, rhodes: 120,
-  stab: 120, sawpluck: 120, vox: 160, guitar: 160,
-  melody: 140, flute: 140, brass: 140, sitar: 140, vibraphone: 140, monolead: 140,
+  stab: 120, sawpluck: 120, vox: 160, guitar: 160, piano: 110, epiano: 120,
+  melody: 140, flute: 140, brass: 140, sitar: 140, vibraphone: 140, monolead: 140, cowbell: 200,
   bell: 250, glass: 250, texture: 250,
 };
 const RUMBLE_CUT = 35;

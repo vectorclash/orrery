@@ -337,6 +337,14 @@ const BODIES = {
     modes: [[140, 14, 8], [250, 18, 9], [420, 20, 7], [650, 22, 5], [900, 22, 4], [1300, 24, 3], [1900, 24, 1]],
     air: [0.25, 4, 900],
   },
+  // Piano soundboard: a big spruce plate, many low-Q modes close together from 60 Hz
+  // up, so it colours evenly rather than ringing on a few notes, and a bright, short
+  // wash above them: the "wood" under every note.
+  piano: {
+    modes: [[62, 6, 5], [95, 8, 6], [140, 8, 6], [190, 9, 5], [260, 10, 6], [340, 10, 5], [450, 12, 5],
+            [600, 12, 4], [820, 14, 4], [1100, 14, 3], [1500, 16, 3], [2100, 16, 2], [2900, 18, 2], [4000, 18, 1]],
+    air: [0.4, 7, 1800],
+  },
 };
 
 const bodies = new Map();

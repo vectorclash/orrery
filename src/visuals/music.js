@@ -16,13 +16,15 @@ const ROLE = {
   drone: 'bed', pad: 'bed', strings: 'bed', choir: 'bed', organ: 'bed', supersaw: 'bed',
   juno: 'bed', solina: 'bed', synthbrass: 'bed',
   stab: 'motion', sawpluck: 'motion', vox: 'lead', guitar: 'motion',
+  piano: 'motion', epiano: 'motion', cowbell: 'lead',
   melody: 'lead', flute: 'lead', brass: 'lead', sitar: 'lead', vibraphone: 'lead', monolead: 'lead',
   arpeggio: 'motion', harp: 'motion', pluck: 'motion', kalimba: 'motion',
   mallet: 'motion', clavinet: 'motion', rhodes: 'motion',
   bell: 'air', glass: 'air', texture: 'air',
 };
 const HIT = {
-  kick: 'kick', k808: 'kick', k909: 'kick', taiko: 'kick',
+  kick: 'kick', k808: 'kick', k909: 'kick', taiko: 'kick', khard: 'kick', tGe: 'kick',
+  tNa: 'snare', tTin: 'snare', tTe: 'snare',
   snare: 'snare', clap: 'snare', rim: 'snare', btap: 'snare', brush: 'snare',
   tomLo: 'snare', tomHi: 'snare', congaLo: 'snare', congaHi: 'snare', bell: 'snare',
   gsnare: 'snare', simLo: 'snare', simMid: 'snare', simHi: 'snare',

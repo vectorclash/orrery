@@ -23,6 +23,7 @@ const CARRIERS = {
   sitar:      [64, 48, 80],
   vibraphone: [72, 53, 89],
   monolead:   [72, 52, 91],
+  cowbell:    [76, 60, 91],
   // Riff instruments
   mallet:     [67, 48, 84],
   kalimba:    [72, 55, 89],

@@ -162,7 +162,7 @@ const GROW = ['chorus', 'drop', 'verse', 'swell', 'theme', 'groove', 'breakdown'
 // Drum styles whose music is built in builds and drops.
 const CLUB_DRUMS = new Set([
   'house', 'deep_house', 'techno', 'trance', 'big_room', 'disco', 'afro_house', 'amapiano',
-  'garage', 'dnb', 'jungle', 'breakbeat', 'four_four',
+  'garage', 'dnb', 'jungle', 'breakbeat', 'four_four', 'hardstyle', 'dubstep',
 ]);
 // ─── Builds ───────────────────────────────────────────────────────────────────
 // A build is where a dance track's genre could most easily go missing: the
@@ -203,6 +203,8 @@ const BUILD_WEIGHTS = {
   dnb:        { roll: 3, strip: 2 },
   jungle:     { roll: 2, strip: 2 },
   breakbeat:  { roll: 2, strip: 1, filter: 1 },
+  hardstyle:  { kick: 3, roll: 2 },
+  dubstep:    { roll: 3, strip: 2, filter: 1 },
 };
 const ANY_BUILD = { roll: 2, filter: 1, perc: 1, strip: 1 };
 // The chord a build can hold over its last bars, by scale (degrees, as in
@@ -676,7 +678,7 @@ function assignLines(s, build, carriers, voices, B) {
 
 // Voices that can say what the chord is, for a section that would have nothing else
 // (see arrange).
-const CHORD_VOICES = new Set(['rhodes', 'stab', 'guitar', 'pluck', 'harp', 'arpeggio']);
+const CHORD_VOICES = new Set(['rhodes', 'stab', 'guitar', 'pluck', 'harp', 'arpeggio', 'piano', 'epiano']);
 
 // Which instruments play in each section: the recipe's count of each role,
 // taken from the plan's instruments in an order fixed for the song, and how

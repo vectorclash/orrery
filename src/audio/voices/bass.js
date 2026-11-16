@@ -19,7 +19,7 @@ const STYLES = ['sub', 'plucked', 'walking', 'synth', 'rumble'];
 // (GROOVE_STYLES) draw from their own block, so the first three's sequence of
 // draws is untouched by them.
 const FIRST_DANCE_STYLES = ['deep', 'acid', 'rolling'];
-const GROOVE_STYLES = ['disco', '808', 'reese', 'log'];
+const GROOVE_STYLES = ['disco', '808', 'reese', 'log', 'wobble', 'slap'];
 export const DANCE_STYLES = [...FIRST_DANCE_STYLES, ...GROOVE_STYLES];
 const LO = 26, HI = 59; // D1 … B3
 
@@ -84,6 +84,27 @@ const FIGURES = {
     'R-.R3-.3F-.F6-.6' + 'R-.R3-.3F-.F7-.A',
     'R-------F---6---' + 'R---3---F---A---',
   ],
+  // Reggae: heavy and melodic, with holes in it. The bass is the tune; it often leaves
+  // the one to the drums' silence and answers in the gaps.
+  reggae: [
+    'R-.RF-..R-..3-F-' + 'R-.RF-..R-....A-',
+    'R---..R-F-..3---' + 'R---..R-F-..A---',
+    '..R-R-..3-F-..R-' + '..R-R-..3-F-A---',
+    'R-R-..F-..3-R---' + 'R-R-..F-..3-A---',
+  ],
+  // Bossa nova: root and fifth, each pushed an eighth ahead of the beat it belongs to.
+  bossa: [
+    'R-----R-F-----F-' + 'R-----R-F---A---',
+    'R-----F-R-----F-' + 'R-----F-R---3-A-',
+    'R-----R-F-----R-' + 'R-----R-F-----A-',
+  ],
+  // Soul: the Motown bass, never still: syncopated, through the sixth, into the changes.
+  soul: [
+    'R-.RF-.F6-.FR-3-' + 'R-.RF-.F6-.7A-..',
+    'R---.RF-6-F-3-R-' + 'R---.RF-6-F-A---',
+    'R-R-..F-6---F-3-' + 'R-R-..F-7---A---',
+    'R--R--F-R--R--3-' + 'R--R--F-6--F--A-',
+  ],
   // Anything else: the old cells' shapes and a few that move more.
   any: [
     'R-----R-F---A---' + 'R-----R-F---3-A-',
@@ -101,6 +122,8 @@ const FIGURES_FOR = {
   'LO-FI': 'lofi', TRAP: 'lofi',
   ORCH: 'held', EPIC: 'held', AMBIENT: 'held', ZEN: 'held', DREAM: 'held', DARK: 'held',
   BLUES: 'blues',
+  REGGAE: 'reggae', 'BOSSA NOVA': 'bossa', SOUL: 'soul', GOSPEL: 'soul', 'CITY POP': 'funk',
+  'TRIP-HOP': 'lofi', PHONK: 'lofi', DUBSTEP: 'lofi', RAGA: 'held',
 };
 const figuresFor = language => FIGURES[FIGURES_FOR[language] ?? 'any'];
 // The same, written for the songs in 3/4 and 6/8 (see meter.js): two bars of twelve
@@ -210,6 +233,7 @@ const SYNTH_FOR = {
   'UK GARAGE': 'garage', 'NU-DISCO': 'disco', FUNK: 'funk',
   AFROBEATS: 'afro', 'AFRO HOUSE': 'afro', AMAPIANO: 'afro', REGGAETON: 'afro',
   'LO-FI': 'lofi', TRAP: 'lofi',
+  HOUSE: 'house', HARDSTYLE: 'house', 'CITY POP': 'disco', 'TRIP-HOP': 'lofi', PHONK: 'lofi',
 };
 const synthFiguresFor = language => SYNTH_FIGURES[SYNTH_FOR[language] ?? 'any'];
 let synthFigure = SYNTH_FIGURES.any[0];
@@ -290,7 +314,75 @@ const LOG_PATTERNS = [
   '...R..R.O..R..A.',
   'R.....R..R..O.R.',
 ];
-const GROOVE_PATTERNS = { disco: DISCO_PATTERNS, '808': PATTERNS_808, reese: REESE_PATTERNS, log: LOG_PATTERNS };
+// Wobble (dubstep): the bass is the lead, and it talks. Not a pattern of notes but a
+// four-bar phrase of sounds (see dubBass): each event is { len (sixteenths), code (the
+// note, as the patterns' letters), sound, rate (the wobble, in cycles a beat: 1 a slow
+// "wub" a beat long, 2 eighths, 3 triplets, 4 sixteenths, 6 and 8 a growl; 0 a plain
+// hit), ratio (a growl's FM ratio) }. Drawn for a section, one of two ways:
+//   orderly -- one sound, long notes, the wobble changing speed from note to note:
+//              the half-step of early dubstep
+//   chaotic -- call and response: a long growl, then a scramble of short stabs in
+//              other sounds, screeches an octave up, triplets, gaps; no two beats alike
+// Either way bars one and three are the same and bar four turns, so it's a phrase,
+// not noise. WOBBLE_PATTERNS only gives the style a pattern to hold, as the others do.
+const WOBBLE_PATTERNS = ['phrase'];
+const DUB_ORDERLY = [[8, 8], [8, 4, 4], [12, 4], [16], [6, 6, 4], [4, 4, 8]];
+function makeDub() {
+  const orderly = random() < 0.35;
+  const main = orderly ? pick(['wub', 'wub', 'growl', 'grind']) : pick(['growl', 'growl', 'grind', 'wub']);
+  const ratio = pick([1, 1, 2, 3, 0.5]);
+  const others = ['growl', 'grind', 'screech', 'wub', 'screech'].filter(x => x !== main);
+  const calm = () => {
+    const out = [];
+    for (const len of pick(DUB_ORDERLY)) out.push({ len, code: 'R', sound: main, rate: pick([1, 2, 2, 3, 4, 4, 6]), ratio });
+    return out;
+  };
+  // From `at` sixteenths into the bar: short events in any sound, a rest now and then.
+  const scramble = at => {
+    const out = [];
+    while (at < 16) {
+      const len = Math.min(16 - at, pick([1, 1, 2, 2, 2, 3, 4]));
+      if (random() < 0.18) out.push({ len, rest: true });
+      else {
+        const sound = random() < 0.4 ? main : pick(others);
+        out.push({
+          len, sound, code: sound === 'screech' ? 'R' : pick(['R', 'R', 'R', 'R', 'O', 'F']),
+          rate: len >= 3 ? pick([3, 4, 6, 8, 2]) : pick([0, 0, 8, 6]), ratio: pick([ratio, ratio, 1, 2, 3]),
+        });
+      }
+      at += len;
+    }
+    return out;
+  };
+  const wild = () => {
+    const call = pick([4, 6, 6, 8]);
+    return [{ len: call, code: 'R', sound: main, rate: pick([2, 3, 4, 6]), ratio }, ...scramble(call)];
+  };
+  const barA = orderly ? calm() : wild(), barB = orderly ? calm() : wild();
+  // Bar four: bar two's first half, then a fill. An orderly phrase turns too, a little.
+  const half = [];
+  let at = 0;
+  for (const e of barB) { if (at + e.len > 8) break; half.push(e); at += e.len; }
+  if (at < 8) { half.push({ ...barB[half.length], len: 8 - at }); }
+  const turn = orderly && random() < 0.5 ? [{ len: 4, code: 'R', sound: main, rate: 4, ratio }, { len: 4, code: 'A', sound: main, rate: 8, ratio }] : scramble(8);
+  const seq = new Array(64).fill(null);
+  [barA, barB, barA, [...half, ...turn]].forEach((bar, n) => {
+    let k = n * 16;
+    for (const e of bar) { if (!e.rest) seq[k] = e; k += e.len; }
+  });
+  return seq;
+}
+let dubSeq = null;
+
+// Slap (city pop, funk): the thumb on the root and the finger's pop an octave up, in
+// sixteenths with air between.
+const SLAP_PATTERNS = [
+  'R..RO..R..R.O.A.',
+  'R.R.O..R.R..O.R.',
+  'R..R.O.R..RO..A.',
+  'R-.RO.R-.R.O.RA.',
+];
+const GROOVE_PATTERNS = { disco: DISCO_PATTERNS, '808': PATTERNS_808, reese: REESE_PATTERNS, log: LOG_PATTERNS, wobble: WOBBLE_PATTERNS, slap: SLAP_PATTERNS };
 let groovePattern = null; // chosen at the first bar of a groove style
 let held808 = null;       // { midi, until } -- the 808 still sounding, for slides
 
@@ -676,6 +768,117 @@ function logDrum(t, midi, dur) {
   knock.connect(bp); bp.connect(kG); kG.connect(voiceIn(audio.pumped));
 }
 
+// Dubstep's bass: four sounds over one sub, each a machine with a wobble (`rate`
+// cycles a beat) driving the part of it that moves. What they share is what makes it
+// dubstep rather than a filtered synth: everything above the sub is clipped hard after
+// it's shaped, so the movement is heard as a change of grain, not of loudness, and
+// under it a plain sine holds the low end dead still.
+//   wub     -- saws and a square through a resonant lowpass the wobble opens and shuts
+//   growl   -- FM: a sine bent by another at `ratio` times its pitch, the wobble on the
+//              depth, clipped, then through two formants that slide against each other,
+//              which is what makes it sound like a mouth ("yoi", "wow")
+//   grind   -- saws quantised to a few levels (a bit-crusher: digital, on purpose) and
+//              mixed with themselves a millisecond or two late, the wobble on the
+//              delay: a comb whose teeth sweep through the note, metal on metal
+//   screech -- two octaves up, falling, through a narrow band that falls faster: the
+//              answer to the growl's call
+let crushCurve = null;
+function crusher() {
+  if (!crushCurve) {
+    crushCurve = new Float32Array(1024);
+    for (let i = 0; i < 1024; i++) crushCurve[i] = Math.round((i / 1023 * 2 - 1) * 4) / 4;
+  }
+  const ws = audio.ctx.createWaveShaper();
+  ws.curve = crushCurve; // not oversampled: the aliasing is the sound
+  return ws;
+}
+const DUB_PEAK = { wub: 0.048, growl: 0.05, grind: 0.045, screech: 0.034 }; // each level-matched to the other bass styles
+function dubBass(t, midi, dur, { sound = 'wub', rate = 2, ratio = 1 } = {}) {
+  logNote('bass', t, midi, dur, 0.9);
+  const hz = midiToHz(midi), end = t + dur + 0.1;
+  const bright = lerp(0.65, 1.2, state.brightness);
+  // The wobble, as a signal of ±depth to add to a parameter; nothing for a plain hit.
+  const wobble = (depth, shape = 'sine') => {
+    const g = gain(depth);
+    if (rate) osc(shape, rate / beat(), t, end).connect(g);
+    return g;
+  };
+  const tone = gain(1);
+  if (sound === 'growl') {
+    const car = osc('sine', hz, t, end), mod = osc('sine', hz * ratio, t, end), idx = gain(hz * 2.4);
+    wobble(hz * 2, 'triangle').connect(idx.gain);
+    mod.connect(idx); idx.connect(car.frequency);
+    const pre = gain(4), clip = shaper(5);
+    car.connect(pre); pre.connect(clip);
+    const f1 = filter('bandpass', 650 * bright, 4), f2 = filter('bandpass', 1750 * bright, 5), body = filter('lowpass', 420, 0.7);
+    wobble(380 * bright, 'triangle').connect(f1.frequency);
+    wobble(-750 * bright, 'triangle').connect(f2.frequency);
+    for (const [f, level] of [[f1, 1.3], [f2, 1], [body, 0.5]]) { const g = gain(level); clip.connect(f); f.connect(g); g.connect(tone); }
+  } else if (sound === 'grind') {
+    const src = gain(0.38);
+    for (const d of [-18, 18]) osc('sawtooth', hz * 2, t, end, d).connect(src);
+    const sq = osc('square', hz, t, end), sqG = gain(0.7);
+    sq.connect(sqG); sqG.connect(src);
+    const crush = crusher(), late = audio.ctx.createDelay(0.02), lateG = gain(0.9);
+    late.delayTime.value = 0.0024;
+    wobble(0.0017).connect(late.delayTime);
+    const lp = filter('lowpass', 2600 + 2400 * bright, 1);
+    src.connect(crush); crush.connect(lp); crush.connect(late); late.connect(lateG); lateG.connect(lp);
+    lp.connect(tone);
+  } else if (sound === 'screech') {
+    const f = hz * 4, fall = Math.max(0.05, dur * 0.8);
+    const src = gain(0.6);
+    for (const [type, cents] of [['square', 0], ['sawtooth', 14]]) {
+      const o = osc(type, f, t, end, cents);
+      o.frequency.setValueAtTime(f * 1.33, t);
+      o.frequency.exponentialRampToValueAtTime(f, t + fall);
+      o.connect(src);
+    }
+    const bp = filter('bandpass', 3000 * bright, 6);
+    bp.frequency.setValueAtTime(3000 * bright, t);
+    bp.frequency.exponentialRampToValueAtTime(800, t + fall);
+    wobble(300).connect(bp.frequency);
+    const pre = gain(5);
+    src.connect(bp); bp.connect(pre); pre.connect(tone);
+  } else {
+    const src = gain(1);
+    for (const d of [-9, 9]) osc('sawtooth', hz * 2, t, end, d).connect(src);
+    const sq = osc('square', hz, t, end), sqG = gain(0.6);
+    sq.connect(sqG); sqG.connect(src);
+    const lo = 140, hi = 900 + 1900 * state.brightness;
+    const lp = filter('lowpass', (lo + hi) / 2, 7);
+    wobble((hi - lo) / 2).connect(lp.frequency); // each note starts half open and opening
+    src.connect(lp); lp.connect(tone);
+  }
+  const peak = DUB_PEAK[sound] ?? DUB_PEAK.wub;
+  const drive = shaper(3), top = filter('lowpass', 7000, 0.7), env = gain(0);
+  env.gain.setValueAtTime(0, t);
+  env.gain.linearRampToValueAtTime(peak, t + 0.004);
+  env.gain.setTargetAtTime(0, t + dur, 0.012); // cut, not faded: the gaps are part of the rhythm
+  tone.connect(drive); drive.connect(top); top.connect(env);
+  // The sub: steady while everything above it moves.
+  const sub = osc('sine', hz, t, end), subSat = shaper(1.2), subG = gain(0);
+  subG.gain.setValueAtTime(0, t);
+  subG.gain.linearRampToValueAtTime(0.09, t + 0.006);
+  subG.gain.setTargetAtTime(0, t + dur, 0.02);
+  sub.connect(subSat); subSat.connect(subG);
+  env.connect(voiceIn(audio.pumped)); subG.connect(voiceIn(audio.pumped));
+}
+
+// Slap bass: the electric bass (see fingerBass) struck with the thumb's knuckle, so
+// the string hits the frets: all attack, bright and clanking, then choked short. A
+// pop (`pop`), the finger snapping a string against the neck from underneath, is
+// brighter and shorter still. A newer string, a pickup nearer the bridge.
+function slapBass(t, midi, dur, pop) {
+  logNote('bass', t, midi, dur, 0.9);
+  const ring = dur + 0.15;
+  const src = playBuffer(pluckBuffer(midi, {
+    t60: pop ? 1 : 1.8, bright: pop ? 0.95 : 0.85, pick: 0.09, length: ring, damp: { hz: 2600, t60: pop ? 0.3 : 0.5 }, pol: FINGER_POL, pickup: 0.13,
+  }), t, t + ring);
+  settle(src, t, pop ? 14 : 9, 0.03);
+  stringOut(t, src, filter('lowpass', lerp(3600, 6200, state.brightness), 2), dur, (pop ? 0.38 : 0.45) * FINGER_TRIM, 1200, 3);
+}
+
 // ─── Scheduling ───────────────────────────────────────────────────────────────
 // A build's pedal (see BUILDS in song.js): the chord's root in the style's
 // own sound, coming in halfway on the beat and then in eighths for the last
@@ -692,6 +895,8 @@ function pedal(t, b, sec) {
   else if (style === 'disco') discoBass(t, midi, dur);
   else if (style === 'reese') reeseBass(t, midi, dur);
   else if (style === 'log') logDrum(t, midi, dur);
+  else if (style === 'wobble') dubBass(t, midi, dur, { sound: 'growl', rate: off ? 8 : 4 });
+  else if (style === 'slap') slapBass(t, midi, dur, false);
   else if (style === '808') bass808(t, midi, dur, null);
   else if (style === 'sub') subBass(t, midi, dur);
   else if (style === 'rumble') rumbleBass(t, midi, dur);
@@ -754,6 +959,18 @@ function play(t, b) {
     return 0.25;
   }
 
+  if (style === 'wobble') {
+    dubSeq ??= makeDub();
+    const from = song.current ? song.sectionAt(b).start : 0;
+    const e = dubSeq[(Math.floor((b - from) / B + 1e-9) % 4) * 16 + step16(pos)];
+    if (!e) return 0.25;
+    const beats = Math.min(e.len / 4, harmony.at(b).end - b, B - pos);
+    const midi = resolve(e.code, b, e.len / 4);
+    dubBass(t, midi, beats * beat() * (e.len > 2 ? 0.97 : 0.8), e);
+    prev = midi;
+    return 0.25;
+  }
+
   if (GROOVE_STYLES.includes(style)) {
     // A groove style chosen mid-bar, while playing, hasn't reached the bar line that
     // draws its pattern. Without this it throws on every tick until it does, and takes
@@ -768,6 +985,7 @@ function play(t, b) {
     if (style === 'disco') discoBass(t, midi, beats * beat() * 0.88);
     else if (style === 'reese') reeseBass(t, midi, beats * beat() * 0.96);
     else if (style === 'log') logDrum(t, midi, beats * beat());
+    else if (style === 'slap') slapBass(t, midi, beats * beat() * 0.7, ch === 'O');
     else {
       // Slide from the 808 still sounding, if there is one and it is another note.
       const from = held808 && held808.until >= t - 1e-3 && held808.midi !== midi && random() < 0.6 ? held808.midi : null;
@@ -835,7 +1053,7 @@ function play(t, b) {
 
 const voice = createVoice('bass', play, {
   onReset: () => {
-    prev = null; curBar = -1; groovePattern = null; held808 = null;
+    prev = null; curBar = -1; groovePattern = null; held808 = null; dubSeq = null;
     // Only a dance style draws here, so a classic style's sequence of draws is untouched.
     if (FIRST_DANCE_STYLES.includes(style)) { acidSeq = makeAcid(); acidWave = random() < 0.7 ? 'sawtooth' : 'square'; }
   },
@@ -849,6 +1067,7 @@ export const bassVoice = {
   // afresh, not carried over from whatever played before, so the section
   // plays the same every time.
   newSection() {
+    dubSeq = null; // drawn when it next plays, from the section's stream
     voice.draw(() => {
       if (state.composer >= 2) { figure = pick(figuresFor(state.language)); figureFor = state.language; } else cell = pick(PLUCK_RHYTHMS);
       if (state.composer >= 2) { synthFigure = pick(synthFiguresFor(state.language)); synthFor = state.language; } else pattern = pick(SYNTH_PATTERNS);

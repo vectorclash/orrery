@@ -144,7 +144,7 @@ const LANGUAGES = {
     idioms: { axis: 3, vamp: 2, descent: 2, cadence: 2, circle: 1, turn: 1, drone: 1 },
     colours: { '': 4, 7: 2, add9: 1, sus4r: 1, 9: 1 }, pace: 'lilt', same: 0.5, pedal: 0.15, inv: 0.2,
     hook: { kinds: { riff: 1, topline: 1 }, riff: [...CLAVE, ...HYPNO], topline: LYRIC, range: [7, 14], off: 0.25 },
-    voices: ['melody', 'monolead', 'mallet', 'kalimba', 'flute', 'vibraphone', 'arpeggio', 'sawpluck', 'vox', 'clavinet', 'brass', 'sitar', 'harp', 'glass', 'bell', 'texture'],
+    voices: ['melody', 'monolead', 'mallet', 'kalimba', 'flute', 'vibraphone', 'arpeggio', 'sawpluck', 'vox', 'clavinet', 'brass', 'sitar', 'cowbell', 'harp', 'glass', 'bell', 'texture'],
   },
   // ─── Electronic ─────────────────────────────────────────────────────────────
   'DEEP HOUSE': {
@@ -284,6 +284,79 @@ const LANGUAGES = {
     hook: { kinds: { topline: 3, riff: 1 }, riff: DRIVE, topline: SLOW, range: [7, 14], off: 0.15 },
     voices: ['brass', 'bell', 'melody', 'flute'],
   },
+  // ─── Added together, 2026-11 ────────────────────────────────────────────────
+  // Jazz's chords at a murmur: turnarounds in sevenths and ninths, a sung line.
+  'BOSSA NOVA': {
+    idioms: { turn: 6, circle: 2, descent: 1, vamp: 1 }, colours: { 9: 4, 7: 4, 6: 2 }, pace: 'lilt', same: 0.35, pedal: 0.05, inv: 0.15,
+    hook: { kinds: { topline: 4, riff: 1 }, riff: ['son', 'habanera', 'push', 'bop3'], topline: [...LYRIC, 'bop1', 'bop3'], range: [7, 14], off: 0.35 },
+    voices: ['flute', 'vibraphone', 'melody', 'brass', 'mallet'],
+  },
+  // Two or three plain chords going round, and a tune with room in it.
+  'REGGAE': {
+    idioms: { vamp: 5, axis: 3, cadence: 1 }, colours: { '': 5, 7: 1 }, pace: 'even', same: 0.8, pedal: 0, inv: 0,
+    hook: { kinds: { topline: 2, riff: 2 }, riff: ['off', 'push', 'lope', 'line3', 'skip'], topline: [...LYRIC, ...SLOW], range: [5, 10], off: 0.2 },
+    voices: ['brass', 'melody', 'flute', 'clavinet', 'vox'],
+  },
+  // Chicago and Italo house: big simple chords, a piano riff, a diva's line.
+  'HOUSE': {
+    idioms: { axis: 4, vamp: 3, cadence: 1 }, colours: { '': 3, 7: 3, 9: 1 }, pace: 'lilt', same: 0.8, pedal: 0.1, inv: 0,
+    hook: { kinds: { riff: 3, topline: 2 }, riff: HOUSE, topline: LYRIC, range: [5, 12], off: 0.25 },
+    voices: ['vox', 'sawpluck', 'mallet', 'brass'],
+  },
+  // Bristol: a minor vamp or a descending line, slow, a melody that barely moves.
+  'TRIP-HOP': {
+    idioms: { vamp: 4, descent: 3, drone: 1, axis: 1 }, colours: { 7: 3, '': 3, 9: 1 }, pace: 'long', same: 0.7, pedal: 0.25, inv: 0.1,
+    hook: { kinds: { topline: 3, riff: 1 }, riff: ['slow4', 'lope', 'line3', 'push'], topline: SLOW, range: [4, 10], off: 0.25 },
+    voices: ['vox', 'flute', 'vibraphone', 'melody', 'glass'],
+  },
+  // One chord, a drone under it, and a line that circles the tonic: no changes to play over.
+  'RAGA': {
+    idioms: { drone: 8, vamp: 1 }, colours: { '': 4, sus2: 1, q: 1 }, pace: 'long', same: 0.9, pedal: 0.6, inv: 0,
+    hook: { kinds: { topline: 3, riff: 1 }, riff: ['climb', 'eighths', 'line3', 'gallop'], topline: [...LYRIC, ...SLOW], range: [7, 14], off: 0.3 },
+    voices: ['sitar', 'flute', 'melody', 'kalimba'],
+  },
+  // Dark minor loops under the breaks, pads and a few notes on top.
+  'JUNGLE': {
+    idioms: { vamp: 4, axis: 2, descent: 2, drone: 1 }, colours: { '': 3, 7: 2, 9: 1 }, pace: 'long', same: 0.7, pedal: 0.2, inv: 0,
+    hook: { kinds: { riff: 2, topline: 2 }, riff: ['twostep', 'skip', 'push', 'off', 'lope'], topline: SLOW, range: [5, 12], off: 0.25 },
+    voices: ['vox', 'glass', 'bell', 'arpeggio', 'flute'],
+  },
+  // Motown and Stax: cadences and circles, the bass walking by step, a tune you can sing.
+  'SOUL': {
+    idioms: { cadence: 3, circle: 3, axis: 2, turn: 2, vamp: 1 }, colours: { '': 3, 7: 3, 6: 1, 9: 1 }, pace: 'lilt', same: 0.45, pedal: 0.05, inv: 0.3,
+    hook: { kinds: { topline: 3, riff: 1 }, riff: ['hit', 'push', 'line3', 'skip'], topline: [...LYRIC, 'bop2'], range: [7, 12], off: 0.2 },
+    voices: ['brass', 'melody', 'vox', 'flute', 'clavinet'],
+  },
+  // A minor drone or two chords, half-time, and a riff of a few notes.
+  'DUBSTEP': {
+    idioms: { drone: 4, vamp: 3, descent: 1 }, colours: { '': 5, sus2: 1 }, pace: 'long', same: 0.85, pedal: 0.3, inv: 0,
+    hook: { kinds: { riff: 3, topline: 1 }, riff: ['slow4', 'lope', 'tresillo', 'hit', 'line3'], topline: SLOW, range: [3, 9], off: 0.2 },
+    voices: ['monolead', 'sawpluck', 'vox', 'bell', 'glass'],
+  },
+  // A cowbell riff of four or five notes, over and over, on one or two minor chords.
+  'PHONK': {
+    idioms: { vamp: 4, drone: 3, descent: 1 }, colours: { '': 5, 7: 1 }, pace: 'long', same: 0.9, pedal: 0.2, inv: 0,
+    hook: { kinds: { riff: 1 }, riff: ['tresillo', 'eighths', 'gallop', 'son', 'drive', 'lope'], topline: SLOW, range: [4, 9], off: 0.15 },
+    voices: ['cowbell', 'bell', 'monolead', 'sawpluck'],
+  },
+  // Seventies soul's chords with an eighties shine: major sevenths, ninths, turnarounds, a bright sung line.
+  'CITY POP': {
+    idioms: { turn: 5, circle: 3, axis: 2, descent: 1 }, colours: { 7: 4, 9: 4, add9: 1 }, pace: 'lilt', same: 0.4, pedal: 0.05, inv: 0.2,
+    hook: { kinds: { topline: 3, riff: 1 }, riff: ['push', 'hit', 'skip', 'eighths'], topline: LYRIC, range: [7, 14], off: 0.25 },
+    voices: ['monolead', 'brass', 'vox', 'melody', 'vibraphone'],
+  },
+  // Trance's chords at 150: four plain chords and a lead that climbs.
+  'HARDSTYLE': {
+    idioms: { axis: 6, descent: 2, cadence: 1 }, colours: { '': 5, sus4r: 1 }, pace: 'even', same: 0.75, pedal: 0.1, inv: 0,
+    hook: { kinds: { topline: 2, riff: 3 }, riff: DRIVE, topline: LYRIC, range: [7, 14], off: 0.12 },
+    voices: ['sawpluck', 'monolead', 'arpeggio', 'vox'],
+  },
+  // The church: cadences that take their time getting home, the bass walking up into them.
+  'GOSPEL': {
+    idioms: { cadence: 4, circle: 3, turn: 2, descent: 2 }, colours: { 7: 3, '': 3, 9: 2, 6: 1, sus4r: 1 }, pace: 'lilt', same: 0.35, pedal: 0.1, inv: 0.4,
+    hook: { kinds: { topline: 1 }, riff: LYRIC, topline: [...LYRIC, ...SLOW], range: [7, 14], off: 0.2 },
+    voices: ['vox', 'brass', 'melody', 'flute'],
+  },
 };
 
 // ─── Melodic intervals (composer 3) ───────────────────────────────────────────
@@ -333,6 +406,18 @@ const INTERVALS = {
   'DREAM':          { moves: [5,  28, 22, 27, 18], range: [9, 16],  span: [6, 8] },
   'FUNK':           { moves: [30, 28, 15, 5,  22], range: [5, 13],  span: [3, 7], approach: 0.2 },
   'EPIC':           { moves: [8,  32, 14, 28, 18], range: [9, 16],  span: [6, 8] },
+  'BOSSA NOVA':     { moves: [12, 50, 22, 10, 6],  range: [7, 14],  span: [5, 7], approach: 0.3 },
+  'REGGAE':         { moves: [22, 48, 20, 8,  2],  range: [5, 10],  span: [4, 5] },
+  'HOUSE':          { moves: [15, 38, 27, 15, 5],  range: [5, 12],  span: [4, 6] },
+  'TRIP-HOP':       { moves: [18, 52, 18, 9,  3],  range: [4, 10],  span: [3, 5] },
+  'RAGA':           { moves: [6,  70, 15, 7,  2],  range: [7, 14],  span: [5, 7] },
+  'JUNGLE':         { moves: [15, 40, 22, 18, 5],  range: [5, 12],  span: [4, 6] },
+  'SOUL':           { moves: [12, 50, 24, 10, 4],  range: [7, 12],  span: [5, 6], approach: 0.15 },
+  'DUBSTEP':        { moves: [35, 35, 12, 6,  12], range: [3, 10],  span: [3, 5] },
+  'PHONK':          { moves: [28, 45, 17, 7,  3],  range: [4, 9],   span: [3, 4] },
+  'CITY POP':       { moves: [6,  48, 24, 12, 10], range: [9, 16],  span: [6, 8], approach: 0.2 },
+  'HARDSTYLE':      { moves: [10, 35, 20, 22, 13], range: [9, 16],  span: [6, 8] },
+  'GOSPEL':         { moves: [10, 55, 20, 10, 5],  range: [7, 14],  span: [5, 7], approach: 0.15 },
 };
 
 // A language's melodic intervals, for a composer that has them. Composer 4 is strict
@@ -351,7 +436,7 @@ export function intervalsFor(name, composer) {
 // jazz standard, on a dance record. A half-diminished chord and the dominant it leads to
 // belong to a few languages; the others get their richness from diatonic sevenths and
 // ninths, which is what that song's Rhodes was doing all along.
-const KEEPS_JAZZ = new Set(['ANY', 'JAZZ', 'LO-FI', 'BLUES', 'ORCH', 'EPIC', 'DARK']);
+const KEEPS_JAZZ = new Set(['ANY', 'JAZZ', 'LO-FI', 'BLUES', 'ORCH', 'EPIC', 'DARK', 'BOSSA NOVA', 'CITY POP', 'GOSPEL', 'SOUL']);
 const isJazz = skeleton => /m7b5|\^o/.test(skeleton);
 // What `turn` offers without them, by mode. (Only Aeolian's needs replacing: the others'
 // turnarounds have no half-diminished chord to lose.)
@@ -372,8 +457,9 @@ const REVISIONS = {
 //   dominant  a chord on the fifth, whose leading tone pulls back home, and nothing else
 //   none      nothing (every other language)
 const OUTSIDE = {
-  'JAZZ': 'free', 'BLUES': 'free', 'FUNK': 'free',
+  'JAZZ': 'free', 'BLUES': 'free', 'FUNK': 'free', 'BOSSA NOVA': 'free',
   'ORCH': 'dominant', 'EPIC': 'dominant', 'FOLK': 'dominant', 'DARK': 'dominant', 'ANY': 'dominant',
+  'SOUL': 'dominant', 'GOSPEL': 'dominant', 'CITY POP': 'dominant',
 };
 
 function allowed(token, scaleName, lang) {
@@ -395,6 +481,8 @@ export const LANGUAGE_NAMES = [
   'ANY', 'DEEP HOUSE', 'NU-DISCO', 'AFRO HOUSE', 'AMAPIANO', 'TECHNO', 'MELODIC TECHNO', 'TRANCE', 'EDM',
   'UK GARAGE', 'LIQUID DNB', 'SYNTHWAVE', 'FUTURE BASS', 'TRAP', 'REGGAETON', 'AFROBEATS', 'LO-FI', 'ELEC',
   'AMBIENT', 'DARK', 'JAZZ', 'ORCH', 'ZEN', 'BLUES', 'FOLK', 'DREAM', 'FUNK', 'EPIC',
+  'BOSSA NOVA', 'REGGAE', 'HOUSE', 'TRIP-HOP', 'RAGA', 'JUNGLE', 'SOUL', 'DUBSTEP', 'PHONK', 'CITY POP',
+  'HARDSTYLE', 'GOSPEL',
 ];
 
 export const languageOf = name => LANGUAGES[name] ?? LANGUAGES.ANY;

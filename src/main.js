@@ -11,6 +11,7 @@ import {
   vibraphoneVoice, clavinetVoice, sitarVoice, kalimbaVoice, supersawVoice,
   junoVoice, solinaVoice, synthbrassVoice, monoleadVoice,
   stabVoice, voxVoice, sawpluckVoice, guitarVoice,
+  pianoVoice, epianoVoice, cowbellVoice,
   activeVoices, eraTimer, ERA_DURATION, requestEra, eraDue, eraBegan, changeLandsAt,
   songFor, songOver, unloadSong, resumeSession, setSongFeel, rearrangeSong, setSongLevels,
 } from './audio/scheduler.js';
@@ -32,24 +33,27 @@ import { mirrors, useSymmetry } from './visuals/mirrors.js';
 const ROOT_NAMES   = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
 const SCALE_LABELS = ['AEOLIAN','DORIAN','PHRYGIAN','PENT MINOR','PENT MAJOR','LYDIAN','MIXOLYDIAN','MAJOR'];
 
-const BASS_SUBTYPES  = ['sub','plucked','walking','synth','rumble','deep','acid','rolling','disco','808','reese','log'];
+const BASS_SUBTYPES  = ['sub','plucked','walking','synth','rumble','deep','acid','rolling','disco','808','reese','log','wobble','slap'];
 const DRUMS_SUBTYPES = [
   'minimal','four_four','house','funk','boombap','breakbeat','jungle','garage','trap','halftime',
   'shuffle','swing','brushes','bossanova','reggae','dembow','afro','cinematic','ghost',
   'synthwave','outrun','deep_house','techno','trance','big_room',
   'disco','afro_house','amapiano','afrobeats','dnb','drill',
+  'onedrop','steppers','motown','gospel','tabla','dubstep','phonk','hardstyle',
 ];
 const BASS_LABELS    = {
   sub:'SUB', plucked:'PLUCK', walking:'WALK', synth:'SYNTH', rumble:'RUMBLE', deep:'DEEP', acid:'ACID', rolling:'ROLLING',
-  disco:'DISCO', '808':'808', reese:'REESE', log:'LOG DRUM',
+  disco:'DISCO', '808':'808', reese:'REESE', log:'LOG DRUM', wobble:'WOBBLE', slap:'SLAP',
 };
 const DRUMS_LABELS   = {
   minimal:'MINIMAL', four_four:'4/4', house:'HOUSE', funk:'FUNK', boombap:'BOOM BAP', breakbeat:'BREAK',
   jungle:'JUNGLE', garage:'2-STEP', trap:'TRAP', halftime:'HALF TIME', shuffle:'SHUFFLE', swing:'SWING',
-  brushes:'BRUSHES', bossanova:'BOSSA', reggae:'ONE DROP', dembow:'DEMBOW', afro:'AFRO 12/8',
+  brushes:'BRUSHES', bossanova:'BOSSA', reggae:'REGGAE 12/8', dembow:'DEMBOW', afro:'AFRO 12/8',
   cinematic:'CINEMATIC', ghost:'GHOST', synthwave:'SYNTHWAVE', outrun:'OUTRUN',
   deep_house:'DEEP HOUSE', techno:'TECHNO', trance:'TRANCE', big_room:'BIG ROOM',
   disco:'DISCO', afro_house:'AFRO HOUSE', amapiano:'AMAPIANO', afrobeats:'AFROBEATS', dnb:'D&B', drill:'DRILL',
+  onedrop:'ONE DROP', steppers:'STEPPERS', motown:'MOTOWN', gospel:'GOSPEL 12/8', tabla:'TABLA',
+  dubstep:'DUBSTEP', phonk:'PHONK', hardstyle:'HARDSTYLE',
 };
 
 const SIMPLE_VOICES = [
@@ -83,6 +87,9 @@ const SIMPLE_VOICES = [
   { key:'vox',        voice:voxVoice,        label:'VOCAL CHOP' },
   { key:'sawpluck',   voice:sawpluckVoice,   label:'SAW PLUCK' },
   { key:'guitar',     voice:guitarVoice,     label:'FUNK GUITAR' },
+  { key:'piano',      voice:pianoVoice },
+  { key:'epiano',     voice:epianoVoice,     label:'FM PIANO' },
+  { key:'cowbell',    voice:cowbellVoice },
 ];
 const voiceLabel = ({ key, label }) => label ?? key.toUpperCase();
 // A share link only carries the instruments listed in ALL_INST_KEYS, so one
@@ -616,13 +623,13 @@ function makeCheckbox(key, label, exclusiveKeys = null) {
 // BASS_SUBTYPES, DRUMS_SUBTYPES and SIMPLE_VOICES, which are untouched.
 const DRUM_GROUPS = [
   ['ELECTRONIC DRUMS', ['house','deep_house','disco','afro_house','amapiano','techno','trance','big_room','garage',
-                        'breakbeat','jungle','dnb','trap','drill','halftime','boombap','dembow','afrobeats','synthwave','outrun']],
-  ['CLASSIC DRUMS',    ['four_four','funk','shuffle','swing','brushes','bossanova','reggae','afro','cinematic','minimal','ghost']],
+                        'breakbeat','jungle','dnb','dubstep','hardstyle','trap','drill','phonk','halftime','boombap','dembow','afrobeats','synthwave','outrun']],
+  ['CLASSIC DRUMS',    ['four_four','funk','motown','shuffle','gospel','swing','brushes','bossanova','onedrop','steppers','reggae','afro','tabla','cinematic','minimal','ghost']],
 ];
 const VOICE_GROUPS = [
   ['PADS & CHORDS', ['pad','strings','choir','organ','drone','supersaw','juno','solina','synthbrass']],
-  ['LEADS',         ['melody','flute','brass','sitar','vibraphone','monolead','vox']],
-  ['RHYTHM',        ['arpeggio','rhodes','clavinet','harp','pluck','kalimba','mallet','stab','sawpluck','guitar']],
+  ['LEADS',         ['melody','flute','brass','sitar','vibraphone','monolead','vox','cowbell']],
+  ['RHYTHM',        ['arpeggio','piano','rhodes','epiano','clavinet','harp','pluck','kalimba','mallet','stab','sawpluck','guitar']],
   ['AIR',           ['bell','glass','texture']],
 ];
 // Anything added to the instrument lists but not to a group above still shows,
@@ -1413,8 +1420,11 @@ function setLibraryOpen(open) {
 
 // ─── The genre picker ─────────────────────────────────────────────────────────
 // Which genres SONGS draws from. Stored as the ones turned off, so a genre added
-// later is on until you say otherwise. At least one stays on: the last can't be
-// turned off. It takes effect from the next song.
+// later is on until you say otherwise. It takes effect from the next song.
+// NONE clears the list, so picking one genre out of 39 is two presses, not 38. A
+// playlist can't draw from nothing, so a cleared list is only on screen: the songs
+// go on drawing from the last choice until a genre is picked, and closing the
+// picker with none picked shows that choice again.
 const GENRES_OFF_KEY = 'orrery.genresOff';
 const genresOff = new Set((() => {
   try {
@@ -1428,42 +1438,53 @@ const genrePickerEl    = document.getElementById('genre-picker');
 const genrePickerList  = document.getElementById('genre-picker-list');
 const genrePickerFoot  = document.getElementById('genre-picker-foot');
 const genrePickerAll   = document.getElementById('genre-picker-all');
+const genrePickerNone  = document.getElementById('genre-picker-none');
 const genrePickerClose = document.getElementById('genre-picker-close');
 const pickerButtons = new Map();
+const chosenOnScreen = () => new Set(GENRES.filter(g => !genresOff.has(g.name)).map(g => g.name));
+let shown = chosenOnScreen(); // what the picker shows chosen: the choice, or empty after NONE
 
-function saveGenresOff() {
+// The choice is what's shown, once something is.
+function choose(names) {
+  shown = names;
+  if (!shown.size) return;
+  genresOff.clear();
+  for (const g of GENRES) if (!shown.has(g.name)) genresOff.add(g.name);
   try { localStorage.setItem(GENRES_OFF_KEY, JSON.stringify([...genresOff])); } catch { /* private window */ }
 }
 function showGenrePicker() {
-  const on = GENRES.length - genresOff.size;
+  const on = shown.size, playing = infiniteRunning && songPlan;
   for (const [g, btn] of pickerButtons) {
-    const chosen = !genresOff.has(g.name);
+    const chosen = shown.has(g.name);
     btn.classList.toggle('active', chosen);
     btn.setAttribute('aria-pressed', String(chosen));
-    btn.title = chosen && on === 1 ? 'At least one genre stays on' : '';
   }
-  genrePickerAll.disabled = genresOff.size === 0;
-  genrePickerFoot.textContent = on === GENRES.length ? 'EVERY GENRE'
-    : `${on} OF ${GENRES.length} GENRES${infiniteRunning && songPlan ? ', FROM THE NEXT SONG' : ''}`;
-  genresBtn.textContent = genresOff.size ? `GENRES ${on}` : 'GENRES';
+  genrePickerAll.disabled = on === GENRES.length;
+  genrePickerNone.disabled = on === 0;
+  genrePickerFoot.textContent = on === 0 ? 'PICK ONE OR MORE. UNTIL THEN, THE LAST CHOICE PLAYS'
+    : on === GENRES.length ? 'EVERY GENRE'
+    : `${on} OF ${GENRES.length} GENRES${playing ? ', FROM THE NEXT SONG' : ''}`;
+  genresBtn.textContent = genresOff.size ? `GENRES ${GENRES.length - genresOff.size}` : 'GENRES';
 }
 for (const g of GENRES_AZ) {
   const btn = document.createElement('button');
   btn.className = 'genre-btn';
   btn.textContent = g.name;
   btn.addEventListener('click', () => {
-    if (genresOff.has(g.name)) genresOff.delete(g.name);
-    else if (GENRES.length - genresOff.size > 1) genresOff.add(g.name);
-    saveGenresOff();
+    const next = new Set(shown);
+    if (next.has(g.name)) next.delete(g.name); else next.add(g.name);
+    choose(next);
     showGenrePicker();
   });
   pickerButtons.set(g, btn);
   genrePickerList.appendChild(btn);
 }
-genrePickerAll.addEventListener('click', () => { genresOff.clear(); saveGenresOff(); showGenrePicker(); });
+genrePickerAll.addEventListener('click', () => { choose(new Set(GENRES.map(g => g.name))); showGenrePicker(); });
+genrePickerNone.addEventListener('click', () => { choose(new Set()); showGenrePicker(); });
 
 function setGenrePickerOpen(open) {
   if (open) setLibraryOpen(false);
+  if (!open && !shown.size) shown = chosenOnScreen();
   genrePickerEl.hidden = !open;
   infiniteUi.classList.toggle('sheet-open', open || !libraryEl.hidden);
   genresBtn.classList.toggle('on', open);

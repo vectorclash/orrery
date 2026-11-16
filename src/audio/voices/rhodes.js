@@ -35,7 +35,7 @@ const COMPS = [
 // For the newer composers, each genre comps in its own rhythm (one bar of
 // [beat, length]): the jazz comps above were every genre's, a deep house track
 // and a lo-fi one comping the same Charleston.
-const GENRE_COMPS = {
+export const GENRE_COMPS = {
   jazz: COMPS,
   // House: chords on the off-beats, or held like an organ with a push.
   house: [
@@ -90,11 +90,54 @@ const GENRE_COMPS = {
     [[0, 0.75], [0.75, 0.75], [1.5, 0.5], [2, 0.75], [2.75, 0.75], [3.5, 0.5]],
     [[0.5, 0.5], [1.25, 0.5], [2.5, 0.5], [3.25, 0.5]],
   ],
+  // Bossa nova: the partido alto, two-bar clave feel in one bar, short and dry.
+  bossa: [
+    [[0, 0.5], [1.5, 0.5], [2.5, 0.5], [3.5, 0.5]],
+    [[0, 0.75], [1, 0.5], [2.5, 0.5], [3, 0.75]],
+    [[0.5, 0.5], [1.5, 0.5], [3, 0.5], [3.5, 0.5]],
+    [[0, 1], [1.5, 1], [3, 0.5]],
+  ],
+  // Reggae: the skank on every off-beat, or the organ's bubble around it.
+  reggae: [
+    [[0.5, 0.25], [1.5, 0.25], [2.5, 0.25], [3.5, 0.25]],
+    [[0.5, 0.25], [0.75, 0.25], [1.5, 0.25], [2.5, 0.25], [2.75, 0.25], [3.5, 0.25]],
+    [[0.5, 0.4], [1.5, 0.4], [2.5, 0.4], [3.5, 0.4]],
+  ],
+  // Soul: the backbeat chop with the guitar, or held chords with a push.
+  soul: [
+    [[1, 0.5], [3, 0.5]],
+    [[0, 1.5], [1.5, 0.5], [3, 1]],
+    [[0, 0.75], [1, 0.5], [2.5, 0.5], [3, 0.5]],
+    [[0, 2], [2.5, 0.5], [3, 1]],
+  ],
+  // Gospel: big held chords, the push into the next bar, a quick walk-up.
+  gospel: [
+    [[0, 2], [2, 1.5], [3.5, 0.5]],
+    [[0, 1.5], [1.5, 1.5], [3, 0.5], [3.5, 0.5]],
+    [[0, 1], [1, 1], [2, 1], [3, 0.5], [3.5, 0.5]],
+    [[0, 3], [3, 0.5], [3.5, 0.5]],
+  ],
+  // House piano: the Italo and Chicago riffs, syncopated stabs that never land twice the same.
+  piano_house: [
+    [[0, 0.5], [0.75, 0.5], [1.5, 0.5], [2.5, 0.5], [3.25, 0.5]],
+    [[0, 0.75], [0.75, 0.75], [1.5, 0.5], [2.5, 0.75], [3.25, 0.75]],
+    [[0.5, 0.5], [1.25, 0.5], [2, 0.5], [2.75, 0.5], [3.5, 0.5]],
+    [[0, 0.5], [0.75, 0.25], [1.5, 0.5], [2.25, 0.25], [3, 0.5], [3.5, 0.5]],
+  ],
+  // City pop: sixteenth pushes and a held chord to answer them.
+  citypop: [
+    [[0, 0.75], [0.75, 0.75], [2, 0.5], [2.75, 1.25]],
+    [[0, 1.5], [1.75, 0.25], [2.5, 0.5], [3.5, 0.5]],
+    [[0.5, 0.5], [1.5, 0.5], [2, 0.75], [3.25, 0.75]],
+    [[0, 2], [2.75, 0.25], [3.5, 0.5]],
+  ],
 };
-const COMPS_FOR = {
+export const COMPS_FOR = {
   JAZZ: 'jazz', BLUES: 'jazz',
   'DEEP HOUSE': 'house', 'AFRO HOUSE': 'house', AMAPIANO: 'amapiano', 'LO-FI': 'lofi',
   'LIQUID DNB': 'dnb', FUNK: 'funk', 'UK GARAGE': 'garage', 'NU-DISCO': 'disco', AFROBEATS: 'afro',
+  'BOSSA NOVA': 'bossa', REGGAE: 'reggae', HOUSE: 'house', 'TRIP-HOP': 'lofi', JUNGLE: 'dnb',
+  SOUL: 'soul', GOSPEL: 'gospel', 'CITY POP': 'citypop', DUBSTEP: 'dnb', PHONK: 'lofi',
 };
 // What a comp is drawn from: the old list for the first composer, note for note.
 const comps = () => (state.composer >= 2 ? GENRE_COMPS[COMPS_FOR[state.language] ?? 'jazz'] : COMPS);

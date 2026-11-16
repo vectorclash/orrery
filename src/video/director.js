@@ -121,9 +121,9 @@ export function styleFor(plan) {
   if (!d || (plan.state.density < 0.35 && !['techno', 'trance', 'house', 'deep_house'].includes(d))) return 'DRIFT';
   if (['synthwave', 'outrun'].includes(d)) return 'RETRO';
   if (['cinematic', 'ghost'].includes(d) || (v.has('strings') && v.has('choir'))) return 'CINEMA';
-  if (['disco', 'funk', 'afro', 'afro_house', 'amapiano', 'afrobeats', 'dembow', 'reggae', 'bossanova'].includes(d)) return 'DISCO';
-  if (['trap', 'drill', 'halftime'].includes(d)) return 'GLITCH';
-  if (['boombap', 'swing', 'brushes', 'shuffle'].includes(d)) return 'FILM';
+  if (['disco', 'funk', 'afro', 'afro_house', 'amapiano', 'afrobeats', 'dembow', 'reggae', 'bossanova', 'onedrop', 'steppers', 'motown'].includes(d)) return 'DISCO';
+  if (['trap', 'drill', 'halftime', 'dubstep', 'phonk'].includes(d)) return 'GLITCH';
+  if (['boombap', 'swing', 'brushes', 'shuffle', 'gospel', 'tabla'].includes(d)) return 'FILM';
   return 'CLUB';
 }
 // How hard a style works, from the plan: harder for a busier, pumping track

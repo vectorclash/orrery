@@ -54,8 +54,24 @@ const GENRE_PATTERNS = {
     'X..p..p.X..p..p.',
     'p..p..pp..p.p...',
   ],
+  // Reggae: the skank. A chop on every off-beat and nothing else, sometimes doubled.
+  reggae: [
+    '..X...X...X...X.',
+    '..Xx..X...Xx..X.',
+    '..X...Xx..X...Xx',
+  ],
+  // Soul: the chop on two and four with the snare, a scratch or two around it.
+  soul: [
+    '....X.......X...',
+    '....X..g....X..g',
+    '..g.X.....g.X...',
+    '....X.x.....X.x.',
+  ],
 };
-const PATTERNS_FOR = { AFROBEATS: 'afro', 'AFRO HOUSE': 'afro', AMAPIANO: 'afro', REGGAETON: 'reggaeton', TRAP: 'reggaeton' };
+const PATTERNS_FOR = {
+  AFROBEATS: 'afro', 'AFRO HOUSE': 'afro', AMAPIANO: 'afro', REGGAETON: 'reggaeton', TRAP: 'reggaeton',
+  REGGAE: 'reggae', SOUL: 'soul', GOSPEL: 'soul',
+};
 const patterns = () => (state.composer >= 2 ? GENRE_PATTERNS[PATTERNS_FOR[state.language] ?? 'disco'] : PATTERNS);
 const PICK_ORDER = [3, 1, 2, 1];
 // One picked string has a fraction of a four-string chop's energy: level-matched

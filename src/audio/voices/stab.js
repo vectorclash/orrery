@@ -54,10 +54,17 @@ const GENRE_PATTERNS = {
     '..x..x....x..x..',
     'x..x....x..x..x.',
   ],
+  // Reggae and dub: the off-beats, for the echo to throw around.
+  reggae: [
+    '..x...x...x...x.',
+    '..x.......x.....',
+    '..x...x...x..x..',
+  ],
 };
 const PATTERNS_FOR = {
   'DEEP HOUSE': 'house', TECHNO: 'techno', 'MELODIC TECHNO': 'techno', 'UK GARAGE': 'garage',
   'NU-DISCO': 'disco', 'AFRO HOUSE': 'afro', AMAPIANO: 'afro', AFROBEATS: 'afro',
+  REGGAE: 'reggae', DUBSTEP: 'techno', 'TRIP-HOP': 'techno', JUNGLE: 'techno',
 };
 const patterns = () => (state.composer >= 2 ? GENRE_PATTERNS[PATTERNS_FOR[state.language] ?? 'house'] : PATTERNS);
 

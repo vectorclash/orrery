@@ -30,6 +30,9 @@ export const ALL_INST_KEYS = [
   // more dance music
   'drums:disco','drums:afro_house','drums:amapiano','drums:afrobeats','drums:dnb','drums:drill',
   'bass:disco','bass:808','bass:reese','bass:log','guitar',
+  // twelve more genres
+  'drums:onedrop','drums:steppers','drums:motown','drums:gospel','drums:tabla','drums:dubstep','drums:phonk','drums:hardstyle',
+  'bass:wobble','bass:slap','piano','epiano','cowbell',
 ];
 
 // Binary pack: 20 fixed bytes, then the instrument tail if there is one

@@ -16,7 +16,7 @@ import { isPent, seven } from './chords.js';
 // Who might be carrying the tune, most likely first: the leads, written to be heard over
 // everything else, then the riff instruments. The others play the chord's notes in
 // patterns, which aren't a tune you could take away from the chords.
-const TUNE_VOICES = ['monolead', 'melody', 'flute', 'brass', 'sitar', 'vibraphone', 'mallet', 'kalimba', 'clavinet', 'vox', 'sawpluck'];
+const TUNE_VOICES = ['monolead', 'melody', 'flute', 'brass', 'sitar', 'vibraphone', 'mallet', 'kalimba', 'clavinet', 'vox', 'sawpluck', 'cowbell'];
 // These log how long a note is meant to last; the rest, how long it rings, or a set length.
 const LOGS_ITS_LENGTH = new Set(['monolead', 'melody', 'flute', 'brass', 'sitar']);
 

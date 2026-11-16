@@ -152,6 +152,71 @@ function crash(t, v) {
   send(env, audio.reverbSend, 0.3);
 }
 
+// Hardstyle kick: the genre is this drum. A sine falls four octaves in a few
+// hundredths of a second (the "tok") and lands on the key's root, where it's held
+// and driven flat into a clipper, so the tail is nearly a square wave: a bass note
+// with the kick's punch, which is why a hardstyle track needs no bass line under it.
+function kickHard(t, v) {
+  const hz = midiToHz(fold(state.rootMidi, 31, 42));
+  const body = osc('sine', hz * 12, t, t + 0.5);
+  body.frequency.setValueAtTime(hz * 12, t);
+  body.frequency.exponentialRampToValueAtTime(hz * 2, t + 0.025);
+  body.frequency.exponentialRampToValueAtTime(hz, t + 0.09);
+  const pre = gain(5), clip = shaper(4), tone = filter('lowpass', 3200, 0.9), env = gain(0);
+  env.gain.setValueAtTime(0, t);
+  env.gain.linearRampToValueAtTime(v, t + 0.001);
+  env.gain.setTargetAtTime(v * 0.7, t + 0.001, 0.03);
+  env.gain.setTargetAtTime(0, t + 0.2, 0.05);
+  body.connect(pre); pre.connect(clip); clip.connect(tone); tone.connect(env); env.connect(out());
+  const click = noise(t, 0.01), hp = filter('highpass', 4000), ce = gain(0);
+  perc(ce.gain, t, v * 0.5, 0.006, 0.0003);
+  click.connect(hp); hp.connect(ce); ce.connect(out());
+}
+
+// Tabla: two drums, tuned to the key. The dayan, the small wooden one under the right
+// hand, has a black paste on its skin that pulls its overtones into tune, so unlike
+// any other drum it rings with a clear note and harmonics above it: `na`, struck at
+// the rim, bright and ringing; `tin`, softer and longer; `te`, the flat of the fingers,
+// a dry slap with no ring. The bayan, the metal bowl under the left, is the bass: the
+// heel of the hand presses into the skin as it sounds, bending the note up (`ge`).
+function tablaRing(t, v, ring, bright) {
+  const hz = midiToHz(fold(state.rootMidi, 60, 71)), sum = gain(1);
+  for (const [k, level, d] of [[1, 1, 1], [2, 0.5 * bright, 0.7], [3, 0.35 * bright, 0.5], [4, 0.15 * bright, 0.35]]) {
+    const o = osc('sine', hz * k, t, t + ring + 0.05), e = gain(0);
+    perc(e.gain, t, v * level, ring * d, 0.001);
+    o.connect(e); e.connect(sum);
+  }
+  const n = noise(t, 0.02), bp = filter('bandpass', hz * 5, 1.5), ne = gain(0);
+  perc(ne.gain, t, v * 0.5 * bright, 0.012, 0.0005);
+  n.connect(bp); bp.connect(ne); ne.connect(sum);
+  sum.connect(out('tomHi'));
+  send(sum, audio.reverbSend, 0.2);
+}
+const tablaNa  = (t, v) => tablaRing(t, v, 0.28, 1);
+const tablaTin = (t, v) => tablaRing(t, v * 0.9, 0.5, 0.45);
+function tablaTe(t, v) {
+  const hz = midiToHz(fold(state.rootMidi, 60, 71));
+  const n = noise(t, 0.04), bp = filter('bandpass', hz * 3, 1.2), ne = gain(0);
+  perc(ne.gain, t, v, 0.025, 0.0005);
+  n.connect(bp); bp.connect(ne); ne.connect(out('tomHi'));
+  const o = osc('sine', hz * 1.02, t, t + 0.08), e = gain(0);
+  perc(e.gain, t, v * 0.5, 0.035, 0.001);
+  o.connect(e); e.connect(out('tomHi'));
+}
+function tablaGe(t, v) {
+  const hz = midiToHz(fold(state.rootMidi, 36, 47));
+  const o = osc('sine', hz, t, t + 0.6), e = gain(0);
+  o.frequency.setValueAtTime(hz * 0.92, t);
+  o.frequency.exponentialRampToValueAtTime(hz * 1.45, t + 0.11);
+  o.frequency.exponentialRampToValueAtTime(hz * 1.2, t + 0.4);
+  perc(e.gain, t, v, 0.42, 0.003);
+  const sat = shaper(1.4);
+  o.connect(sat); sat.connect(e); e.connect(out('tomLo'));
+  const n = noise(t, 0.02), lp = filter('lowpass', 500), ne = gain(0);
+  perc(ne.gain, t, v * 0.4, 0.015, 0.001);
+  n.connect(lp); lp.connect(ne); ne.connect(out('tomLo'));
+}
+
 // Toms and congas are tuned to the key: low to the root, high to the fifth.
 // `gated` sends them to the gated room (see gateIn) as well as the hall.
 function drum(t, v, hz, piece, decay, verb, gated = 0) {
@@ -546,6 +611,8 @@ const KIT = {
   simHi:   [simHi,   0.22],  gtomLo: [gtomLo, 0.26], gtomMid: [gtomMid, 0.24],
   gtomHi:  [gtomHi,  0.22],
   tamb:    [tambourine, 0.09],
+  khard:   [kickHard, 0.18],
+  tNa:     [tablaNa, 0.25], tTin:  [tablaTin, 0.25], tTe:    [tablaTe, 0.2],  tGe:  [tablaGe, 0.22],
   // The acoustic kit, each level-matched (K-weighted) to the piece it stands in for.
   kickA:   [kickA,   0.365], snareA: [snareA, 0.175], hatA:    [(t, v, vel) => hatA(t, v, vel), 0.028],
   ohatA:   [(t, v, vel) => hatA(t, v, vel, true), 0.018], crashA: [crashA, 0.07],
@@ -758,6 +825,57 @@ const STYLES = {
     snare: '........x......o',
     clap:  '........x.......',
     hat:   'x..x..x.x..x..x.' } },
+
+  // ─── More genres ────────────────────────────────────────────────────────────
+  // One drop: reggae's beat, counted slow. Nothing on the one: the kick and the
+  // cross-stick land together on two and four, under swung hats.
+  onedrop: { acoustic: true, dance: true, bpm: [62, 90], swing: 0.6, human: true, tracks: {
+    kick:  '....x.......x...',
+    rim:   '....x.......x...',
+    hat:   'x.o.x.ogx.o.x.og' } },
+  // Steppers: dub's four on the floor, the cross-stick still on two and four.
+  steppers: { acoustic: true, dance: true, bpm: [62, 90], swing: 0.58, human: true, tracks: {
+    kick:  'x...x...x...x...',
+    rim:   '....x.......x...',
+    hat:   'x.o.x.ogx.o.x.og',
+    ohat:  '..............o.' } },
+  // Motown: the snare on every beat, hardest on two and four with the tambourine.
+  motown: { acoustic: true, dance: true, bpm: [92, 128], human: true, fill: 'snare', tracks: {
+    kick:  'x.....x.x.......',
+    snare: 'o...x...o...x...',
+    hat:   'x.o.x.o.x.o.x.o.',
+    tamb:  '....x.......x...' } },
+  // Gospel: a slow twelve-eight, every triplet on the hat, the backbeat with a tambourine.
+  gospel: { acoustic: true, dance: true, steps: 12, bpm: [52, 96], human: true, fill: 'snare', tracks: {
+    kick:  'x....ox.....',
+    snare: '...x.....x..',
+    hat:   'xooxooxooxoo',
+    tamb:  '...x.....x..' } },
+  // Tabla: keherwa, the eight-beat cycle of light classical and film music, in eighths:
+  // dha ge na ti, na ka dhin na.
+  tabla: { dance: true, bpm: [64, 124], human: true, tracks: {
+    tNa:  'x...o...o.....o.',
+    tGe:  'x.o.........x...',
+    tTe:  '......o...o..g.g',
+    tTin: '............x...' } },
+  // Dubstep: half-time at 140. The kick on one, a huge snare on three, and room.
+  dubstep: { dance: true, bpm: [134, 146], fill: 'snare', machine: true, tracks: {
+    kick:  'x..........x....',
+    snare: '........X.......',
+    clap:  '........x.......',
+    hat:   'x.o.x.oox.o.x...',
+    ohat:  '..............x.' } },
+  // Phonk: a pounding kick, claps on two and four and sixteenth hats, under the cowbell.
+  phonk: { dance: true, bpm: [108, 138], tracks: {
+    kick:  'x...x...x..x.x..',
+    clap:  '....x.......x...',
+    hat:   'xgxgxgxgxgxgxgxg' } },
+  // Hardstyle: the kick (see kickHard) on every beat, and little else.
+  hardstyle: { dance: true, bpm: [142, 158], fill: 'snare', machine: true, tracks: {
+    khard: 'X...X...X...X...',
+    clap:  '....x.......x...',
+    ohat:  '..x...x...x...x.',
+    hat:   'g...g...g...g...' } },
 };
 
 // The brushes as ORIGINAL plays them, note for note: a sweep on each beat, a tap
@@ -875,10 +993,10 @@ const FILL_REPLACES = ['snare', 'gsnare', 'tomHi', 'tomLo', 'hat', 'ohat', 'ride
 // section's last bar and a crash after it, a build's roll through its last
 // bars, faster and louder as it goes, played on the kit's own backbeat, kick
 // or percussion, and nothing at all in the silent beat before a drop.
-const PULSE   = new Set(['kick', 'k808', 'k909', 'taiko', 'hat', 'ride', 'shaker', 'sweep', 'chick']);
+const PULSE   = new Set(['kick', 'k808', 'k909', 'khard', 'taiko', 'tGe', 'tNa', 'hat', 'ride', 'shaker', 'sweep', 'chick']);
 const PART_LEVEL = { pulse: 0.75, light: 0.85, full: 1, roll: 1 }; // played softer in a verse, opened up in a chorus
 const ACCENTS = new Set(['ohat', 'crash', 'tamb', 'swish', 'bell', 'congaLo', 'congaHi']);
-const KICKS   = ['kick', 'k808', 'k909', 'taiko'];
+const KICKS   = ['kick', 'k808', 'k909', 'khard', 'taiko'];
 const SNARES  = ['snare', 'gsnare', 'clap', 'rim', 'brush'];
 // What each kind of roll stops while it plays: the parts it takes over.
 const ROLLED  = {

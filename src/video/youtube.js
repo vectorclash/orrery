@@ -36,11 +36,12 @@ const VOICE_NAMES = {
   sitar: 'sitar', kalimba: 'kalimba', supersaw: 'supersaw', juno: 'polysynth pad', solina: 'string machine',
   synthbrass: 'synth brass', monolead: 'mono synth lead', stab: 'chord stab', vox: 'vocal chop',
   sawpluck: 'saw pluck', guitar: 'disco rhythm guitar',
+  piano: 'piano', epiano: 'FM electric piano', cowbell: 'cowbell lead',
 };
 const BASS_NAMES = {
   sub: 'sub bass', plucked: 'plucked bass', walking: 'walking bass', synth: 'synth bass', rumble: 'rumble bass',
   deep: 'deep house bass', acid: 'acid bass', rolling: 'rolling bass', disco: 'disco bass', '808': '808 bass',
-  reese: 'reese bass', log: 'log drum',
+  reese: 'reese bass', log: 'log drum', wobble: 'wobble bass', slap: 'slap bass',
 };
 // Each drum pattern by name, and the genre it says the song is (a tag), if it says one.
 const DRUMS = {
@@ -54,6 +55,8 @@ const DRUMS = {
   techno: ['techno', 'techno'], trance: ['trance', 'trance'], big_room: ['big room', 'big room'],
   disco: ['disco', 'disco'], afro_house: ['afro house', 'afro house'], amapiano: ['amapiano', 'amapiano'],
   afrobeats: ['afrobeats', 'afrobeats'], dnb: ['drum and bass', 'drum and bass'], drill: ['drill', 'drill'],
+  onedrop: ['one drop', 'reggae'], steppers: ['steppers', 'dub'], motown: ['motown', 'soul'], gospel: ['gospel', 'gospel'],
+  tabla: ['tabla', 'raga'], dubstep: ['dubstep', 'dubstep'], phonk: ['phonk', 'phonk'], hardstyle: ['hardstyle', 'hardstyle'],
 };
 // What a video style says of the music (see STYLE_ABOUT in catalog.js).
 const STYLE_GENRES = {
@@ -400,6 +403,21 @@ const VOICE_FACTS = {
     'A saw pluck begins loudly and then gives up. This is called "decay", like teeth.',
     'It is called a saw because its wave is shaped like the teeth of a saw. Do not cut anything with it.',
   ],
+  piano: [
+    'The piano has 88 keys. Orrery has used some of them. The others are being kept for later.',
+    'A piano is very heavy. This one weighs nothing at all, and is easier to carry upstairs.',
+    'Inside a piano there are small hammers. They are not for building anything.',
+  ],
+  epiano: [
+    'The FM electric piano was invented in 1983, and was on every record until 1989, when it was asked to leave.',
+    'This piano is made of mathematics. Most pianos are made of wood, which is a kind of slow mathematics.',
+    'The FM electric piano sounds like glass. Please do not drop it.',
+  ],
+  cowbell: [
+    'The cowbell was first worn by cows. The cows did not know they were making music.',
+    'This cowbell plays a tune. A cow cannot do this, although many have tried.',
+    'There is no cow in this video. The cowbell has come by itself.',
+  ],
   guitar: [
     'The disco guitar is played very quickly, so that the dancers do not fall over.',
     'This guitar is played mostly with the wrist, which is what wrists are for.',
@@ -407,6 +425,16 @@ const VOICE_FACTS = {
   ],
 };
 const BASS_FACTS = {
+  wobble: [
+    'The wobble bass wobbles. It has been asked to stand still, and has declined.',
+    'This bass goes "wub". The plural of "wub" is "wub wub wub".',
+    'The wobble bass was invented in South London. Nobody has been able to switch it off.',
+  ],
+  slap: [
+    'The slap bass is slapped with the thumb. The bass does not mind. It was built for this.',
+    'Slapping a bass is the only kind of slapping that is allowed.',
+    'The slap bass was very popular in 1984. It has not been told that it is no longer 1984.',
+  ],
   log: [
     'The log drum is not made from a log. Or is it? It is not.',
     'Knock on a log now. That is not what it sounds like.',
@@ -741,7 +769,7 @@ function character(p, genre) {
 }
 // The instruments you'd notice first, most first; a bass counts when it's a
 // sound of its own (the log drum, the 808), not just the low end.
-const FEATURED = ['guitar', 'sitar', 'kalimba', 'harp', 'flute', 'choir', 'vox', 'mallet', 'vibraphone',
+const FEATURED = ['cowbell', 'guitar', 'sitar', 'piano', 'epiano', 'kalimba', 'harp', 'flute', 'choir', 'vox', 'mallet', 'vibraphone',
   'clavinet', 'rhodes', 'organ', 'brass', 'synthbrass', 'strings', 'supersaw', 'monolead', 'sawpluck', 'stab',
   'bell', 'pluck', 'arpeggio', 'juno', 'solina', 'glass', 'pad', 'melody', 'texture', 'drone'];
 const TITLE_NAMES = {
@@ -749,8 +777,9 @@ const TITLE_NAMES = {
   monolead: 'Synth Lead', sawpluck: 'Saw Plucks', stab: 'Chord Stabs', bell: 'Handbells', pluck: 'Fingerpicked Guitar',
   arpeggio: 'Arpeggios', juno: 'Analogue Pads', solina: 'String Machine', glass: 'Glass Harmonica', pad: 'Pads',
   melody: 'Soft Lead', texture: 'Shimmer', supersaw: 'Supersaws', drone: 'Drone',
+  epiano: 'FM Piano',
 };
-const FEATURED_BASS = { log: 'Log Drum', '808': '808s', acid: 'Acid Bass', reese: 'Reese Bass', walking: 'Walking Bass', disco: 'Disco Bass' };
+const FEATURED_BASS = { log: 'Log Drum', '808': '808s', acid: 'Acid Bass', reese: 'Reese Bass', walking: 'Walking Bass', disco: 'Disco Bass', wobble: 'Wobble Bass', slap: 'Slap Bass' };
 // A genre as a title has it: UK Garage, Drum and Bass.
 const titleCase = g => g.split(' ').map(w => (w === 'uk' ? 'UK' : w === 'and' ? 'and' : cap(w))).join(' ');
 

@@ -60,8 +60,8 @@ export const ODD_METERS = ['3/4', '6/8', '5/4', '7/8'];
 // Seven-eight is the one dance meter: techno's, where a 2+2+3 kick is a known trick.
 export const METER_GENRES = {
   '3/4': ['JAZZ', 'FOLK', 'ORCH', 'DREAM', 'AMBIENT'],
-  '6/8': ['FOLK', 'ORCH', 'EPIC', 'BLUES'],
-  '5/4': ['JAZZ', 'DARK', 'EPIC', 'ELEC'],
+  '6/8': ['FOLK', 'ORCH', 'EPIC', 'BLUES', 'GOSPEL'],
+  '5/4': ['JAZZ', 'DARK', 'EPIC', 'ELEC', 'TRIP-HOP'],
   '7/8': ['TECHNO', 'MELODIC TECHNO', 'ELEC', 'DARK'],
 };
 export const METER_DRUMS = {

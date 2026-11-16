@@ -14,8 +14,9 @@
 // `electronic` genres are weighted 2:1 in RANDOMIZE ALL (see weightedGenre):
 // before kits, a random pick drew from all 25 instruments evenly, and with
 // most of them acoustic, orchestral or folk, most rolls sounded old-fashioned.
-// (It was 3:1 with nine electronic genres; 2:1 with seventeen keeps the same
-// share, about two thirds electronic.)
+// (It was 3:1 with nine electronic genres; 2:1 with seventeen kept the same
+// share, about two thirds electronic, and with twenty-three of thirty-nine it's
+// about three quarters.) The UI lists them all together, A to Z.
 export const GENRES = [
   // ─── Electronic ─────────────────────────────────────────────────────────────
   { name:'DEEP HOUSE', electronic:true, scaleIdx:1, tempo:122, density:0.62, brightness:0.45, spaciousness:0.50, harmony:0.82, chord:8, room:'room', pump:0.35,
@@ -100,6 +101,43 @@ export const GENRES = [
   { name:'EPIC',    scaleIdx:0, tempo:84,  density:0.62, brightness:0.42, spaciousness:0.74, harmony:0.90, chord:4, room:'hall',
     bpm:[76,92], scales:[0,7],
     kit:{ drums:['cinematic','halftime'], bass:['sub','rumble'], cores:[['strings','choir']], extra:['brass','supersaw','bell','choir'], extras:[1,2] } },
+  // ─── Added together, 2026-11 ────────────────────────────────────────────────
+  { name:'HOUSE', electronic:true, scaleIdx:0, tempo:124, density:0.75, brightness:0.60, spaciousness:0.45, harmony:0.85, chord:4, room:'room', pump:0.35,
+    bpm:[120,128], scales:[0,1,7],
+    kit:{ drums:['house'], bass:['deep','deep','synth'], cores:[['piano','piano','organ','stab']], extra:['vox','strings','pad','stab','solina','brass'], extras:[1,2] } },
+  { name:'TRIP-HOP', electronic:true, scaleIdx:0, tempo:84, density:0.50, brightness:0.30, spaciousness:0.60, harmony:0.80, chord:8, room:'hall',
+    bpm:[72,94], scales:[0,1,2],
+    kit:{ drums:['boombap','breakbeat','halftime'], bass:['sub','deep','plucked'], cores:[['rhodes','strings','pad','pluck']], extra:['vox','texture','vibraphone','flute','glass','organ','piano'], extras:[1,3] } },
+  { name:'JUNGLE', electronic:true, scaleIdx:0, tempo:165, density:0.75, brightness:0.50, spaciousness:0.55, harmony:0.85, chord:8, room:'hall',
+    bpm:[158,170], scales:[0,2,1],
+    kit:{ drums:['jungle','jungle','breakbeat'], bass:['reese','reese','sub'], cores:[['pad','strings','solina','choir']], extra:['vox','stab','glass','bell','arpeggio','texture','piano'], extras:[1,2] } },
+  { name:'DUBSTEP', electronic:true, scaleIdx:0, tempo:140, density:0.70, brightness:0.50, spaciousness:0.50, harmony:0.90, chord:8, room:'hall',
+    bpm:[136,144], scales:[0,2],
+    kit:{ drums:['dubstep'], bass:['wobble'], cores:[['pad','strings','choir','texture']], extra:['monolead','vox','bell','glass','sawpluck','stab','piano'], extras:[1,2] } },
+  { name:'PHONK', electronic:true, scaleIdx:2, tempo:124, density:0.75, brightness:0.45, spaciousness:0.35, harmony:0.90, chord:8, room:'studio',
+    bpm:[112,134], scales:[2,0,3],
+    kit:{ drums:['phonk'], bass:['808'], cores:[['cowbell']], extra:['choir','pad','vox','bell','texture','organ'], extras:[1,2] } },
+  { name:'HARDSTYLE', electronic:true, scaleIdx:0, tempo:150, density:0.85, brightness:0.75, spaciousness:0.50, harmony:0.90, chord:4, room:'hall', pump:0.30,
+    bpm:[146,154], scales:[0,2,7],
+    kit:{ drums:['hardstyle'], bass:['rolling',null], cores:[['supersaw'],['sawpluck','monolead','arpeggio']], extra:['vox','choir','glass','strings'], extras:[0,1] } },
+  { name:'BOSSA NOVA', scaleIdx:7, tempo:72, density:0.50, brightness:0.45, spaciousness:0.45, harmony:0.55, chord:4, room:'room',
+    bpm:[64,82], scales:[7,1,5],
+    kit:{ drums:['bossanova'], bass:['plucked','walking'], cores:[['pluck'],['flute','vibraphone','rhodes','piano']], extra:['strings','mallet','melody','brass','piano'], extras:[0,2] } },
+  { name:'REGGAE', scaleIdx:7, tempo:76, density:0.60, brightness:0.45, spaciousness:0.50, harmony:0.85, chord:4, room:'room',
+    bpm:[66,86], scales:[7,0,6,1],
+    kit:{ drums:['onedrop','onedrop','steppers'], bass:['plucked','plucked','deep','sub'], cores:[['guitar'],['organ','piano','rhodes']], extra:['brass','melody','stab','clavinet','flute','vox'], extras:[1,2] } },
+  { name:'RAGA', scaleIdx:5, tempo:84, density:0.50, brightness:0.50, spaciousness:0.65, harmony:0.80, chord:8, room:'hall',
+    bpm:[66,108], scales:[5,2,6,1],
+    kit:{ drums:['tabla','tabla','tabla',null], bass:[null], cores:[['sitar'],['drone']], extra:['flute','harp','strings','kalimba','bell'], extras:[0,2] } },
+  { name:'SOUL', scaleIdx:7, tempo:108, density:0.65, brightness:0.50, spaciousness:0.40, harmony:0.70, chord:4, room:'room',
+    bpm:[92,124], scales:[7,6,1],
+    kit:{ drums:['motown','motown','boombap'], bass:['plucked'], cores:[['guitar','piano'],['organ','rhodes','strings','piano']], extra:['brass','strings','vibraphone','clavinet','melody','vox'], extras:[1,2] } },
+  { name:'CITY POP', scaleIdx:7, tempo:112, density:0.75, brightness:0.70, spaciousness:0.45, harmony:0.60, chord:4, room:'studio',
+    bpm:[100,124], scales:[7,1,5],
+    kit:{ drums:['disco','funk','synthwave'], bass:['slap','slap','plucked','synth'], cores:[['epiano'],['guitar','synthbrass','strings','juno']], extra:['brass','vibraphone','monolead','glass','solina','clavinet','vox'], extras:[1,2] } },
+  { name:'GOSPEL', scaleIdx:7, tempo:76, density:0.65, brightness:0.50, spaciousness:0.60, harmony:0.70, chord:4, room:'hall',
+    bpm:[60,92], scales:[7,6,1],
+    kit:{ drums:['gospel','gospel','shuffle','motown'], bass:['plucked','walking'], cores:[['piano'],['choir','organ']], extra:['organ','choir','brass','strings','vox','vibraphone'], extras:[1,2] } },
 ];
 
 // The genre a kit is from, for a song that doesn't say (a link from before languages, or

@@ -31,11 +31,18 @@ const ARPS = {
   dnb: ['T.......a...a...', 'T...a...a...a...', 'T.....a.a...a...'],
   // Afrobeats: highlife-style picking.
   afro: ['T.aa.a.aT.aa.a.a', 'T..a.aa.T..a.aa.', 'P.a.a.aaT.a.a.a.'],
+  // Bossa nova: the thumb on one and three, the fingers' chord pushed ahead of the beat.
+  bossa: ['T..a.a..T.a..a..', 'P..a..a.T.a..a.a', 'T.a..a..T..a.a..'],
+  // Trip-hop: a few notes, left to ring over the break.
+  triphop: ['T.....a...a.....', 'T...a.......a.a.', 'T.......a.....a.'],
 };
-const ARPS_FOR = { TRAP: 'trap', REGGAETON: 'reggaeton', 'LIQUID DNB': 'dnb', AFROBEATS: 'afro', 'AFRO HOUSE': 'afro', AMAPIANO: 'afro' };
+const ARPS_FOR = {
+  TRAP: 'trap', REGGAETON: 'reggaeton', 'LIQUID DNB': 'dnb', AFROBEATS: 'afro', 'AFRO HOUSE': 'afro', AMAPIANO: 'afro',
+  'BOSSA NOVA': 'bossa', 'TRIP-HOP': 'triphop', JUNGLE: 'dnb', PHONK: 'trap',
+};
 const UP_DOWN = [0, 1, 2, 1];
 // Sparser than the Travis picking they replace: each level-matched (BS.1770, gated) to it.
-const ARPS_TRIM = { trap: 1.3, reggaeton: 1.3, dnb: 1.6, afro: 1.12 };
+const ARPS_TRIM = { trap: 1.3, reggaeton: 1.3, dnb: 1.6, afro: 1.12, bossa: 1.25, triphop: 1.7 };
 let arp = null, arpFor = null; // the pattern, and the language and section it was drawn for
 
 // One sixteenth of an arpeggio pattern.

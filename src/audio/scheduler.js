@@ -43,6 +43,9 @@ import { stabVoice }       from './voices/stab.js';
 import { voxVoice }        from './voices/vox.js';
 import { sawpluckVoice }   from './voices/sawpluck.js';
 import { guitarVoice }     from './voices/guitar.js';
+import { pianoVoice }      from './voices/piano.js';
+import { epianoVoice }     from './voices/epiano.js';
+import { cowbellVoice }    from './voices/cowbell.js';
 import { pumpVoice }       from './voices/pump.js';
 import { sweepVoice }      from './voices/sweep.js';
 
@@ -54,6 +57,7 @@ export {
   vibraphoneVoice, clavinetVoice, sitarVoice, kalimbaVoice, supersawVoice,
   junoVoice, solinaVoice, synthbrassVoice, monoleadVoice,
   stabVoice, voxVoice, sawpluckVoice, guitarVoice,
+  pianoVoice, epianoVoice, cowbellVoice,
 };
 
 // ─── Orchestration ────────────────────────────────────────────────────────────
@@ -69,7 +73,7 @@ const ROLES = {
 };
 // The dance voices are chosen in Manual mode (or by a genre), not drawn into
 // Infinite mode's eras by role, so Infinite sounds as it always has.
-const DANCE_VOICES = [stabVoice, voxVoice, sawpluckVoice, guitarVoice];
+const DANCE_VOICES = [stabVoice, voxVoice, sawpluckVoice, guitarVoice, pianoVoice, epianoVoice, cowbellVoice];
 const ALL_VOICES = [bassVoice, drumsVoice, ...Object.values(ROLES).flat(), ...DANCE_VOICES];
 
 export let activeVoices = [];
