@@ -33,6 +33,7 @@ export const ALL_INST_KEYS = [
   // twelve more genres
   'drums:onedrop','drums:steppers','drums:motown','drums:gospel','drums:tabla','drums:dubstep','drums:phonk','drums:hardstyle',
   'bass:wobble','bass:slap','piano','epiano','cowbell',
+  'drums:newwave',
 ];
 
 // Binary pack: 20 fixed bytes, then the instrument tail if there is one

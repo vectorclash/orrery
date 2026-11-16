@@ -138,6 +138,9 @@ export const GENRES = [
   { name:'GOSPEL', scaleIdx:7, tempo:76, density:0.65, brightness:0.50, spaciousness:0.60, harmony:0.70, chord:4, room:'hall',
     bpm:[60,92], scales:[7,6,1],
     kit:{ drums:['gospel','gospel','shuffle','motown'], bass:['plucked','walking'], cores:[['piano'],['choir','organ']], extra:['organ','choir','brass','strings','vox','vibraphone'], extras:[1,2] } },
+  { name:'NEW WAVE', scaleIdx:0, tempo:128, density:0.72, brightness:0.60, spaciousness:0.55, harmony:0.85, chord:4, room:'hall',
+    bpm:[112,150], scales:[0,7,1,6],
+    kit:{ drums:['newwave','newwave','synthwave'], bass:['plucked','synth','synth'], cores:[['juno','solina','synthbrass','organ'],['pluck','pluck','guitar','arpeggio']], extra:['monolead','sawpluck','glass','vox','strings','epiano','bell'], extras:[1,2] } },
 ];
 
 // The genre a kit is from, for a song that doesn't say (a link from before languages, or

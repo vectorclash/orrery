@@ -60,6 +60,13 @@ const GENRE_PATTERNS = {
     '..Xx..X...Xx..X.',
     '..X...Xx..X...Xx',
   ],
+  // New wave: driving eighth-note chops, or the off-beats with room between.
+  newwave: [
+    'x.x.x.x.x.x.x.x.',
+    '..X...X...X...X.',
+    'X.x.g.x.X.x.g.x.',
+    'x.xgx.x.x.xgx.x.',
+  ],
   // Soul: the chop on two and four with the snare, a scratch or two around it.
   soul: [
     '....X.......X...',
@@ -70,7 +77,7 @@ const GENRE_PATTERNS = {
 };
 const PATTERNS_FOR = {
   AFROBEATS: 'afro', 'AFRO HOUSE': 'afro', AMAPIANO: 'afro', REGGAETON: 'reggaeton', TRAP: 'reggaeton',
-  REGGAE: 'reggae', SOUL: 'soul', GOSPEL: 'soul',
+  REGGAE: 'reggae', SOUL: 'soul', GOSPEL: 'soul', 'NEW WAVE': 'newwave',
 };
 const patterns = () => (state.composer >= 2 ? GENRE_PATTERNS[PATTERNS_FOR[state.language] ?? 'disco'] : PATTERNS);
 const PICK_ORDER = [3, 1, 2, 1];

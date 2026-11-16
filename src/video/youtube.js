@@ -57,6 +57,7 @@ const DRUMS = {
   afrobeats: ['afrobeats', 'afrobeats'], dnb: ['drum and bass', 'drum and bass'], drill: ['drill', 'drill'],
   onedrop: ['one drop', 'reggae'], steppers: ['steppers', 'dub'], motown: ['motown', 'soul'], gospel: ['gospel', 'gospel'],
   tabla: ['tabla', 'raga'], dubstep: ['dubstep', 'dubstep'], phonk: ['phonk', 'phonk'], hardstyle: ['hardstyle', 'hardstyle'],
+  newwave: ['new wave', 'new wave'],
 };
 // What a video style says of the music (see STYLE_ABOUT in catalog.js).
 const STYLE_GENRES = {

@@ -92,6 +92,13 @@ const FIGURES = {
     '..R-R-..3-F-..R-' + '..R-R-..3-F-A---',
     'R-R-..F-..3-R---' + 'R-R-..F-..3-A---',
   ],
+  // New wave: picked eighths that never let up, root and octave, the turn on the fifth.
+  newwave: [
+    'R-R-R-R-R-R-R-R-' + 'R-R-R-R-F-F-A-A-',
+    'R-R-O-R-R-R-O-R-' + 'R-R-O-R-F-F-A-O-',
+    'R-R-R-R-O-O-R-R-' + 'R-R-R-R-F-F-3-A-',
+    'R-RRR-R-R-RRR-R-' + 'R-RRR-R-F-FFA-A-',
+  ],
   // Bossa nova: root and fifth, each pushed an eighth ahead of the beat it belongs to.
   bossa: [
     'R-----R-F-----F-' + 'R-----R-F---A---',
@@ -123,7 +130,7 @@ const FIGURES_FOR = {
   ORCH: 'held', EPIC: 'held', AMBIENT: 'held', ZEN: 'held', DREAM: 'held', DARK: 'held',
   BLUES: 'blues',
   REGGAE: 'reggae', 'BOSSA NOVA': 'bossa', SOUL: 'soul', GOSPEL: 'soul', 'CITY POP': 'funk',
-  'TRIP-HOP': 'lofi', PHONK: 'lofi', DUBSTEP: 'lofi', RAGA: 'held',
+  'TRIP-HOP': 'lofi', PHONK: 'lofi', DUBSTEP: 'lofi', RAGA: 'held', 'NEW WAVE': 'newwave',
 };
 const figuresFor = language => FIGURES[FIGURES_FOR[language] ?? 'any'];
 // The same, written for the songs in 3/4 and 6/8 (see meter.js): two bars of twelve
@@ -233,7 +240,7 @@ const SYNTH_FOR = {
   'UK GARAGE': 'garage', 'NU-DISCO': 'disco', FUNK: 'funk',
   AFROBEATS: 'afro', 'AFRO HOUSE': 'afro', AMAPIANO: 'afro', REGGAETON: 'afro',
   'LO-FI': 'lofi', TRAP: 'lofi',
-  HOUSE: 'house', HARDSTYLE: 'house', 'CITY POP': 'disco', 'TRIP-HOP': 'lofi', PHONK: 'lofi',
+  HOUSE: 'house', HARDSTYLE: 'house', 'CITY POP': 'disco', 'TRIP-HOP': 'lofi', PHONK: 'lofi', 'NEW WAVE': 'synthwave',
 };
 const synthFiguresFor = language => SYNTH_FIGURES[SYNTH_FOR[language] ?? 'any'];
 let synthFigure = SYNTH_FIGURES.any[0];

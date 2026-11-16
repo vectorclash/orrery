@@ -351,6 +351,13 @@ const LANGUAGES = {
     hook: { kinds: { topline: 2, riff: 3 }, riff: DRIVE, topline: LYRIC, range: [7, 14], off: 0.12 },
     voices: ['sawpluck', 'monolead', 'arpeggio', 'vox'],
   },
+  // Synth-pop and the guitar bands of the early eighties: four plain chords going
+  // round, or a minor vamp, a sung line that climbs and leaps the octave.
+  'NEW WAVE': {
+    idioms: { axis: 5, vamp: 2, descent: 2, cadence: 1 }, colours: { '': 5, add9: 1, sus4r: 1 }, pace: 'even', same: 0.55, pedal: 0.15, inv: 0.1,
+    hook: { kinds: { topline: 3, riff: 2 }, riff: [...DRIVE, 'eighths', 'off'], topline: LYRIC, range: [7, 14], off: 0.15 },
+    voices: ['monolead', 'sawpluck', 'melody', 'arpeggio', 'vox'],
+  },
   // The church: cadences that take their time getting home, the bass walking up into them.
   'GOSPEL': {
     idioms: { cadence: 4, circle: 3, turn: 2, descent: 2 }, colours: { 7: 3, '': 3, 9: 2, 6: 1, sus4r: 1 }, pace: 'lilt', same: 0.35, pedal: 0.1, inv: 0.4,
@@ -418,6 +425,7 @@ const INTERVALS = {
   'CITY POP':       { moves: [6,  48, 24, 12, 10], range: [9, 16],  span: [6, 8], approach: 0.2 },
   'HARDSTYLE':      { moves: [10, 35, 20, 22, 13], range: [9, 16],  span: [6, 8] },
   'GOSPEL':         { moves: [10, 55, 20, 10, 5],  range: [7, 14],  span: [5, 7], approach: 0.15 },
+  'NEW WAVE':       { moves: [10, 45, 22, 13, 10], range: [7, 14],  span: [5, 7] },
 };
 
 // A language's melodic intervals, for a composer that has them. Composer 4 is strict
@@ -482,7 +490,7 @@ export const LANGUAGE_NAMES = [
   'UK GARAGE', 'LIQUID DNB', 'SYNTHWAVE', 'FUTURE BASS', 'TRAP', 'REGGAETON', 'AFROBEATS', 'LO-FI', 'ELEC',
   'AMBIENT', 'DARK', 'JAZZ', 'ORCH', 'ZEN', 'BLUES', 'FOLK', 'DREAM', 'FUNK', 'EPIC',
   'BOSSA NOVA', 'REGGAE', 'HOUSE', 'TRIP-HOP', 'RAGA', 'JUNGLE', 'SOUL', 'DUBSTEP', 'PHONK', 'CITY POP',
-  'HARDSTYLE', 'GOSPEL',
+  'HARDSTYLE', 'GOSPEL', 'NEW WAVE',
 ];
 
 export const languageOf = name => LANGUAGES[name] ?? LANGUAGES.ANY;

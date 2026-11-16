@@ -119,7 +119,7 @@ export function styleFor(plan) {
   const d = plan.voices.includes('drums') ? plan.drumStyle : null;
   const v = new Set(plan.voices);
   if (!d || (plan.state.density < 0.35 && !['techno', 'trance', 'house', 'deep_house'].includes(d))) return 'DRIFT';
-  if (['synthwave', 'outrun'].includes(d)) return 'RETRO';
+  if (['synthwave', 'outrun', 'newwave'].includes(d)) return 'RETRO';
   if (['cinematic', 'ghost'].includes(d) || (v.has('strings') && v.has('choir'))) return 'CINEMA';
   if (['disco', 'funk', 'afro', 'afro_house', 'amapiano', 'afrobeats', 'dembow', 'reggae', 'bossanova', 'onedrop', 'steppers', 'motown'].includes(d)) return 'DISCO';
   if (['trap', 'drill', 'halftime', 'dubstep', 'phonk'].includes(d)) return 'GLITCH';

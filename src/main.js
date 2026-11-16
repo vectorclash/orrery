@@ -39,7 +39,7 @@ const DRUMS_SUBTYPES = [
   'shuffle','swing','brushes','bossanova','reggae','dembow','afro','cinematic','ghost',
   'synthwave','outrun','deep_house','techno','trance','big_room',
   'disco','afro_house','amapiano','afrobeats','dnb','drill',
-  'onedrop','steppers','motown','gospel','tabla','dubstep','phonk','hardstyle',
+  'onedrop','steppers','motown','gospel','tabla','dubstep','phonk','hardstyle','newwave',
 ];
 const BASS_LABELS    = {
   sub:'SUB', plucked:'PLUCK', walking:'WALK', synth:'SYNTH', rumble:'RUMBLE', deep:'DEEP', acid:'ACID', rolling:'ROLLING',
@@ -53,7 +53,7 @@ const DRUMS_LABELS   = {
   deep_house:'DEEP HOUSE', techno:'TECHNO', trance:'TRANCE', big_room:'BIG ROOM',
   disco:'DISCO', afro_house:'AFRO HOUSE', amapiano:'AMAPIANO', afrobeats:'AFROBEATS', dnb:'D&B', drill:'DRILL',
   onedrop:'ONE DROP', steppers:'STEPPERS', motown:'MOTOWN', gospel:'GOSPEL 12/8', tabla:'TABLA',
-  dubstep:'DUBSTEP', phonk:'PHONK', hardstyle:'HARDSTYLE',
+  dubstep:'DUBSTEP', phonk:'PHONK', hardstyle:'HARDSTYLE', newwave:'NEW WAVE',
 };
 
 const SIMPLE_VOICES = [
@@ -623,7 +623,7 @@ function makeCheckbox(key, label, exclusiveKeys = null) {
 // BASS_SUBTYPES, DRUMS_SUBTYPES and SIMPLE_VOICES, which are untouched.
 const DRUM_GROUPS = [
   ['ELECTRONIC DRUMS', ['house','deep_house','disco','afro_house','amapiano','techno','trance','big_room','garage',
-                        'breakbeat','jungle','dnb','dubstep','hardstyle','trap','drill','phonk','halftime','boombap','dembow','afrobeats','synthwave','outrun']],
+                        'breakbeat','jungle','dnb','dubstep','hardstyle','trap','drill','phonk','halftime','boombap','dembow','afrobeats','synthwave','outrun','newwave']],
   ['CLASSIC DRUMS',    ['four_four','funk','motown','shuffle','gospel','swing','brushes','bossanova','onedrop','steppers','reggae','afro','tabla','cinematic','minimal','ghost']],
 ];
 const VOICE_GROUPS = [

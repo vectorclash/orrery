@@ -4,7 +4,7 @@ import { createVoice } from '../transport.js';
 import { logNote } from '../notes.js';
 import { harmony } from '../harmony.js';
 import { song } from '../song.js';
-import { gain, send, pluckBuffer, playBuffer, settle, desk } from '../synth.js';
+import { gain, filter, send, pluckBuffer, playBuffer, settle, desk, chorus } from '../synth.js';
 import { barBeats, inBar, step16 } from '../meter.js';
 
 // Fingerpicked steel-string guitar (Travis picking). The thumb alternates
@@ -35,43 +35,60 @@ const ARPS = {
   bossa: ['T..a.a..T.a..a..', 'P..a..a.T.a..a.a', 'T.a..a..T..a.a..'],
   // Trip-hop: a few notes, left to ring over the break.
   triphop: ['T.....a...a.....', 'T...a.......a.a.', 'T.......a.....a.'],
+  // New wave: the jangle. Eighth-note arpeggios that never stop, ringing into each other.
+  newwave: ['T.a.a.a.T.a.a.a.', 'a.a.a.a.a.a.a.a.', 'T.a.a.aaT.a.a.a.', 'P.a.a.a.a.a.a.a.'],
 };
+// Played on a clean electric guitar through a chorus pedal, not the steel-string
+// acoustic: the sound of the 1980s' guitar bands.
+const ELECTRIC = new Set(['newwave']);
 const ARPS_FOR = {
+  'NEW WAVE': 'newwave',
   TRAP: 'trap', REGGAETON: 'reggaeton', 'LIQUID DNB': 'dnb', AFROBEATS: 'afro', 'AFRO HOUSE': 'afro', AMAPIANO: 'afro',
   'BOSSA NOVA': 'bossa', 'TRIP-HOP': 'triphop', JUNGLE: 'dnb', PHONK: 'trap',
 };
 const UP_DOWN = [0, 1, 2, 1];
 // Sparser than the Travis picking they replace: each level-matched (BS.1770, gated) to it.
-const ARPS_TRIM = { trap: 1.3, reggaeton: 1.3, dnb: 1.6, afro: 1.12, bossa: 1.25, triphop: 1.7 };
+const ARPS_TRIM = { trap: 1.3, reggaeton: 1.3, dnb: 1.6, afro: 1.12, bossa: 1.25, triphop: 1.7, newwave: 0.53 };
 let arp = null, arpFor = null; // the pattern, and the language and section it was drawn for
 
 // One sixteenth of an arpeggio pattern.
 function picking(t, b, arps, trim) {
   const key = `${state.language}|${song.current ? song.sectionAt(b).start : ''}`;
   if (arpFor !== key) { arp = pick(arps); arpFor = key; }
+  const electric = ELECTRIC.has(ARPS_FOR[state.language]);
   const step = step16(inBar(b)), ch = arp[step];
   if (ch === '.') return 0.25;
   const seg = harmony.at(b), pcs = harmony.pcs(seg.degree, 3);
   const ring = Math.min(2.2, beat() * 4);
   const bass = fold(harmony.degreeNear(seg.degree, register(46, 28, 63)), 28, 63);
-  if (ch === 'T' || ch === 'P') string(t, bass, rand(0.19, 0.23) * trim, ring);
-  if (ch === 'P') string(t, upper(pcs)[2], rand(0.13, 0.16) * trim, ring);
+  if (ch === 'T' || ch === 'P') string(t, bass, rand(0.19, 0.23) * trim, ring, electric);
+  if (ch === 'P') string(t, upper(pcs)[2], rand(0.13, 0.16) * trim, ring, electric);
   if (ch === 'a') {
     const nth = [...arp.slice(0, step)].filter(c => c === 'a').length;
-    string(t, upper(pcs)[UP_DOWN[nth % 4]], rand(0.12, 0.16) * trim, ring * 0.8);
+    string(t, upper(pcs)[UP_DOWN[nth % 4]], rand(0.12, 0.16) * trim, ring * 0.8, electric);
   }
   return 0.25;
 }
 
-function string(t, midi, level, ring) {
+function string(t, midi, level, ring, electric = false) {
   logNote('pluck', t, midi, ring, Math.min(1, level * 5));
-  const src = playBuffer(pluckBuffer(midi, { t60: ring, bright: 0.62, pick: 0.13, stretch: 0.45, length: ring, body: 'acoustic', pol: POL }), t, t + ring);
+  // Every option draws the same randoms (see pluckBuffer), so the electric guitar plays the same notes.
+  const src = playBuffer(pluckBuffer(midi, electric
+    ? { t60: ring, bright: 0.7, pick: 0.13, stretch: 0.4, length: ring, pickup: 0.2, pol: POL }
+    : { t60: ring, bright: 0.62, pick: 0.13, stretch: 0.45, length: ring, body: 'acoustic', pol: POL }), t, t + ring);
   settle(src, t, 5, 0.05);
-  const g = gain(level), d = desk(level * PEAK, 1.07); // see desk()
-  src.connect(g); g.connect(d.input);
+  const g = gain(level * (electric ? ELECTRIC_TRIM : 1)), d = desk(level * PEAK, 1.07); // see desk()
+  src.connect(g);
+  if (electric) {
+    // The pickup's resonance, then the chorus pedal: the shimmer is the sound.
+    const tone = filter('lowpass', 4200, 1.6), ch = chorus(t, t + ring + 0.1, 2);
+    g.connect(tone); tone.connect(ch.input); ch.output.connect(d.input);
+  } else g.connect(d.input);
   d.output.connect(getVoiceBus('pluck').dry);
-  send(d.output, audio.reverbSend, 0.32);
+  send(d.output, audio.reverbSend, electric ? 0.4 : 0.32);
+  if (electric) send(d.output, audio.echoSend, 0.12);
 }
+const ELECTRIC_TRIM = 1; // level-matched to the acoustic
 
 function play(t, b) {
   const family = state.composer >= 2 ? ARPS_FOR[state.language] : null;

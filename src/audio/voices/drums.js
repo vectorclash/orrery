@@ -870,6 +870,14 @@ const STYLES = {
     kick:  'x...x...x..x.x..',
     clap:  '....x.......x...',
     hat:   'xgxgxgxgxgxgxgxg' } },
+  // New wave: the drum machine of the early eighties under a band: four on the
+  // floor, the gated snare on two and four, driving sixteenth hats with the open
+  // hat on the off-beats.
+  newwave: { dance: true, bpm: [108, 160], fill: SYNTH_FILLS, machine: true, tracks: {
+    kick:   'x...x...x...x...',
+    gsnare: '....x.......x...',
+    hat:    'xgxgxgxgxgxgxgxg',
+    ohat:   '..o.......o.....' } },
   // Hardstyle: the kick (see kickHard) on every beat, and little else.
   hardstyle: { dance: true, bpm: [142, 158], fill: 'snare', machine: true, tracks: {
     khard: 'X...X...X...X...',
