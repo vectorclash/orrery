@@ -810,7 +810,7 @@ modeTabs.forEach(tab => {
 
     currentMode = mode;
     modeTabs.forEach(t => t.classList.toggle('active', t.dataset.mode === mode));
-    infiniteUi.style.display = mode === 'infinite' ? '' : 'none';
+    infiniteUi.classList.toggle('away', mode !== 'infinite');
     manualUi.classList.toggle('active', mode === 'manual');
     if (mode === 'manual') {
       if (wasInfinitePlaying) {
@@ -1119,7 +1119,7 @@ function startSong(plan) {
   updateSongDisplay();
   updateKindUI();
   showKept();
-  if (!libraryEl.hidden) showLibrary();
+  if (sheetShown === 'library') showLibrary();
 }
 
 // Straight on to another song, with a quick fade instead of a cut. `plan` is asked for
@@ -1242,7 +1242,7 @@ keepBtn.addEventListener('click', () => {
   if (library.isKept(songEntry.link)) library.unkeep(songEntry.link);
   else library.keep(songEntry);
   showKept();
-  if (!libraryEl.hidden) showLibrary();
+  if (sheetShown === 'library') showLibrary();
 });
 
 likeBtn.addEventListener('click', async () => {
@@ -1408,15 +1408,87 @@ libraryCopyBtn.addEventListener('click', () => {
   write.then(() => done(true), err => { console.error(err); done(false); });
 });
 
-function setLibraryOpen(open) {
-  if (!open) arrived = null;
-  libraryEl.hidden = !open;
-  if (open) setGenrePickerOpen(false);
-  infiniteUi.classList.toggle('sheet-open', open);
-  libraryBtn.classList.toggle('on', open);
-  libraryBtn.setAttribute('aria-expanded', String(open));
-  if (open) showLibrary();
+// ─── Infinite's sheets ────────────────────────────────────────────────────────
+// The library and the genre picker: one open at a time, in the stack above the
+// transport, with what's under the transport folded away while it's open (see
+// .sheet-open). They move as Edit's panel does: a sheet rises 16 px as it fades
+// in and sinks as it fades out, and the transport glides to its new place rather
+// than jumping there (measured before and after, then played back from where it
+// was). The rows coming back under it fade in. Closing is all one move: the sheet
+// is lifted out of the stack where it is and fades there, as the transport glides
+// up under it (a fade first and the glide after felt like two things happening).
+// One sheet replacing the other just swaps, the transport staying put.
+let sheetShown = null; // 'library', 'genres' or null: what's open, whatever is still fading
+const sheetOut = new Map(); // a sheet fading out → its animation
+const infiniteControlsEl = document.getElementById('infinite-controls');
+const SHEET_ROWS = ['infinite-kind', 'song-actions', 'state-line'].map(id => document.getElementById(id));
+const moving = () => !matchMedia('(prefers-reduced-motion: reduce)').matches;
+const sheetEl = n => (n === 'library' ? libraryEl : genrePickerEl);
+
+function applySheet(n) {
+  libraryEl.hidden = n !== 'library';
+  genrePickerEl.hidden = n !== 'genres';
+  infiniteUi.classList.toggle('sheet-open', !!n);
+  for (const [btn, name] of [[libraryBtn, 'library'], [genresBtn, 'genres']]) {
+    btn.classList.toggle('on', n === name);
+    btn.setAttribute('aria-expanded', String(n === name));
+  }
 }
+// `change`, with the transport gliding from where it was and the rows it uncovers fading in.
+function glide(change) {
+  const before = infiniteControlsEl.getBoundingClientRect().top;
+  const seen = SHEET_ROWS.map(r => r.getClientRects().length > 0);
+  change();
+  if (!moving()) return;
+  const d = before - infiniteControlsEl.getBoundingClientRect().top;
+  if (Math.abs(d) > 0.5) infiniteControlsEl.animate([{ transform: `translateY(${d}px)` }, { transform: 'none' }], { duration: 300, easing: 'ease' });
+  SHEET_ROWS.forEach((r, i) => {
+    if (!seen[i] && r.getClientRects().length) r.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 300, easing: 'ease' });
+  });
+}
+function riseIn(el) {
+  if (moving()) el.animate([{ opacity: 0, transform: 'translateY(16px)' }, { opacity: 1, transform: 'none' }], { duration: 300, easing: 'ease' });
+}
+// Out of the stack where it stands, held by its bottom edge (#infinite-ui is anchored
+// by its own, so that doesn't move), and fading: the stack closes up as it goes.
+function lift(el) {
+  const r = el.getBoundingClientRect(), u = infiniteUi.getBoundingClientRect();
+  return () => {
+    el.hidden = false;
+    Object.assign(el.style, {
+      position: 'absolute', margin: '0', pointerEvents: 'none',
+      left: `${r.left - u.left}px`, width: `${r.width}px`, bottom: `${u.bottom - r.bottom}px`,
+    });
+  };
+}
+function unlift(el) {
+  for (const k of ['position', 'margin', 'pointerEvents', 'left', 'width', 'bottom']) el.style[k] = '';
+}
+function sinkOut(el) {
+  const a = el.animate([{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'translateY(16px)' }], { duration: 300, easing: 'ease', fill: 'forwards' });
+  sheetOut.set(el, a);
+  a.onfinish = () => { sheetOut.delete(el); el.hidden = true; unlift(el); a.cancel(); };
+}
+
+function showSheet(n) {
+  const was = sheetShown;
+  if (n === was) return;
+  sheetShown = n;
+  if (was === 'library') arrived = null;
+  if (was === 'genres' && !shown.size) shown = chosenOnScreen();
+  if (n === 'library') showLibrary();
+  if (n === 'genres') showGenrePicker();
+  // Opened again while one is still fading out: that one goes at once.
+  for (const [el, a] of sheetOut) { a.cancel(); el.hidden = true; unlift(el); }
+  sheetOut.clear();
+  if (n && was) { applySheet(n); riseIn(sheetEl(n)); return; }
+  if (n) { glide(() => applySheet(n)); riseIn(sheetEl(n)); return; }
+  if (!moving()) { applySheet(null); return; }
+  const el = sheetEl(was), pin = lift(el);
+  glide(() => { applySheet(null); pin(); });
+  sinkOut(el);
+}
+function setLibraryOpen(open) { showSheet(open ? 'library' : sheetShown === 'library' ? null : sheetShown); }
 
 // ─── The genre picker ─────────────────────────────────────────────────────────
 // Which genres SONGS draws from. Stored as the ones turned off, so a genre added
@@ -1482,23 +1554,14 @@ for (const g of GENRES_AZ) {
 genrePickerAll.addEventListener('click', () => { choose(new Set(GENRES.map(g => g.name))); showGenrePicker(); });
 genrePickerNone.addEventListener('click', () => { choose(new Set()); showGenrePicker(); });
 
-function setGenrePickerOpen(open) {
-  if (open) setLibraryOpen(false);
-  if (!open && !shown.size) shown = chosenOnScreen();
-  genrePickerEl.hidden = !open;
-  infiniteUi.classList.toggle('sheet-open', open || !libraryEl.hidden);
-  genresBtn.classList.toggle('on', open);
-  genresBtn.setAttribute('aria-expanded', String(open));
-  if (open) showGenrePicker();
-}
-genresBtn.addEventListener('click', () => setGenrePickerOpen(genrePickerEl.hidden));
+function setGenrePickerOpen(open) { showSheet(open ? 'genres' : sheetShown === 'genres' ? null : sheetShown); }
+genresBtn.addEventListener('click', () => setGenrePickerOpen(sheetShown !== 'genres'));
 genrePickerClose.addEventListener('click', () => setGenrePickerOpen(false));
-window.addEventListener('keydown', e => { if (e.key === 'Escape' && !genrePickerEl.hidden) setGenrePickerOpen(false); });
+window.addEventListener('keydown', e => { if (e.key === 'Escape' && sheetShown) showSheet(null); });
 showGenrePicker();
-libraryBtn.addEventListener('click', () => setLibraryOpen(libraryEl.hidden));
+libraryBtn.addEventListener('click', () => setLibraryOpen(sheetShown !== 'library'));
 libraryCloseBtn.addEventListener('click', () => setLibraryOpen(false));
 libraryTabs.forEach(b => b.addEventListener('click', () => { libraryTab = b.dataset.tab; showLibrary(); }));
-window.addEventListener('keydown', e => { if (e.key === 'Escape' && !libraryEl.hidden) setLibraryOpen(false); });
 
 // ERAS / SONGS. A switch while playing starts the other straight away; while
 // paused, it lets go of what was paused, and PLAY starts the other.
@@ -2251,8 +2314,12 @@ if (_hashMatch) {
     if (currentMode !== 'manual') {
       currentMode = 'manual';
       modeTabs.forEach(t => t.classList.toggle('active', t.dataset.mode === 'manual'));
-      infiniteUi.style.display = 'none';
+      // Opened on a link: straight to Edit, with no fade on the way in.
+      for (const el of [infiniteUi, manualUi]) el.style.transition = 'none';
+      infiniteUi.classList.add('away');
       manualUi.classList.add('active');
+      void manualUi.offsetWidth;
+      for (const el of [infiniteUi, manualUi]) el.style.transition = '';
     }
   }
 }

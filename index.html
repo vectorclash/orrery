@@ -191,6 +191,16 @@
       right: 0;
       padding: 0 16px;
       text-align: center;
+      transition: opacity 0.3s ease, transform 0.3s ease, visibility 0s linear 0s;
+    }
+    /* In EDIT: out the way Edit's panel goes (see #manual-ui), so switching modes
+       crossfades the two. Hidden once faded, so nothing in it can be clicked or
+       tabbed to. */
+    #infinite-ui.away {
+      visibility: hidden;
+      opacity: 0;
+      transform: translateY(16px);
+      transition: opacity 0.3s ease, transform 0.3s ease, visibility 0s linear 0.3s;
     }
     #infinite-controls {
       display: flex;
@@ -1037,6 +1047,10 @@
       #manual-footer { padding-top: 8px; padding-bottom: 4px; }
       .action-btn { padding-top: 9px; padding-bottom: 9px; }
       #export-progress-wrap { margin: 5px 0 3px; }
+    }
+    /* Reduced motion: the modes switch without the fade (the sheets check it in main.js). */
+    @media (prefers-reduced-motion: reduce) {
+      #infinite-ui, #infinite-ui.away, #manual-ui, #manual-ui.active { transition: none; }
     }
   </style>
 </head>
